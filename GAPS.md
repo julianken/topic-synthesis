@@ -12,8 +12,18 @@ How to use a row: each is `Item | Trigger that should wake it | Why deferred`. A
 
 ## Deferred (build when the trigger fires)
 
-The ledger starts **empty for a fresh instance** — there is no inherited backlog to carry. Populate it as you make deliberate deferral decisions for *this* product (e.g. dependency-hygiene tooling once a `package.json` and lockfile land, a commit-gated lint hook once there is shipping code, additional repo agents/skills once they exist). Until then there is nothing parked here.
+The ledger starts **empty for a fresh instance** — there is no inherited backlog to carry. Populate it as you make deliberate deferral decisions for *this* product (e.g. dependency-hygiene tooling once a `package.json` and lockfile land, a commit-gated lint hook once there is shipping code, additional repo agents/skills once they exist).
+
+Deferrals from the deployment/orchestration architecture ([`docs/decisions/0001`](docs/decisions/0001-deployment-orchestration-and-swappability.md)):
 
 | Item | Trigger that should wake it | Why deferred |
 | --- | --- | --- |
-| _(none yet)_ | — | Fresh instance: no capability has been consciously deferred yet. Add the first row when you skip something a future state will need. |
+| Next-free `core` workspace package (extract domain/llm/pipeline/engine/store) | The first cloud-deploy PR — the one adding the pipeline Job's Dockerfile (first moment a second deployable manifest exists) | Coupling is packaging-only + extraction is a cheap file-move (audit: 0 framework imports, no `@/` alias); premature before a second consumer exists. The import fence (shipped) keeps it cheap. |
+| Terraform / GCP deploy (Cloud Run Service+Job, Cloud SQL, Secret Manager, WIF, GCS state) | The local e2e produces a curriculum end-to-end | The line: provision no cloud resource until the pipeline runs locally. |
+| `GcpEngine` (Postgres `step_results` adapter behind the `Engine` seam) | Cloud-deploy phase (the pipeline runs as a Cloud Run Job) | `InlineEngine` suffices locally; durable cross-process resume only matters in the Job. The seam makes it a drop-in. |
+| DBOS Transact (durable-execution library upgrade behind the same seam) | Durable-execution fragility: queue fan-out beyond `Promise.all`, human-in-the-loop waits, or crash-resume corner cases | The DIY `step_results` table suffices at current scale (~30–50 steps/run, bursty, solo). |
+| Cloud Tasks (fan-out queue) | Synthesis fan-out must outlive one Job execution, OR cross-run rate-limiting against provider RPM/token caps | In-process `Promise.all` over one Job covers a ~10–15-node run. |
+| Cloud Workflows / multi-task Job sharding | Cross-job orchestration, HIL pauses, or fan-out beyond one instance's RAM/CPU | Code-orchestration in one Job is the right fit; managed orchestrators add payload-limit + decomposition cost (see ADR §2). |
+| Remove vestigial Redis from `docker-compose.yml` | A docker-compose / local-infra cleanup PR | Redis backed the dropped Trigger.dev; harmless but unused now. |
+| `@eleatic/eval` trace seam (`src/trace`) | `@eleatic/eval` is published to npm (currently 404) | Blocked on the sibling package's publish. |
+| CI app-gates (run `npm install`/typecheck/test/build in CI, not just `validate-scaffolding.sh`) | The `core` workspace split lands, or CI should gate code (not just scaffolding) | The `@julianken-bot` per-PR review (throwaway-clone gates) is the current quality gate. |
