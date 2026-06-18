@@ -17,6 +17,16 @@ function readFlag(args: string[], name: string): string | undefined {
   return value !== undefined && !value.startsWith('--') ? value : undefined;
 }
 
+/** Read a `--flag N` positive integer; throws on a present-but-invalid value, so a typo
+ *  can't silently cap to zero/NaN after the run has already spent on earlier stages. */
+function readPositiveInt(args: string[], name: string): number | undefined {
+  const raw = readFlag(args, name);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${name} must be a positive integer`);
+  return n;
+}
+
 const HAIKU: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
 
 /** Every stage on Haiku — the cheapest tier, for low-cost test runs (`--cheap`). */
@@ -31,7 +41,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -45,19 +55,14 @@ export function buildRequest(args: string[]): TopicRequest {
   };
 }
 
-/** Parse cost-control flags: `--cheap` (Haiku everywhere) and `--max-nodes N` (cap synthesis). */
+/** Parse cost-control flags: `--cheap` (Haiku everywhere), `--max-nodes N` (cap synthesis),
+ *  `--max-questions N` (cap research fan-out — each question drives a web search). */
 export function buildOptions(args: string[]): RunOptions {
   const options: RunOptions = {};
-  const maxNodes = readFlag(args, '--max-nodes');
-  if (maxNodes !== undefined) {
-    const n = Number(maxNodes);
-    // Guard against a typo silently capping synthesis to zero (slice(0, NaN) → []),
-    // which would spend on plan/research/graph and then build nothing.
-    if (!Number.isInteger(n) || n < 1) {
-      throw new Error('--max-nodes must be a positive integer');
-    }
-    options.maxNodes = n;
-  }
+  const maxNodes = readPositiveInt(args, '--max-nodes');
+  if (maxNodes !== undefined) options.maxNodes = maxNodes;
+  const maxQuestions = readPositiveInt(args, '--max-questions');
+  if (maxQuestions !== undefined) options.maxQuestions = maxQuestions;
   if (args.includes('--cheap')) options.models = cheapModels();
   return options;
 }
@@ -98,9 +103,11 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const request = buildRequest(args);
   const options = buildOptions(args);
-  const mode = `${options.models ? 'cheap/Haiku' : 'default models'}, ${
-    options.maxNodes !== undefined ? `max ${options.maxNodes} built nodes` : 'all built nodes'
-  }`;
+  const mode = [
+    options.models ? 'cheap/Haiku' : 'default models',
+    options.maxNodes !== undefined ? `≤${options.maxNodes} built nodes` : 'all built nodes',
+    options.maxQuestions !== undefined ? `≤${options.maxQuestions} questions` : 'all questions',
+  ].join(', ');
   console.log(
     `Generating a curriculum for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth}; ${mode})…\n`,
   );
