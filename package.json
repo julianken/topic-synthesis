@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate": "tsx src/store/migrate.ts"
+    "db:migrate": "tsx src/store/migrate.ts",
+    "skeleton": "tsx src/eval/run-skeleton.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.85",
