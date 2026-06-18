@@ -40,15 +40,34 @@ describe('gateGraph', () => {
     expect(topoOrder.indexOf('b')).toBeLessThan(topoOrder.indexOf('c'));
   });
 
-  it('throws on a cycle', () => {
+  it('breaks a 2-node cycle (drops the back-edge) instead of crashing', () => {
     const graph: PrereqGraph = {
       nodes: [node('a', 0.8), node('b', 0.8)],
       edges: [
         { from: 'a', to: 'b' },
-        { from: 'b', to: 'a' },
+        { from: 'b', to: 'a' }, // forms a cycle → dropped as the back-edge
       ],
     };
-    expect(() => gateGraph(graph)).toThrow(/cycle/);
+    const gated = gateGraph(graph);
+    expect(gated.topoOrder).toHaveLength(2); // all nodes ordered — no crash
+    expect(gated.edges).toEqual([{ from: 'a', to: 'b' }]); // only the forward edge survives → a DAG
+  });
+
+  it('breaks a longer cycle, keeping the forward chain', () => {
+    const graph: PrereqGraph = {
+      nodes: [node('a', 0.8), node('b', 0.8), node('c', 0.8)],
+      edges: [
+        { from: 'a', to: 'b' },
+        { from: 'b', to: 'c' },
+        { from: 'c', to: 'a' }, // closes the cycle → dropped
+      ],
+    };
+    const gated = gateGraph(graph);
+    expect(gated.topoOrder).toEqual(['a', 'b', 'c']);
+    expect(gated.edges).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+    ]); // the chain is kept; the back-edge is gone
   });
 
   it('drops an edge referencing an unknown node (LLM slug noise must not crash the run)', () => {
