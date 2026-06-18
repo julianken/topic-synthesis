@@ -22,6 +22,11 @@ next-env.d.ts
 # Process artifacts / scratch (analysis, funnel, scratch output) — never the curated repo
 tmp/
 
+# Generated eval store (the @eleatic/eval SQLite DB) — a build artifact, never committed, never under src/
+eval.sqlite
+eval.sqlite-journal
+.eval/
+
 # Session tooling (not part of the app)
 .remember/
 .superpowers/

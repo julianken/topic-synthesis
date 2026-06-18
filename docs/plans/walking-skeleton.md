@@ -82,19 +82,22 @@ model ids/pricing against the `claude-api` skill at build time.
 
 ## Repo / module layout (inside the filled scaffold)
 
+Everything lives under `src/` (App Router via `src/app`); only root config stays at
+the root. Horizontal layers, not feature folders (see `docs/research/nextjs-structure-decision.md`).
+
 ```
 src/
+  app/         page.tsx (intake form) · api/generate/route.ts (trigger run) · curriculum/[id]/page.tsx (hub) · artifact/[pageId]/route.ts (sandboxed CSP) · globals.css · layout.tsx   ← routing only
+  components/  curriculum-progress.tsx (useRealtimeRun progress; the lone 'use client' island)
   domain/      settings.ts · identity.ts (contentIdentityKey) · stages.ts (stage contracts — the spine) · sitemap.ts
-  pipeline/    planner.ts · researcher.ts · graph.ts · coverage-gate.ts · spec.ts · code.ts · critic.ts · hub.ts · run-pipeline.ts (pure fn over an injected Engine)
-  llm/         client.ts · models.ts (tiers) · pricing.ts (MODEL_PRICING map + estimateCostUsd) · cache.ts   ← only @anthropic-ai/sdk import site
-  engine/      engine.ts (interface Engine { step<I,O>(name,key,fn) }) · trigger-engine.ts (Trigger.dev v4 impl)
+  llm/         client.ts · models.ts (tiers) · pricing.ts (MODEL_PRICING + estimateCostUsd) · registry.ts   ← only ai / @ai-sdk/* import site
+  pipeline/    planner.ts · researcher.ts · graph.ts · coverage-gate.ts · spec.ts · code.ts · critic.ts · hub.ts · deps.ts · run-pipeline.ts (pure fn over an injected Engine)
+  engine/      engine.ts (interface Engine { step(name,key,fn) }) · inline-engine.ts (test/dev) · trigger-engine.ts (Trigger.dev v4 impl, later)
   trace/       span.ts (EvalSpan collector) · reduce.ts (→ EvalTrace{spans}) · eleatic-adapter.ts   ← only @eleatic/eval import site
-  store/       schema.sql (Postgres) · db.ts (pg pool + migrate) · repo.ts (typed upsert/read by content identity)
-trigger/       synthesize-curriculum.ts (root orchestrator) · synthesize-node.ts (per-node map: spec→code→critic)
-app/           page.tsx (intake form) · api/generate/route.ts (trigger run) · curriculum/[id]/page.tsx (hub) · artifact/[pageId]/route.ts (cross-origin CSP)
-components/     curriculum-progress.tsx (useRealtimeRun progress)
-eval/          run-skeleton.ts (E2E CLI driver) · smoke.test.ts (vitest)
-docker-compose.yml   Postgres (app + trigger DBs) + Redis + Trigger.dev self-host stack
+  store/       schema.sql (Postgres) · db.ts (pg pool) · migrate.ts (db:migrate) · repo.ts (typed upsert/read by content identity)
+  trigger/     synthesize-curriculum.ts (root orchestrator) · synthesize-node.ts (per-node map: spec→code→critic)   ← task-discovery dir (dirs:['./src/trigger'])
+  eval/        run-skeleton.ts (E2E CLI driver) · smoke.test.ts (vitest)
+trigger.config.ts · docker-compose.yml · next.config.ts · tsconfig.json   (root config; Postgres + Redis + Trigger.dev self-host stack)
 ```
 
 ## Data model (share-ready, Postgres)
@@ -134,7 +137,7 @@ or near-zero coverage). `ctx` carries the LLM client + the span collector.
   hash(workflowVersionId, stage, inputHash)` so a re-entrant parent never spawns a
   duplicate paid run. Pass an Anthropic request idempotency key on each Messages
   call; treat `stop_reason: "refusal"` as a handled gate outcome, not a retry.
-- **Trigger from Next.js:** `app/api/generate/route.ts` uses a type-only import +
+- **Trigger from Next.js:** `src/app/api/generate/route.ts` uses a type-only import +
   `tasks.trigger<typeof synthesizeCurriculum>()`; returns `{runId, publicAccessToken}`.
 - **Progress:** Trigger.dev **Realtime** (`useRealtimeRun`/`useRealtimeStream`,
   Apache-2.0/Electric, works self-hosted) — no hand-rolled SSE. The workflow pushes
@@ -146,7 +149,7 @@ or near-zero coverage). `ctx` carries the LLM client + the span collector.
 ## Artifact runtime (sandboxed)
 
 Generated pages render in a **cross-origin iframe** with `sandbox="allow-scripts"`
-**without** `allow-same-origin` (the load-bearing pair). `app/artifact/[pageId]/route.ts`
+**without** `allow-same-origin` (the load-bearing pair). `src/app/artifact/[pageId]/route.ts`
 serves the HTML cookieless with a server-set CSP `default-src 'none'; script-src
 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'`.
 DOMPurify sanitizes the HTML before store/serve. Hub output matches ai-concept-viz's
@@ -183,7 +186,7 @@ adapter in `bird-watch` (reference only; depend on public `julianken/eleatic`).
 orchestration), `src/engine/engine.ts` + `src/engine/trigger-engine.ts`,
 `trigger/synthesize-curriculum.ts` + `trigger/synthesize-node.ts`,
 `src/llm/pricing.ts`, `src/trace/eleatic-adapter.ts`, `src/store/schema.sql`,
-`app/artifact/[pageId]/route.ts`, `app/api/generate/route.ts`, `docker-compose.yml`,
+`src/app/artifact/[pageId]/route.ts`, `src/app/api/generate/route.ts`, `docker-compose.yml`,
 `eval/run-skeleton.ts`, `eval/smoke.test.ts`.
 
 ## Reuse
