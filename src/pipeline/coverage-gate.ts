@@ -21,10 +21,10 @@ function routeFor(confidence: number, thresholds: GateThresholds): PageStatus {
 
 /**
  * The grounding/coverage gate — a pure, deterministic pass over the prerequisite
- * graph. It THROWS on a structural defect among real nodes (a duplicate slug or a
- * cycle), DROPS edges referencing an unknown node (LLM slug noise shouldn't crash the
- * run), and routes each node to built | text | soon by its coverage confidence. Thin
- * coverage degrades to text/soon; the gate never invents an interactive page.
+ * graph. It THROWS only on a duplicate slug; it DROPS edges referencing an unknown node
+ * and BREAKS cycles (dropping the back-edges), because LLM graph output isn't a guaranteed
+ * DAG and a quirk shouldn't crash the run. It routes each node to built | text | soon by
+ * coverage confidence — thin coverage degrades to text/soon; the gate never invents a page.
  */
 export function gateGraph(
   graph: PrereqGraph,
@@ -37,13 +37,17 @@ export function gateGraph(
     }
     slugs.add(node.slug);
   }
-  // Drop edges referencing an unknown node rather than rejecting the run: LLM graph
-  // output isn't perfectly slug-consistent (it may abbreviate a slug in an edge), and one
-  // stray prerequisite edge shouldn't crash the whole curriculum. A cycle among real
-  // nodes is still a hard reject (in topoSort below).
-  const edges = graph.edges.filter((edge) => slugs.has(edge.from) && slugs.has(edge.to));
+  // Drop edges referencing an unknown node (LLM slug noise — e.g. an abbreviated slug in an
+  // edge — shouldn't crash the whole curriculum).
+  const knownEdges = graph.edges.filter((edge) => slugs.has(edge.from) && slugs.has(edge.to));
 
-  const topoOrder = topoSort({ nodes: graph.nodes, edges }); // throws on a cycle
+  // Order all nodes, breaking any cycle deterministically (a cyclic prerequisite graph is an
+  // LLM contradiction, not a reason to crash), then keep only forward edges: a back-edge —
+  // `from` after `to` in the order — is the cycle edge we drop, so the result is a valid DAG.
+  const topoOrder = topoSort(graph.nodes, knownEdges);
+  const position = new Map(topoOrder.map((slug, i) => [slug, i] as const));
+  const edges = knownEdges.filter((e) => (position.get(e.from) ?? 0) < (position.get(e.to) ?? 0));
+
   const nodes: GatedNode[] = graph.nodes.map((node) => ({
     ...node,
     route: routeFor(node.coverageConfidence, thresholds),
@@ -51,32 +55,38 @@ export function gateGraph(
   return { nodes, edges, topoOrder };
 }
 
-/** Kahn's algorithm; throws if the prerequisite graph is not a DAG. */
-function topoSort(graph: PrereqGraph): string[] {
+/**
+ * Kahn's topological sort that BREAKS cycles instead of failing: when no node has all its
+ * prerequisites satisfied but nodes remain (a cycle), it forces the earliest-declared
+ * unprocessed node ready — deterministically cutting one cycle edge. Returns a complete
+ * order over every node; the caller drops the back-edges this order implies.
+ */
+function topoSort(nodes: PrereqGraph['nodes'], edges: PrereqGraph['edges']): string[] {
   const indegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
-  for (const node of graph.nodes) {
+  for (const node of nodes) {
     indegree.set(node.slug, 0);
     adjacency.set(node.slug, []);
   }
-  for (const edge of graph.edges) {
+  for (const edge of edges) {
     adjacency.get(edge.from)?.push(edge.to);
     indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
   }
 
-  const ready = graph.nodes.filter((n) => indegree.get(n.slug) === 0).map((n) => n.slug);
   const order: string[] = [];
-  while (ready.length > 0) {
-    const slug = ready.shift() as string;
-    order.push(slug);
-    for (const next of adjacency.get(slug) ?? []) {
-      const remaining = (indegree.get(next) ?? 0) - 1;
-      indegree.set(next, remaining);
-      if (remaining === 0) ready.push(next);
+  const done = new Set<string>();
+  while (order.length < nodes.length) {
+    // Prefer a node whose prerequisites are all placed; if none (a cycle), force the
+    // earliest-declared unprocessed node — deterministic, and cuts the cycle there.
+    const next =
+      nodes.find((n) => !done.has(n.slug) && (indegree.get(n.slug) ?? 0) === 0) ??
+      nodes.find((n) => !done.has(n.slug));
+    if (!next) break; // unreachable while order.length < nodes.length
+    order.push(next.slug);
+    done.add(next.slug);
+    for (const target of adjacency.get(next.slug) ?? []) {
+      indegree.set(target, (indegree.get(target) ?? 0) - 1);
     }
-  }
-  if (order.length !== graph.nodes.length) {
-    throw new Error('coverage-gate: prerequisite graph has a cycle');
   }
   return order;
 }
