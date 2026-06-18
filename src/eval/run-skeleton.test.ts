@@ -132,4 +132,17 @@ describe('dumpPages', () => {
     expect(paths[0]?.endsWith('sine.html')).toBe(true);
     expect(readFileSync(paths[0] ?? '', 'utf8')).toBe('<!doctype html><h1>Sine</h1>');
   });
+
+  it('contains a path-traversal slug to the dump dir (basename only)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skeleton-dump-'));
+    const artifact: CritiquedArtifact = {
+      nodeSlug: '../escape',
+      html: '<p>x</p>',
+      spec: { nodeSlug: '../escape', learningGoal: 'g', interactionKind: 'html', a11yContract: 'a', citations: [] },
+      passed: true,
+      critique: 'ok',
+    };
+    const [path] = dumpPages([artifact], dir);
+    expect(path).toBe(join(dir, 'escape.html')); // written inside dir, not escaped
+  });
 });

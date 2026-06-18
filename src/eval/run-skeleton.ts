@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
 import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
@@ -105,7 +105,8 @@ export async function runSkeleton(
 export function dumpPages(pages: CritiquedArtifact[], dir: string): string[] {
   mkdirSync(dir, { recursive: true });
   return pages.map((page) => {
-    const path = join(dir, `${page.nodeSlug}.html`);
+    // basename() the (LLM-authored) slug so it can't escape `dir` via `/` or `..`.
+    const path = join(dir, `${basename(page.nodeSlug)}.html`);
     writeFileSync(path, page.html, 'utf8');
     return path;
   });
@@ -125,8 +126,10 @@ async function main(): Promise<void> {
   );
   const run = await runSkeleton(request, defaultDeps, options);
   console.log(formatSummary(run));
-  const dumpDir = readFlag(args, '--dump-html');
-  if (dumpDir !== undefined) {
+  if (args.includes('--dump-html')) {
+    const dumpDir = readFlag(args, '--dump-html');
+    // Fail loud rather than silently skip the dump after the run has already spent.
+    if (dumpDir === undefined) throw new Error('--dump-html requires a <dir>');
     const paths = dumpPages(run.result.pages, dumpDir);
     console.log(`\nWrote ${paths.length} page(s) to:\n${paths.map((p) => `  ${p}`).join('\n')}`);
   }
