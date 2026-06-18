@@ -48,5 +48,18 @@ describe('research', () => {
     // the structuring pass is shown the real source list to cite against
     const [structureArg] = completeObject.mock.calls[0]!;
     expect(structureArg.prompt).toContain('https://a.example');
+    expect(structureArg.system).toMatch(/never invent|index/i);
+  });
+
+  it('plumbs maxSearches through to the web search', async () => {
+    const searchWeb = vi.fn().mockResolvedValue({ text: '', sources: [], record: rec('search') });
+    const completeObject = vi.fn().mockResolvedValue({ object: { findings: [] }, record: rec('structure') });
+    const deps = { searchWeb, completeObject } as unknown as StageDeps;
+    await research(
+      { subtopic: 's', question: 'q', settings: { level: 'intro', depth: 1, audience: 'a' }, maxSearches: 2 },
+      deps,
+    );
+    const [searchArg] = searchWeb.mock.calls[0]!;
+    expect(searchArg.maxSearches).toBe(2);
   });
 });

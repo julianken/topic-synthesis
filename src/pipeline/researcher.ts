@@ -8,12 +8,18 @@ export interface ResearchInput {
   subtopic: string;
   question: string;
   settings: Settings;
+  /** Cap on web_search uses for this question (defaults to searchWeb's own default). */
+  maxSearches?: number;
 }
 
 const RESEARCH_SYSTEM =
   'You are a research assistant. Use web search to gather current, authoritative ' +
   'information and synthesize a grounded answer. State only claims supported by the pages ' +
   'you actually retrieved — never invent a source.';
+
+const STRUCTURE_SYSTEM =
+  'You extract grounded findings from researched material. Cite ONLY the numbered sources ' +
+  'provided, by their index — never invent a source or cite an index that is not listed.';
 
 function searchPrompt(input: ResearchInput): string {
   return [
@@ -56,9 +62,11 @@ export async function research(input: ResearchInput, deps: StageDeps = defaultDe
     model: STAGE_MODELS.researcher,
     system: RESEARCH_SYSTEM,
     prompt: searchPrompt(input),
+    ...(input.maxSearches !== undefined ? { maxSearches: input.maxSearches } : {}),
   });
   const structured = await deps.completeObject({
     model: STAGE_MODELS.researcher,
+    system: STRUCTURE_SYSTEM,
     prompt: structurePrompt(input, search.text, search.sources),
     schema: FindingsSchema,
   });
