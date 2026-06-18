@@ -1,3 +1,4 @@
+import { anthropic } from '@ai-sdk/anthropic';
 import { generateText, Output, type LanguageModel } from 'ai';
 import type { ZodType } from 'zod';
 import type { StageModel } from './models';
@@ -97,4 +98,45 @@ export async function completeObject<T>(
   });
   guard(result.finishReason, providerModel, maxTokens);
   return { object: result.output as T, record: recordFrom(providerModel, result.usage, result.finishReason) };
+}
+
+/** A real retrieved web source (the authoritative citation list for grounded findings). */
+export interface WebSource {
+  url: string;
+  title: string;
+}
+
+export interface SearchResult {
+  /** The model's grounded synthesis text. */
+  text: string;
+  /** Sources actually retrieved by the search — never let a later stage invent these. */
+  sources: WebSource[];
+  record: LlmCallRecord;
+}
+
+/**
+ * A web-grounded completion using Anthropic's server-side web_search tool, so the
+ * model cites real retrieved pages instead of inventing sources (the pipeline's #1
+ * risk). Web search is provider-specific, so this path is Anthropic-only — the
+ * researcher stage runs on an Anthropic model. Returns the grounded text plus the
+ * real retrieved sources. Pass `modelOverride` (a mock) in tests to avoid a live call.
+ */
+export async function searchWeb(
+  opts: CompleteOptions & { maxSearches?: number },
+  modelOverride?: LanguageModel,
+): Promise<SearchResult> {
+  const providerModel = registryId(opts.model);
+  const maxTokens = opts.maxTokens ?? 8000;
+  const result = await generateText({
+    model: modelOverride ?? resolveModel(opts.model),
+    prompt: opts.prompt,
+    maxOutputTokens: maxTokens,
+    tools: { web_search: anthropic.tools.webSearch_20260209({ maxUses: opts.maxSearches ?? 5 }) },
+    ...(opts.system !== undefined ? { system: opts.system } : {}),
+  });
+  guard(result.finishReason, providerModel, maxTokens);
+  const sources: WebSource[] = result.sources
+    .filter((s) => s.sourceType === 'url')
+    .map((s) => ({ url: s.url, title: s.title ?? s.url }));
+  return { text: result.text, sources, record: recordFrom(providerModel, result.usage, result.finishReason) };
 }
