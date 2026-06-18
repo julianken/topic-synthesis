@@ -120,6 +120,11 @@ export interface SearchResult {
  * risk). Web search is provider-specific, so this path is Anthropic-only — the
  * researcher stage runs on an Anthropic model. Returns the grounded text plus the
  * real retrieved sources. Pass `modelOverride` (a mock) in tests to avoid a live call.
+ *
+ * Uses the `webSearch_20250305` tool, which calls the search DIRECTLY (the model emits
+ * the tool use). The newer `webSearch_20260209` requires programmatic tool calling,
+ * which only the larger models support (Haiku 4.5 rejects it) — direct calling works on
+ * every Anthropic model, so a cheaper researcher tier stays a valid workflow-version arm.
  */
 export async function searchWeb(
   opts: CompleteOptions & { maxSearches?: number },
@@ -131,7 +136,7 @@ export async function searchWeb(
     model: modelOverride ?? resolveModel(opts.model),
     prompt: opts.prompt,
     maxOutputTokens: maxTokens,
-    tools: { web_search: anthropic.tools.webSearch_20260209({ maxUses: opts.maxSearches ?? 5 }) },
+    tools: { web_search: anthropic.tools.webSearch_20250305({ maxUses: opts.maxSearches ?? 5 }) },
     ...(opts.system !== undefined ? { system: opts.system } : {}),
   });
   guard(result.finishReason, providerModel, maxTokens);

@@ -1,7 +1,7 @@
 import { MockLanguageModelV3 } from 'ai/test';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { complete, completeObject } from './client';
+import { complete, completeObject, searchWeb } from './client';
 import type { StageModel } from './models';
 
 const OPUS: StageModel = { provider: 'anthropic', model: 'claude-opus-4-8' };
@@ -70,6 +70,34 @@ describe('completeObject', () => {
     );
     expect(res.object.scope).toBe('Fourier transforms');
     expect(res.object.subtopics).toEqual(['sine', 'frequency']);
+    expect(res.record.costUsd).toBeGreaterThan(0);
+  });
+});
+
+describe('searchWeb', () => {
+  it('extracts the retrieved url sources, falling back to the url when a title is absent', async () => {
+    const model = new MockLanguageModelV3({
+      doGenerate: {
+        content: [
+          { type: 'text', text: 'A grounded answer.' },
+          { type: 'source', sourceType: 'url', id: 's1', url: 'https://a.example', title: 'A' },
+          { type: 'source', sourceType: 'url', id: 's2', url: 'https://b.example' }, // no title → fall back to url
+        ],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 100, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 50, text: undefined, reasoning: undefined },
+        },
+        warnings: [],
+      },
+    });
+
+    const res = await searchWeb({ model: OPUS, prompt: 'what is x?' }, model);
+    expect(res.text).toBe('A grounded answer.');
+    expect(res.sources).toEqual([
+      { url: 'https://a.example', title: 'A' },
+      { url: 'https://b.example', title: 'https://b.example' }, // title fell back to the url
+    ]);
     expect(res.record.costUsd).toBeGreaterThan(0);
   });
 });
