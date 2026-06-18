@@ -10,7 +10,7 @@ You enter a topic + settings; a multi-agent **ANALYSIS → SYNTHESIS** workflow 
 
 ## How it works (target architecture)
 
-- **Pipeline:** Planner → Researchers (grounded) → Graph-builder (prerequisite DAG) → grounding/coverage gate → per-node spec → code → critic → hub assembler, on a durable **Trigger.dev** workflow.
+- **Pipeline:** Planner → Researchers (grounded) → Graph-builder (prerequisite DAG) → grounding/coverage gate → per-node spec → code → critic → hub assembler, behind a pluggable `Engine` seam (in-process locally; a durable Postgres-backed engine on a Cloud Run Job in the cloud).
 - **Eval & observability:** offline evals + trace inspection via [`@eleatic/eval`](https://github.com/julianken/eleatic), a co-developed sibling toolkit; production telemetry + experiments are a later sub-project.
 - **Foundation:** the reviewed-PR process, design source-of-truth, and CI come from the `agentic-seed` template — see [`AGENTS.md`](./AGENTS.md), [`INSTANCE.md`](./INSTANCE.md), and [`DESIGN.md`](./DESIGN.md).
 

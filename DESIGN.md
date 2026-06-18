@@ -38,7 +38,7 @@ Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no ru
 
 ## Components (skeleton surfaces)
 - **Intake form** — topic field + settings (level, depth); submit triggers a generation run.
-- **Progress** — live phase timeline (admit → plan → research → graph → gate → synthesize → assemble) + per-node status, driven by Trigger.dev Realtime.
+- **Progress** — live phase timeline (admit → plan → research → graph → gate → synthesize → assemble) + per-node status; the client polls run status (the curriculum appears atomically when the run completes).
 - **Curriculum hub** — tiered SITEMAP (tier → category → page tiles); built tiles link to the page, `soon`/`text` tiles are muted with a status badge.
 - **Page tile** — title + status badge (`--status-built` / `--status-soon` / text).
 - **Artifact frame** — sandboxed cross-origin iframe; the chrome supplies only the frame (a "report a problem" affordance is deferred).

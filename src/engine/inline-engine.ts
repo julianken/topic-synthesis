@@ -5,7 +5,7 @@ import type { Engine } from './engine';
  * within one run a step is computed once and concurrent callers share the in-flight
  * result. A failed step is evicted so a retry re-runs it rather than replaying a cached
  * rejection. This is the test + local-dev engine; it is NOT durable across processes —
- * that is the Trigger.dev engine's job (a later PR).
+ * that is the durable `GcpEngine`'s job (a later PR).
  */
 export class InlineEngine implements Engine {
   private readonly cache = new Map<string, Promise<unknown>>();

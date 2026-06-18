@@ -1,5 +1,16 @@
 # topic-synthesis — Walking-Skeleton Implementation Plan
 
+> ⚠️ **Partially superseded (2026-06-18).** The **Engine / Orchestration / deployment** decisions
+> below (self-hosted **Trigger.dev v4** as the durable engine; Redis; `trigger-engine.ts`,
+> `src/trigger/`, `trigger.config.ts`; Realtime progress) are **replaced** by
+> [`docs/decisions/0001`](../decisions/0001-deployment-orchestration-and-swappability.md). In short:
+> deploy on **GCP serverless** (Cloud Run **Service** for the app/API + a Cloud Run **Job** for the
+> pipeline), keep **code-orchestration** in the Job (no managed workflow tool), durable execution via a
+> Postgres-backed **`GcpEngine`** behind the existing seam (Trigger.dev dropped), one **Cloud SQL**
+> Postgres for app records *and* `step_results`, and **every workflow component swappable behind a
+> port**. The pipeline/stage/contract/gate/hub design and the build-and-verify intent below remain
+> accurate; read the ADR wherever this plan says "Trigger.dev".
+
 ## Context
 
 `topic-synthesis` is a new app: a user enters a topic + settings, a multi-agent

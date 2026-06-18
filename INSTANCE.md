@@ -10,7 +10,7 @@ rules out of this file — they belong in AGENTS.md so the process shape stays p
 Topic Synthesis — Generate interactive, scaffolded learning curricula from a topic. A user enters a topic + settings; a multi-agent ANALYSIS→SYNTHESIS workflow researches it, builds a prerequisite knowledge graph, and generates a tiered curriculum of standalone, interactive HTML/Canvas/SVG/JS concept pages. Built largely by AI coding agents through reviewed, squash-merged PRs.
 
 ## Status
-**Status: building the walking skeleton (sub-project 1).** The project foundation has landed — TypeScript + Next.js app, the share-ready Postgres schema + Docker infra, and the pure domain layer — with `npm` build/test commands documented in `AGENTS.md` → "Working in the tree". The multi-agent pipeline, the self-hosted Trigger.dev engine, the `@eleatic/eval` trace seam, and the UI land in subsequent PRs per `docs/plans/walking-skeleton.md`.
+**Status: building the walking skeleton (sub-project 1).** The project foundation has landed — TypeScript + Next.js app, the share-ready Postgres schema + Docker infra, and the pure domain layer — with `npm` build/test commands documented in `AGENTS.md` → "Working in the tree". The multi-agent pipeline, the durable `GcpEngine` (Postgres-backed, run as a Cloud Run Job — see `docs/decisions/0001-deployment-orchestration-and-swappability.md`), the `@eleatic/eval` trace seam, and the UI land in subsequent PRs per `docs/plans/walking-skeleton.md`.
 
 ## Repo identity
 Local folder `topic-synthesis/`; GitHub slug `julianken/topic-synthesis` — pass the slug to `gh`. Default branch `main`.
