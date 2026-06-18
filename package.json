@@ -16,12 +16,17 @@
     "db:migrate": "tsx src/store/migrate.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.104.2",
+    "@ai-sdk/anthropic": "3.0.85",
+    "@ai-sdk/google": "3.0.83",
+    "@ai-sdk/openai": "3.0.73",
+    "@ai-sdk/openai-compatible": "2.0.51",
+    "ai": "6.0.208",
     "dotenv": "17.4.2",
     "next": "16.2.9",
     "pg": "8.21.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.1",

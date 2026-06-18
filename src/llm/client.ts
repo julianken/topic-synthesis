@@ -1,83 +1,94 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { ModelId } from './models';
-import { estimateCostUsd, type TokenUsage } from './pricing';
+import { generateText, Output, type LanguageModel } from 'ai';
+import type { ZodType } from 'zod';
+import type { StageModel } from './models';
+import { registryId } from './models';
+import { estimateCostUsd } from './pricing';
+import { resolveModel } from './registry';
 
-let shared: Anthropic | undefined;
-
-/** Lazily-constructed Anthropic client (reads ANTHROPIC_API_KEY from the env). */
-export function getClient(): Anthropic {
-  if (!shared) shared = new Anthropic();
-  return shared;
+/** One LLM call's trace row (the unit eleatic's `llm_call` table will store). */
+export interface LlmCallRecord {
+  providerModel: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  /** Raw provider usage retained verbatim so cost can be recomputed at corrected rates. */
+  rawUsage: unknown;
+  finishReason: string;
 }
 
-export type Effort = 'low' | 'medium' | 'high' | 'max';
-
 export interface CompleteOptions {
-  model: ModelId;
+  model: StageModel;
   prompt: string;
   system?: string;
   maxTokens?: number;
-  effort?: Effort;
-  /** Put a cache breakpoint on the system prompt (the shared graph/brief prefix). */
-  cacheSystem?: boolean;
 }
 
-export interface CompleteResult {
+export interface TextResult {
   text: string;
-  usage: TokenUsage;
-  costUsd: number;
-  stopReason: string | null;
+  record: LlmCallRecord;
 }
 
-/**
- * One Claude turn: adaptive thinking, effort-controlled, with cost computed from
- * the returned usage. Pass a client explicitly in tests to avoid a live call.
- * Throws on a `refusal` stop reason rather than returning empty/partial output.
- */
-export async function complete(
-  opts: CompleteOptions,
-  client: Anthropic = getClient(),
-): Promise<CompleteResult> {
-  const { model, prompt, system, maxTokens = 8000, effort = 'high', cacheSystem = false } = opts;
+export interface ObjectResult<T> {
+  object: T;
+  record: LlmCallRecord;
+}
 
-  const params: Anthropic.MessageCreateParamsNonStreaming = {
-    model,
-    max_tokens: maxTokens,
-    thinking: { type: 'adaptive' },
-    output_config: { effort },
-    messages: [{ role: 'user', content: prompt }],
+function recordFrom(
+  providerModel: string,
+  usage: { inputTokens: number | undefined; outputTokens: number | undefined },
+  finishReason: string,
+): LlmCallRecord {
+  const inputTokens = usage.inputTokens ?? 0;
+  const outputTokens = usage.outputTokens ?? 0;
+  return {
+    providerModel,
+    inputTokens,
+    outputTokens,
+    costUsd: estimateCostUsd(providerModel, { inputTokens, outputTokens }),
+    rawUsage: usage,
+    finishReason,
   };
-  if (system !== undefined) {
-    params.system = cacheSystem
-      ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
-      : system;
+}
+
+// Every downstream stage trusts this wrapper, so a silent truncation or a filtered
+// response would surface as an unexplained parse failure. Fail loud on both.
+function guard(finishReason: string, providerModel: string, maxTokens: number): void {
+  if (finishReason === 'length') {
+    throw new Error(`"${providerModel}" hit the output cap (${maxTokens}); output is truncated. Raise maxTokens.`);
   }
-
-  const res = await client.messages.create(params);
-
-  if (res.stop_reason === 'refusal') {
-    throw new Error(`Claude refused the request (model ${model}); discard any partial output.`);
+  if (finishReason === 'content-filter') {
+    throw new Error(`"${providerModel}" response was content-filtered; discard any partial output.`);
   }
-  // Every downstream stage parses structured output and trusts this wrapper, so a
-  // silent truncation would surface as an unexplained parse failure. Fail loud.
-  if (res.stop_reason === 'max_tokens') {
-    throw new Error(
-      `Claude hit max_tokens (${maxTokens}) for model ${model}; output is truncated. ` +
-        `Raise maxTokens (and stream above ~16k).`,
-    );
-  }
+}
 
-  const text = res.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
+/** A free-text completion. Pass `modelOverride` (a mock) in tests to avoid a live call. */
+export async function complete(opts: CompleteOptions, modelOverride?: LanguageModel): Promise<TextResult> {
+  const providerModel = registryId(opts.model);
+  const maxTokens = opts.maxTokens ?? 8000;
+  const result = await generateText({
+    model: modelOverride ?? resolveModel(opts.model),
+    prompt: opts.prompt,
+    maxOutputTokens: maxTokens,
+    ...(opts.system !== undefined ? { system: opts.system } : {}),
+  });
+  guard(result.finishReason, providerModel, maxTokens);
+  return { text: result.text, record: recordFrom(providerModel, result.usage, result.finishReason) };
+}
 
-  const usage: TokenUsage = {
-    inputTokens: res.usage.input_tokens,
-    outputTokens: res.usage.output_tokens,
-    cacheReadInputTokens: res.usage.cache_read_input_tokens ?? 0,
-    cacheCreationInputTokens: res.usage.cache_creation_input_tokens ?? 0,
-  };
-
-  return { text, usage, costUsd: estimateCostUsd(model, usage), stopReason: res.stop_reason };
+/** A schema-validated structured completion (typed JSON per stage). */
+export async function completeObject<T>(
+  opts: CompleteOptions & { schema: ZodType<T> },
+  modelOverride?: LanguageModel,
+): Promise<ObjectResult<T>> {
+  const providerModel = registryId(opts.model);
+  const maxTokens = opts.maxTokens ?? 8000;
+  const result = await generateText({
+    model: modelOverride ?? resolveModel(opts.model),
+    prompt: opts.prompt,
+    maxOutputTokens: maxTokens,
+    output: Output.object({ schema: opts.schema }),
+    ...(opts.system !== undefined ? { system: opts.system } : {}),
+  });
+  guard(result.finishReason, providerModel, maxTokens);
+  return { object: result.output as T, record: recordFrom(providerModel, result.usage, result.finishReason) };
 }
