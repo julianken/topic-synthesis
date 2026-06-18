@@ -91,4 +91,18 @@ When unsure whether something is sensitive, treat it as sensitive and keep it ou
 | **Public** | The code, design, and docs themselves | This *is* the project — commit it openly. |
 
 ## Working in the tree
-Run `git status` / `ls` for current state — don't trust a snapshot here. Build/test commands, the package manager, and architecture notes get added to THIS file (AGENTS.md) once they actually exist. Until they do, don't claim they exist — the binding rule is **Agent guardrails** → anti-invention (above); the current lifecycle phase is `INSTANCE.md` → "Status".
+Run `git status` / `ls` for current state — don't trust a snapshot here.
+
+**Stack:** TypeScript + Next.js (App Router, React 19) front end; Postgres (the app's system-of-record) + Redis via Docker; Node ≥ 20. Package manager is **npm**.
+
+**Commands** (from the repo root):
+- `npm install` — install dependencies.
+- `docker compose up -d` — start Postgres + Redis (copy `.env.example` → `.env` first).
+- `npm run db:migrate` — apply `src/store/schema.sql` to Postgres.
+- `npm run typecheck` — `tsc --noEmit`.
+- `npm test` — Vitest unit tests (`npm run test:watch` to watch).
+- `npm run build` — production Next.js build; `npm run dev` — dev server.
+
+**Layout:** `app/` (Next.js routes + `globals.css`, which materializes the `DESIGN.md` §0 tokens), `src/domain/` (pure types + identity/settings — no I/O), `src/store/` (Postgres schema + access). The multi-agent pipeline, the self-hosted Trigger.dev workflow engine, the `@eleatic/eval` trace seam, and the UI land in subsequent PRs per `docs/plans/walking-skeleton.md`.
+
+New commands and architecture notes get added HERE as they land (anti-invention: never claim a `package.json` script that isn't present).
