@@ -1,0 +1,23 @@
+{
+  "_comment": "Authoritative placeholder glossary for the agentic-seed template. Every {{PLACEHOLDER}} that appears in a tracked file MUST be declared here. project-bootstrap fill-mode reads this to prompt for values and substitute them. 'example' is the violin-tools instance this seed was extracted from (illustrative, not a default).",
+  "placeholders": {
+    "PROJECT_NAME": { "description": "Display name of the product", "example": "Violin Tools" },
+    "PROJECT_TAGLINE": { "description": "One-line description of the product", "example": "a web app of focused practice tools for violinists" },
+    "OWNER": { "description": "GitHub owner or org (no @)", "example": "julianken" },
+    "REPO": { "description": "GitHub repository name", "example": "violin-tools" },
+    "LOCAL_FOLDER": { "description": "Local clone folder name (may differ from REPO)", "example": "violin-scales" },
+    "DEFAULT_BRANCH": { "description": "Default branch name", "example": "main", "default": "main" },
+    "CODEOWNER": { "description": "GitHub handle of the sole code owner (no @)", "example": "julianken" },
+    "LICENSE_HOLDER": { "description": "Copyright holder for LICENSE", "example": "julianken" },
+    "YEAR": { "description": "Copyright year", "example": "2026" },
+    "REVIEW_BOT": { "description": "OPTIONAL: machine-user GitHub handle for the bot reviewer (no @). Blank disables the review-bot module.", "example": "julianken-bot", "optional": true },
+    "FIGMA_FILE_ID": { "description": "OPTIONAL: Figma file key for the design system. Blank disables the Figma module.", "example": "HWmo5hCeSXWtkSBiO1msIF", "optional": true }
+  },
+  "derived": {
+    "REPO_SLUG": "{{OWNER}}/{{REPO}}"
+  },
+  "meta": {
+    "_comment": "Documentation meta-tokens that describe the placeholder mechanism itself (in prose/backticks). They are NOT instance values: fill-template.sh must NOT substitute them, and they legitimately survive into a filled instance. validate-scaffolding.sh's template-integrity check treats them as DECLARED so they never read as undeclared tokens.",
+    "literal": ["KEY", "PLACEHOLDER", "PLACEHOLDERS"]
+  }
+}

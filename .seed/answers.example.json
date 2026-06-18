@@ -1,0 +1,14 @@
+{
+  "_comment": "Example answers for scripts/fill-template.sh — the illustrative 'Violin Tools' instance this seed was extracted from. Copy this to .seed/answers.json and replace every value with your own product's before filling. Optional placeholders (REVIEW_BOT, FIGMA_FILE_ID) may be left as empty strings to DISABLE their module; the fill script blanks them and warns. The _comment key is ignored by the script.",
+  "PROJECT_NAME": "Violin Tools",
+  "PROJECT_TAGLINE": "a web app of focused practice tools for violinists",
+  "OWNER": "julianken",
+  "REPO": "violin-tools",
+  "LOCAL_FOLDER": "violin-scales",
+  "DEFAULT_BRANCH": "main",
+  "CODEOWNER": "julianken",
+  "LICENSE_HOLDER": "julianken",
+  "YEAR": "2026",
+  "REVIEW_BOT": "julianken-bot",
+  "FIGMA_FILE_ID": "HWmo5hCeSXWtkSBiO1msIF"
+}

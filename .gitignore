@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+build/
+
+# Misc
+.DS_Store
+*.log
+.env*.local
+
+# Process artifacts / scratch (analysis, funnel, scratch output) — never the curated repo
+tmp/
+
+# Session tooling (not part of the app)
+.remember/
+.superpowers/
+.playwright-mcp/
+
+# Claude Code: repo-local agents/skills ARE committed; per-developer settings and agent worktrees are not
+.claude/settings.local.json
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+
+# Cursor: commit shared config (rules/agents/commands) if ever added; ignore per-developer state.
+# Do NOT blanket-ignore .cursor/ — that would hide a future committed pointer/config.
+.cursor/mcp.json
