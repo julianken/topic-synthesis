@@ -49,6 +49,7 @@ then run whatever checks the change actually has (e.g.
 `scripts/check-claude-shim.sh`) and mark the npm lines `N/A — pre-code`. -->
 
 - [ ] `npm run typecheck && npm run test` (not configured — pre-code) — green, or `N/A — pre-code`
+- [ ] `npm run lint:boundaries` — import fence green (no business-logic → frontend imports; decoupling guard, ADR 0001 §4). CI-enforced via `.github/workflows/import-fence.yml`.
 - [ ] New unit / integration tests added (if behavior changed)
 - [ ] New Playwright e2e spec added (if user-visible behavior changed)
 - [ ] `npm run build` (not configured — pre-code) — clean production build, or `N/A — pre-code`

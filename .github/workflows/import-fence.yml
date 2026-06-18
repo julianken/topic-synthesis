@@ -1,0 +1,35 @@
+name: import-fence
+
+# Enforce the decoupling guard (docs/decisions/0001 §4) with dependency-cruiser: the
+# business-logic layers (domain/llm/pipeline/engine/store/eval) must not import the
+# frontend, and src/app must not value-import server-only modules (the store / pg / a
+# workflow task — type-only imports are allowed). UNLIKE scaffolding.yml (checkout-only,
+# pre-code), this installs deps + cruises the TS source — the repo's first code-level gate.
+
+on: [push, pull_request]
+
+concurrency:
+  group: import-fence-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check import boundaries
+        run: npm run lint:boundaries

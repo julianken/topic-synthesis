@@ -1,0 +1,36 @@
+/**
+ * Import fence — the decoupling guard from docs/decisions/0001 §4, run in CI.
+ *
+ * The business-logic layers must never import the frontend, so the core stays a Next-free
+ * deployable (a Cloud Run Job image). dependency-cruiser matches `to.path` against a
+ * dependency's RESOLVED path, so external packages are matched under `node_modules/<pkg>/`;
+ * `tsPreCompilationDeps: true` makes type-only edges visible too, so even a stray
+ * `import type { … } from 'react'` in the core is caught.
+ *
+ * Scope note: this is the ONE rule ADR §4 specifies. App-side boundary rules (e.g. forbidding
+ * `src/app` from value-importing the pipeline once the deployed Cloud Run Job model replaces
+ * in-process generation) are deferred — see GAPS.md. They are NOT added now because the lean
+ * e2e legitimately imports the store + pipeline from `src/app` server components / route
+ * handlers, so a blanket `src/app` boundary would be wrong today.
+ *
+ * @type {import('dependency-cruiser').IConfiguration}
+ */
+export default {
+  forbidden: [
+    {
+      name: 'core-no-frontend',
+      comment:
+        'Business-logic layers (domain/llm/pipeline/engine/store/eval) must NOT import the ' +
+        'frontend. Keeps the core a Next-free deployable (a Cloud Run Job image), per ADR 0001 §4. ' +
+        'Starts green — the decoupling audit found zero such imports.',
+      severity: 'error',
+      from: { path: '^src/(domain|llm|pipeline|engine|store|eval)/' },
+      to: { path: 'node_modules/(next|react-dom|react|server-only|client-only)(/|$)' },
+    },
+  ],
+  options: {
+    doNotFollow: { path: 'node_modules' },
+    tsConfig: { fileName: 'tsconfig.json' },
+    tsPreCompilationDeps: true,
+  },
+};
