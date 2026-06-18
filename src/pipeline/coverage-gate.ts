@@ -21,10 +21,10 @@ function routeFor(confidence: number, thresholds: GateThresholds): PageStatus {
 
 /**
  * The grounding/coverage gate — a pure, deterministic pass over the prerequisite
- * graph. It validates structural integrity (no duplicate slugs, no edge to an
- * unknown node, no cycle), throwing on any defect rather than fabricating, and
- * routes each node to built | text | soon by its coverage confidence. Thin coverage
- * degrades to text/soon; the gate never invents an interactive page.
+ * graph. It THROWS on a structural defect among real nodes (a duplicate slug or a
+ * cycle), DROPS edges referencing an unknown node (LLM slug noise shouldn't crash the
+ * run), and routes each node to built | text | soon by its coverage confidence. Thin
+ * coverage degrades to text/soon; the gate never invents an interactive page.
  */
 export function gateGraph(
   graph: PrereqGraph,
