@@ -8,7 +8,11 @@ const OPUS: StageModel = { provider: 'anthropic', model: 'claude-opus-4-8' };
 
 function mockModel(
   text: string,
-  opts: { finishReason?: 'stop' | 'length' | 'content-filter'; input?: number; output?: number } = {},
+  opts: {
+    finishReason?: 'stop' | 'length' | 'content-filter' | 'error' | 'tool-calls';
+    input?: number;
+    output?: number;
+  } = {},
 ) {
   const reason = opts.finishReason ?? 'stop';
   return new MockLanguageModelV3({
@@ -43,6 +47,17 @@ describe('complete', () => {
     await expect(
       complete({ model: OPUS, prompt: 'x' }, mockModel('', { finishReason: 'content-filter' })),
     ).rejects.toThrow(/filter/);
+  });
+
+  it('throws on an unexpected terminal finish reason (error/other/unknown)', async () => {
+    await expect(
+      complete({ model: OPUS, prompt: 'x' }, mockModel('junk', { finishReason: 'error' })),
+    ).rejects.toThrow(/unexpected finish reason/);
+  });
+
+  it('allows tool-calls as a clean finish (the Output.object tool-forcing path)', async () => {
+    const res = await complete({ model: OPUS, prompt: 'x' }, mockModel('ok', { finishReason: 'tool-calls' }));
+    expect(res.text).toBe('ok');
   });
 });
 

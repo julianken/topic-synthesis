@@ -50,14 +50,20 @@ function recordFrom(
   };
 }
 
-// Every downstream stage trusts this wrapper, so a silent truncation or a filtered
-// response would surface as an unexplained parse failure. Fail loud on both.
+// Every downstream stage trusts this wrapper, so partial or unreliable output would
+// surface as an unexplained parse failure. Fail loud on anything but a clean finish.
 function guard(finishReason: string, providerModel: string, maxTokens: number): void {
   if (finishReason === 'length') {
     throw new Error(`"${providerModel}" hit the output cap (${maxTokens}); output is truncated. Raise maxTokens.`);
   }
   if (finishReason === 'content-filter') {
     throw new Error(`"${providerModel}" response was content-filtered; discard any partial output.`);
+  }
+  // Allowlist the clean completions: 'stop' (normal) and 'tool-calls' (Output.object can
+  // finish structured output via a forced tool call). Everything else — 'error', 'other',
+  // 'unknown' — means partial/unreliable output, so fail loud rather than pass it downstream.
+  if (finishReason !== 'stop' && finishReason !== 'tool-calls') {
+    throw new Error(`"${providerModel}" ended with an unexpected finish reason "${finishReason}"; discard output.`);
   }
 }
 
