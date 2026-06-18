@@ -46,5 +46,9 @@ export async function spec(input: SpecInput, deps: StageDeps = defaultDeps): Pro
     prompt: specPrompt(input),
     schema: PageSpecSchema,
   });
-  return { spec: object, records: [record] };
+  // Keep only citations pointing at a real offered source — the same anti-fabrication
+  // discipline the researcher applies, so the spec can't (re)introduce an invented citation.
+  const offered = new Set(input.sources.map((s) => s.url));
+  const citations = object.citations.filter((c) => offered.has(c.url));
+  return { spec: { ...object, citations }, records: [record] };
 }

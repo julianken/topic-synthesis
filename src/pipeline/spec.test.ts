@@ -20,7 +20,10 @@ describe('spec', () => {
       learningGoal: 'understand sine',
       interactionKind: 'canvas',
       a11yContract: 'keyboard + text alt',
-      citations: [],
+      citations: [
+        { url: 'https://a.example', title: 'A' }, // offered → kept
+        { url: 'https://invented.example', title: 'X' }, // not offered → dropped
+      ],
     };
     const completeObject = vi.fn().mockResolvedValue({ object: pageSpec, record: rec });
     const deps = { completeObject } as unknown as StageDeps;
@@ -30,7 +33,9 @@ describe('spec', () => {
       deps,
     );
 
-    expect(out.spec).toEqual(pageSpec);
+    expect(out.spec.learningGoal).toBe('understand sine');
+    // a citation not among the offered sources is dropped (anti-fabrication, like the researcher)
+    expect(out.spec.citations).toEqual([{ url: 'https://a.example', title: 'A' }]);
     expect(out.records).toEqual([rec]);
     const [arg] = completeObject.mock.calls[0]!;
     expect(arg.model.model).toBe('claude-sonnet-4-6');
