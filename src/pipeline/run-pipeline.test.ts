@@ -23,10 +23,10 @@ const mkRec = (): LlmCallRecord => ({
 
 // Fake deps that return stage-appropriate output, dispatched by the Zod schema each
 // stage passes — so one fake serves the whole pipeline with no live model.
-function fakeDeps(): StageDeps {
+function fakeDeps(questions: string[] = ['q1', 'q2']): StageDeps {
   const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string }) => {
     if (opts.schema === PlanSchema) {
-      return { object: { scope: 'S', subtopics: ['a', 'b'], researchQuestions: ['q1', 'q2'] }, record: mkRec() };
+      return { object: { scope: 'S', subtopics: ['a', 'b'], researchQuestions: questions }, record: mkRec() };
     }
     if (opts.schema === FindingsSchema) {
       return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
@@ -99,5 +99,15 @@ describe('runPipeline', () => {
       ([opts]) => opts.schema === CriticVerdictSchema,
     );
     expect(criticCalls).toHaveLength(1);
+  });
+
+  it('deduplicates identical research questions so each runs once (no phantom trace rows)', async () => {
+    const deps = fakeDeps(['q1', 'q1', 'q2']); // q1 duplicated in the plan
+    const out = await runPipeline(req, new InlineEngine(), deps);
+    // 2 unique questions → web search runs twice, not three times
+    expect((deps.searchWeb as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+    // records/cost reflect the 2 real research calls, not a double-counted duplicate
+    expect(out.records).toHaveLength(9); // plan 1 + research 2×2 + graph 1 + synth 3
+    expect(out.costUsd).toBeCloseTo(0.09, 6);
   });
 });

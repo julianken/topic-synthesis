@@ -55,9 +55,14 @@ export async function runPipeline(
   const planned = await engine.step('plan', contentHash(req.topic, bucket), () => plan(req, deps));
   records.push(...planned.records);
 
-  // 2. researchers — one grounded retrieval per research question (fanned out)
+  // 2. researchers — one grounded retrieval per research question (fanned out).
+  // Dedup identical questions first: the engine memoizes a repeated question to one
+  // call, so threading records per-input would otherwise double-count that one
+  // execution (a phantom row + overstated cost in the trace). researchQuestions has no
+  // uniqueness constraint, so a duplicate is valid input we must collapse here.
   const subtopics = planned.plan.subtopics;
-  const researchInputs: ResearchInput[] = planned.plan.researchQuestions.map((question, i) => ({
+  const uniqueQuestions = [...new Set(planned.plan.researchQuestions)];
+  const researchInputs: ResearchInput[] = uniqueQuestions.map((question, i) => ({
     subtopic: subtopics[i % subtopics.length] ?? planned.plan.scope,
     question,
     settings: req.settings,
