@@ -1,10 +1,17 @@
 /**
  * Import fence — the decoupling guard from docs/decisions/0001 §4, run in CI.
  *
- * dependency-cruiser matches `to.path` against a dependency's RESOLVED path, so external
- * packages are matched under `node_modules/<pkg>/`. `tsPreCompilationDeps: true` makes
- * `import type` edges visible so `dependencyTypesNot: ['type-only']` can allow a type-only
- * import while forbidding a value import of the same module.
+ * The business-logic layers must never import the frontend, so the core stays a Next-free
+ * deployable (a Cloud Run Job image). dependency-cruiser matches `to.path` against a
+ * dependency's RESOLVED path, so external packages are matched under `node_modules/<pkg>/`;
+ * `tsPreCompilationDeps: true` makes type-only edges visible too, so even a stray
+ * `import type { … } from 'react'` in the core is caught.
+ *
+ * Scope note: this is the ONE rule ADR §4 specifies. App-side boundary rules (e.g. forbidding
+ * `src/app` from value-importing the pipeline once the deployed Cloud Run Job model replaces
+ * in-process generation) are deferred — see GAPS.md. They are NOT added now because the lean
+ * e2e legitimately imports the store + pipeline from `src/app` server components / route
+ * handlers, so a blanket `src/app` boundary would be wrong today.
  *
  * @type {import('dependency-cruiser').IConfiguration}
  */
@@ -19,24 +26,6 @@ export default {
       severity: 'error',
       from: { path: '^src/(domain|llm|pipeline|engine|store|eval)/' },
       to: { path: 'node_modules/(next|react-dom|react|server-only|client-only)(/|$)' },
-    },
-    {
-      name: 'app-no-value-import-of-trigger',
-      comment:
-        'src/app may only TYPE-import a workflow task (the type-only trigger seam); a value ' +
-        'import would drag the task graph into the Next bundle. Inert until src/trigger lands.',
-      severity: 'error',
-      from: { path: '^src/app/' },
-      to: { path: '^src/trigger/', dependencyTypesNot: ['type-only'] },
-    },
-    {
-      name: 'app-no-value-import-of-store-or-pg',
-      comment:
-        'src/app must not value-import the store or pg directly (server-only Node modules) — go ' +
-        'through a route handler / type-only import. Inert until src/app/api lands.',
-      severity: 'error',
-      from: { path: '^src/app/' },
-      to: { path: '(^src/store/|node_modules/pg(/|$))', dependencyTypesNot: ['type-only'] },
     },
   ],
   options: {
