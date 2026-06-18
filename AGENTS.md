@@ -100,6 +100,7 @@ Run `git status` / `ls` for current state — don't trust a snapshot here.
 - `docker compose up -d` — start Postgres + Redis (copy `.env.example` → `.env` first).
 - `npm run db:migrate` — apply `src/store/schema.sql` to Postgres.
 - `npm run typecheck` — `tsc --noEmit`.
+- `npm run lint:boundaries` — dependency-cruiser import fence: business-logic layers (`domain`/`llm`/`pipeline`/`engine`/`store`/`eval`) must not import the frontend, and `src/app` must not value-import the store/`pg`/a workflow task (type-only is allowed). The decoupling guard (ADR 0001 §4), CI-enforced via `.github/workflows/import-fence.yml`.
 - `npm test` — Vitest unit tests (`npm run test:watch` to watch).
 - `npm run build` — production Next.js build; `npm run dev` — dev server.
 - `npm run skeleton -- --topic "<topic>" [--level …] [--depth N] [--audience "…"] [--cheap] [--max-nodes N] [--max-questions N]` — run the pipeline end-to-end over the in-process engine and print the curriculum + per-model cost. `--cheap` runs every stage on Haiku, `--max-nodes N` caps synthesized pages, and `--max-questions N` caps the research fan-out (each question drives a web search — the main cost driver) — together they keep a test run to ~pennies. `--dump-html <dir>` writes each synthesized page's HTML to `<dir>/<slug>.html` so you can open a generated page in a browser. Needs a provider API key in the env (e.g. `ANTHROPIC_API_KEY`); uses no durable engine.
