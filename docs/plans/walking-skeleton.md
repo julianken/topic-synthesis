@@ -137,7 +137,7 @@ or near-zero coverage). `ctx` carries the LLM client + the span collector.
   hash(workflowVersionId, stage, inputHash)` so a re-entrant parent never spawns a
   duplicate paid run. Pass an Anthropic request idempotency key on each Messages
   call; treat `stop_reason: "refusal"` as a handled gate outcome, not a retry.
-- **Trigger from Next.js:** `app/api/generate/route.ts` uses a type-only import +
+- **Trigger from Next.js:** `src/app/api/generate/route.ts` uses a type-only import +
   `tasks.trigger<typeof synthesizeCurriculum>()`; returns `{runId, publicAccessToken}`.
 - **Progress:** Trigger.dev **Realtime** (`useRealtimeRun`/`useRealtimeStream`,
   Apache-2.0/Electric, works self-hosted) — no hand-rolled SSE. The workflow pushes
@@ -149,7 +149,7 @@ or near-zero coverage). `ctx` carries the LLM client + the span collector.
 ## Artifact runtime (sandboxed)
 
 Generated pages render in a **cross-origin iframe** with `sandbox="allow-scripts"`
-**without** `allow-same-origin` (the load-bearing pair). `app/artifact/[pageId]/route.ts`
+**without** `allow-same-origin` (the load-bearing pair). `src/app/artifact/[pageId]/route.ts`
 serves the HTML cookieless with a server-set CSP `default-src 'none'; script-src
 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'`.
 DOMPurify sanitizes the HTML before store/serve. Hub output matches ai-concept-viz's
@@ -186,7 +186,7 @@ adapter in `bird-watch` (reference only; depend on public `julianken/eleatic`).
 orchestration), `src/engine/engine.ts` + `src/engine/trigger-engine.ts`,
 `trigger/synthesize-curriculum.ts` + `trigger/synthesize-node.ts`,
 `src/llm/pricing.ts`, `src/trace/eleatic-adapter.ts`, `src/store/schema.sql`,
-`app/artifact/[pageId]/route.ts`, `app/api/generate/route.ts`, `docker-compose.yml`,
+`src/app/artifact/[pageId]/route.ts`, `src/app/api/generate/route.ts`, `docker-compose.yml`,
 `eval/run-skeleton.ts`, `eval/smoke.test.ts`.
 
 ## Reuse
