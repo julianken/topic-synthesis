@@ -66,6 +66,13 @@ describe('rebuildHub', () => {
       { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, href: '/artifact/p2' },
     ]);
   });
+
+  it('URL-encodes the content-identity page_id in the href (a raw # would truncate the URL)', () => {
+    const hub = rebuildHub([
+      { tier: 'T', category: 'C', page_id: 'sine@intermediate:d3#a1b2c3', concept_slug: 'sine', title: 'Sine', status: 'built' },
+    ]);
+    expect(hub.tiers[0]?.categories[0]?.pages[0]?.href).toBe('/artifact/sine%40intermediate%3Ad3%23a1b2c3');
+  });
 });
 
 describe('persistRun (transaction shape, fake pool)', () => {

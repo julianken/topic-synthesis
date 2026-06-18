@@ -16,10 +16,12 @@ export const ARTIFACT_CSP = [
   'img-src data: blob:',
   'font-src data:',
   "frame-ancestors 'self'",
-  // form-action does NOT fall back to default-src, so set it explicitly: blocks a generated
-  // page from auto-submitting a <form> to an external URL — the one POST-exfiltration vector
-  // that would otherwise survive `default-src 'none'`.
+  // form-action and base-uri do NOT fall back to default-src, so set them explicitly:
+  // form-action 'none' blocks a generated page auto-submitting a <form> to an external URL
+  // (the one POST-exfiltration vector that survives default-src 'none'); base-uri 'none'
+  // forbids a <base> tag from re-pointing relative URLs. Together the no-fallback set is complete.
   "form-action 'none'",
+  "base-uri 'none'",
 ].join('; ');
 
 /**
