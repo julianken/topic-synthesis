@@ -4,11 +4,15 @@ export interface TileView {
   title: string;
   status: PageStatus;
   statusLabel: string;
+  /** Decorative glyph paired with the label — DESIGN.md asks for status by label + icon, never
+   *  color alone. Rendered `aria-hidden`; the label carries the meaning for assistive tech. */
+  icon: string;
   /** Detail-view link (the sandboxed iframe) for a built page; null for a soon/text tile. */
   href: string | null;
 }
 
 const STATUS_LABEL: Record<PageStatus, string> = { built: 'Built', soon: 'Soon', text: 'Text' };
+const STATUS_ICON: Record<PageStatus, string> = { built: '✓', soon: '◷', text: '≡' };
 
 /**
  * Presentational props for one hub tile. Pure. A built tile links to its detail view keyed by
@@ -22,6 +26,7 @@ export function tileView(page: SitemapPage, curriculumId: string): TileView {
     title: page.title,
     status: page.status,
     statusLabel: STATUS_LABEL[page.status],
+    icon: STATUS_ICON[page.status],
     href: page.built ? `/curriculum/${curriculumId}/${encodeURIComponent(page.slug)}` : null,
   };
 }

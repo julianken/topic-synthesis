@@ -1,5 +1,6 @@
 import { getCurriculum } from '../../../store/repo';
 import { tileView } from '../view';
+import { GeneratingPoller } from './generating';
 
 // Read per request — the curriculum lives in Postgres, not at build time.
 export const dynamic = 'force-dynamic';
@@ -8,14 +9,18 @@ export default async function CurriculumHub({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const view = await getCurriculum(id);
 
+  // No row yet = the run is still in flight (persistRun writes the whole curriculum atomically
+  // on completion). Show a generating state that polls until the row lands, then refreshes.
   if (!view) {
     return (
       <main className="wrap">
         <p className="eyebrow">Curriculum</p>
-        <h1>Not found</h1>
+        <h1>Generating…</h1>
         <p className="lead">
-          No curriculum <code>{id}</code> — it may still be generating, or the id is wrong.
+          Researching, mapping prerequisites, and synthesizing interactive pages. This usually
+          takes a minute or two.
         </p>
+        <GeneratingPoller id={id} />
       </main>
     );
   }
@@ -38,7 +43,14 @@ export default async function CurriculumHub({ params }: { params: Promise<{ id: 
                 <ul className="tiles">
                   {category.pages.map((page) => {
                     const tile = tileView(page, id);
-                    const badge = <span className={`badge badge--${tile.status}`}>{tile.statusLabel}</span>;
+                    const badge = (
+                      <span className={`badge badge--${tile.status}`}>
+                        <span className="badge__icon" aria-hidden="true">
+                          {tile.icon}
+                        </span>{' '}
+                        {tile.statusLabel}
+                      </span>
+                    );
                     return (
                       <li key={page.slug} className={`tile tile--${tile.status}`}>
                         {tile.href ? (
