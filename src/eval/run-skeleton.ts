@@ -1,6 +1,8 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
-import type { TopicRequest } from '../domain/stages';
+import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
 import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
@@ -41,7 +43,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -99,6 +101,17 @@ export async function runSkeleton(
   return runPipeline(request, new InlineEngine(), deps, options);
 }
 
+/** Write each synthesized page's HTML to `<dir>/<slug>.html` (for `--dump-html`); returns the paths. */
+export function dumpPages(pages: CritiquedArtifact[], dir: string): string[] {
+  mkdirSync(dir, { recursive: true });
+  return pages.map((page) => {
+    // basename() the (LLM-authored) slug so it can't escape `dir` via `/` or `..`.
+    const path = join(dir, `${basename(page.nodeSlug)}.html`);
+    writeFileSync(path, page.html, 'utf8');
+    return path;
+  });
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const request = buildRequest(args);
@@ -111,7 +124,15 @@ async function main(): Promise<void> {
   console.log(
     `Generating a curriculum for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth}; ${mode})…\n`,
   );
-  console.log(formatSummary(await runSkeleton(request, defaultDeps, options)));
+  const run = await runSkeleton(request, defaultDeps, options);
+  console.log(formatSummary(run));
+  if (args.includes('--dump-html')) {
+    const dumpDir = readFlag(args, '--dump-html');
+    // Fail loud rather than silently skip the dump after the run has already spent.
+    if (dumpDir === undefined) throw new Error('--dump-html requires a <dir>');
+    const paths = dumpPages(run.result.pages, dumpDir);
+    console.log(`\nWrote ${paths.length} page(s) to:\n${paths.map((p) => `  ${p}`).join('\n')}`);
+  }
 }
 
 // Run only when invoked directly (tsx src/eval/run-skeleton.ts), never when imported by a test.
