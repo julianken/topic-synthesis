@@ -31,7 +31,7 @@ The pipeline's control flow (fan-out with fan-in **barriers**: wait for all rese
 - **Observability stays separate:** traces go to the eleatic eval seam (SQLite, local) now / an OTel sink later — never folded into `step_results`.
 
 ### 4. Decoupling — import fence now, Next-free `core` workspace split at the deploy PR
-The decoupling audit verified the core is **import-clean** (zero `next`/`react` imports across all 25 core files; relative paths, no `@/` alias; the eval CLI already runs the pipeline outside Next). The coupling is **packaging-only**, so extraction is a cheap file-move + manifest split, not a rewrite.
+The decoupling audit verified the core is **import-clean** (zero `next`/`react` imports across every core file; relative paths, no `@/` alias; the eval CLI already runs the pipeline outside Next). The coupling is **packaging-only**, so extraction is a cheap file-move + manifest split, not a rewrite.
 - **Now:** a CI **import fence** (fail the build if anything under `src/{domain,llm,pipeline,engine,store,eval}` imports `next`/`react`/`react-dom`/`server-only`) + name the ports. Starts green; makes the zero-coupling impossible to regress when the API route lands.
 - **Deferred trigger:** extract `core` into its own Next-free workspace package **in the first PR of the cloud-deploy phase** — the same PR that adds the Job's Dockerfile (the first moment a second deployable/manifest exists). Earlier is premature; later forces the Job image to drag in `next`/`react`.
 

@@ -1,8 +1,8 @@
 # Local dev infrastructure for topic-synthesis.
 #
-# Postgres is the app's system-of-record; Redis backs the durable workflow
-# engine. Both are shared with the self-hosted Trigger.dev stack, which is added
-# in the engine PR (it composes its own webapp/worker services on top of these).
+# Postgres is the app's system-of-record (it also holds workflow step_results for the durable
+# GcpEngine). Redis is currently VESTIGIAL — it backed the now-dropped Trigger.dev engine;
+# removal is tracked in GAPS.md (see docs/decisions/0001).
 #
 #   docker compose up -d        # start Postgres + Redis
 #   npm run db:migrate          # apply src/store/schema.sql
