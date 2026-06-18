@@ -11,6 +11,9 @@ build/
 *.log
 .env*.local
 
+# Bootstrap fill answers (local; the filled files are the record)
+.seed/answers.json
+
 # Process artifacts / scratch (analysis, funnel, scratch output) — never the curated repo
 tmp/
 

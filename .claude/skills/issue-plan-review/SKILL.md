@@ -1,13 +1,13 @@
 ---
 name: issue-plan-review
-description: Use when reviewing an implementation issue or plan spec before work starts, posting as the review bot @{{REVIEW_BOT}}. Triggers on "approve the issue spec", "plan review", "review issue #N", "bot review on the issue", or any request to gate an issue body before implementation. Self-contained — worktree-isolated subagents do NOT load AGENTS.md.
+description: Use when reviewing an implementation issue or plan spec before work starts, posting as the review bot @julianken-bot. Triggers on "approve the issue spec", "plan review", "review issue #N", "bot review on the issue", or any request to gate an issue body before implementation. Self-contained — worktree-isolated subagents do NOT load AGENTS.md.
 ---
 
-# Issue plan review ({{OWNER}}/{{REPO}})
+# Issue plan review (julianken/topic-synthesis)
 
 **Announce at start:** *"I'm using the issue-plan-review skill to review this issue spec against the anti-slop rubric (plan soundness, not a code diff)."*
 
-Local folder is `{{LOCAL_FOLDER}}/`; GitHub slug is `{{OWNER}}/{{REPO}}`. Post comments as the review bot **@{{REVIEW_BOT}}** (credential loaded per the user-level `reviewing-as-{{REVIEW_BOT}}` skill) — never as the owner (`@{{CODEOWNER}}`) from the main session. (The review bot is an **optional module** — `docs/optional/review-bot.md`; blanking `{{REVIEW_BOT}}` disables it and a human reviewer posts the plan review directly.)
+Local folder is `topic-synthesis/`; GitHub slug is `julianken/topic-synthesis`. Post comments as the review bot **@julianken-bot** (credential loaded per the user-level `reviewing-as-julianken-bot` skill) — never as the owner (`@julianken`) from the main session. (The review bot is an **optional module** — `docs/optional/review-bot.md`; blanking `julianken-bot` disables it and a human reviewer posts the plan review directly.)
 
 ## What this skill does
 
@@ -15,7 +15,7 @@ Reviews an **issue body / implementation plan** before coding starts. Same rigor
 
 **Exemplar shape:** verification ledger, assessment prose, SUGGESTION findings on APPROVE, explicit verdict.
 
-**Not this skill:** PR code review → user-level `reviewing-as-{{REVIEW_BOT}}` + `.claude/skills/pr-workflow/SKILL.md`.
+**Not this skill:** PR code review → user-level `reviewing-as-julianken-bot` + `.claude/skills/pr-workflow/SKILL.md`.
 
 ## When to use
 
@@ -32,16 +32,16 @@ Reviews an **issue body / implementation plan** before coding starts. Same rigor
 2. Read       gh issue view N — body only. Read every file/path the issue cites.
               Verify line-number citations. Check GitHub facts if claimed (labels, rulesets).
 3. Rubric     Apply rules below (R1–R8, R11 adapted). Mandatory second pass (R8).
-4. Post       Single issue comment via gh api …/issues/N/comments as @{{REVIEW_BOT}}.
+4. Post       Single issue comment via gh api …/issues/N/comments as @julianken-bot.
 5. Return     Verdict + finding counts to dispatcher.
 ```
 
 ## Comment shape (required sections)
 
-Post as `@{{REVIEW_BOT}}` with this structure (prefix the opening line with `AGENT:` only if posting through the owner's account by mistake — bot API posts do not need `AGENT:`):
+Post as `@julianken-bot` with this structure (prefix the opening line with `AGENT:` only if posting through the owner's account by mistake — bot API posts do not need `AGENT:`):
 
 ```markdown
-Plan review (acting as @{{REVIEW_BOT}}, fresh-context) — anti-slop rubric applied to plan soundness rather than a code diff.
+Plan review (acting as @julianken-bot, fresh-context) — anti-slop rubric applied to plan soundness rather than a code diff.
 
 ## Verification ledger (verified this turn)
 
@@ -67,7 +67,7 @@ Verdict: APPROVE | REQUEST_CHANGES
 
 **Forbidden:** identical boilerplate ledgers with pre-checked `[x]` boxes; APPROVE with zero files read; copy-paste templates across multiple issues without per-issue verification.
 
-## Rules (adapted from reviewing-as-{{REVIEW_BOT}})
+## Rules (adapted from reviewing-as-julianken-bot)
 
 **R1. Trace every claim.** Findings cite issue text or file:line. No anchor → drop.
 
@@ -97,10 +97,10 @@ Verdict: APPROVE | REQUEST_CHANGES
 
 ## How to post (bot identity)
 
-Load the bot credential using the **Credential loading** procedure in the user-level `reviewing-as-{{REVIEW_BOT}}` skill — it owns the credential mechanics; this repo carries none — and scope the token to the single `gh` call. Then post to the **issue-comment** endpoint:
+Load the bot credential using the **Credential loading** procedure in the user-level `reviewing-as-julianken-bot` skill — it owns the credential mechanics; this repo carries none — and scope the token to the single `gh` call. Then post to the **issue-comment** endpoint:
 
 ```bash
-REPO={{OWNER}}/{{REPO}}
+REPO=julianken/topic-synthesis
 ISSUE=N
 BODY_FILE=/tmp/plan-review-$$.md
 # write comment body to $BODY_FILE, then (token loaded per the user-level skill, scoped to this one call):
@@ -109,7 +109,7 @@ BODY_FILE=/tmp/plan-review-$$.md
 rm "$BODY_FILE"
 ```
 
-Never `export` the token. Never post a plan-review APPROVE from the main session's default `gh` auth if the goal is a `@{{REVIEW_BOT}}` gate comment — that authenticates as the owner (`@{{CODEOWNER}}`), not the bot.
+Never `export` the token. Never post a plan-review APPROVE from the main session's default `gh` auth if the goal is a `@julianken-bot` gate comment — that authenticates as the owner (`@julianken`), not the bot.
 
 ## Tripwires
 
@@ -124,6 +124,6 @@ Never `export` the token. Never post a plan-review APPROVE from the main session
 Status: COMMENT_POSTED | BLOCKED
 Verdict: APPROVE | REQUEST_CHANGES
 Findings: BLOCKER=N IMPORTANT=N SUGGESTION=N
-Issue: {{OWNER}}/{{REPO}}#N
+Issue: julianken/topic-synthesis#N
 Comment URL: <from gh api response>
 ```

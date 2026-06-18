@@ -1,33 +1,47 @@
-# DESIGN.md — {{PROJECT_NAME}}
+# DESIGN.md — Topic Synthesis
 
-> **This file is the whole truth for design.** An agent that has never opened this app must be able to rebuild any surface to pixel fidelity from this document alone — no design file, no component browser, no follow-up questions. Every value here is concrete and current. Where this file and the working build disagree, the build wins; reconcile this file to match it.
+> **This file is the whole truth for design.** An agent that has never opened this app must be able to rebuild any surface to pixel fidelity from this document alone. Every value here is concrete and current. Where this file and the working build disagree, the build wins; reconcile this file to match it.
 >
-> **Authority:** shipped build > `DESIGN.md` > Figma (see AGENTS.md → "Design source of truth"). `DESIGN.md` wins on any design conflict with Figma. If the product has a Figma file ({{FIGMA_FILE_ID}}), it is *visual reference only* — a live Figma value that disagrees with this file is drift to reconcile here in a PR, not a source the build follows directly.
+> **Authority:** shipped build > `DESIGN.md` > Figma (see AGENTS.md → "Design source of truth"). No Figma file is configured for this product yet, so `DESIGN.md` is the sole design source today.
 
-This is a **blank stub**. Fill each section per product. Keep raw literals (hexes, sizes, durations) in the token manifest (§0) only; reference them by name everywhere else so there is one place to change a value.
+**This is v0**, scoped to the walking-skeleton chrome (intake form, curriculum hub, page tile, progress, sandboxed artifact frame). It grows as surfaces land. Keep raw literals in §0 only; reference tokens by name everywhere else.
 
 ---
 
 ## 0. Token Manifest
 
-*Fill per product.* The authoritative source of truth for every value — colors, spacing, type sizes, radii, motion durations. Prefer a tiered scheme (primitive → semantic → component) so recoloring touches one primitive and flows down. Reference tokens by name in the prose below; never repeat a raw literal outside this section.
+**Color primitives**
+- `--c-ink-950 #0a0d12` · `--c-ink-900 #11151c` · `--c-ink-800 #1a212b` · `--c-ink-700 #2a333f`
+- `--c-fog-100 #e8edf3` · `--c-fog-300 #aab6c4` · `--c-fog-500 #6b7888`
+- `--c-accent-500 #5b9dff` · `--c-accent-400 #8bb8ff`
+- `--c-built-500 #3ecf8e` · `--c-soon-500 #c9a227` · `--c-danger-500 #ff6b6b`
+
+**Semantic** (reference primitives)
+- bg: `--bg-app → ink-950` · `--bg-surface → ink-900` · `--bg-raised → ink-800` · `--border → ink-700`
+- text: `--text → fog-100` · `--text-muted → fog-300` · `--text-faint → fog-500`
+- interactive: `--interactive → accent-500` · `--interactive-hover → accent-400`
+- status: `--status-built → built-500` · `--status-soon → soon-500` · `--status-error → danger-500`
+
+**Type scale (rem)** `--fs-hero 2.5` · `--fs-h1 1.875` · `--fs-h2 1.375` · `--fs-body 1` · `--fs-small 0.875` · `--fs-mono 0.9375`
+**Space (rem)** `--sp-1 .25` · `--sp-2 .5` · `--sp-3 .75` · `--sp-4 1` · `--sp-5 1.5` · `--sp-6 2` · `--sp-7 3`
+**Radii** `--r-sm 6px` · `--r-md 10px` · `--r-lg 16px`
+**Motion** `--dur-fast 120ms` · `--dur-base 220ms` · `--dur-slow 360ms` · `--ease-out cubic-bezier(.16,1,.3,1)` · `--ease-in-out cubic-bezier(.65,0,.35,1)`
 
 ## Color & contrast
-
-*Fill per product.* The palette (by token), the background/foreground roles, and the measured contrast ratios that meet the product's accessibility target.
+Dark, technical palette (inspired by the ai-concept-viz explainers). Body `--text` on `--bg-app` clears WCAG AA for normal text; muted text used only at ≥ `--fs-body`. Status is always conveyed by **label + icon**, never color alone. Target: WCAG 2.2 AA.
 
 ## Typography
-
-*Fill per product.* Type families, the size/weight/line-height scale (by token), and where each role is used.
+Chrome: system UI stack (`ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`). Code/tokens (and generated pages' code): monospace (`ui-monospace, SFMono-Regular, Menlo, monospace`). Scale per §0; line-height 1.5 body / 1.2 headings.
 
 ## Motion
+Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no runtime dependency) at the §0 durations/easings. Allowed in the skeleton: staggered hub-tile reveal, modal/panel open, status-badge change, progress updates. **Reduced motion:** `@media (prefers-reduced-motion: reduce)` removes non-essential transitions and staggers; status/progress change instantly.
 
-*Fill per product.* Durations, easing curves, and which transitions are allowed — plus the reduced-motion behavior.
-
-## Components
-
-*Fill per product.* Each component's anatomy, states, and the tokens it consumes.
+## Components (skeleton surfaces)
+- **Intake form** — topic field + settings (level, depth); submit triggers a generation run.
+- **Progress** — live phase timeline (admit → plan → research → graph → gate → synthesize → assemble) + per-node status, driven by Trigger.dev Realtime.
+- **Curriculum hub** — tiered SITEMAP (tier → category → page tiles); built tiles link to the page, `soon`/`text` tiles are muted with a status badge.
+- **Page tile** — title + status badge (`--status-built` / `--status-soon` / text).
+- **Artifact frame** — sandboxed cross-origin iframe; the chrome supplies only the frame (a "report a problem" affordance is deferred).
 
 ## Accessibility
-
-*Fill per product.* Contrast target, focus-visible treatment, keyboard model, reduced-motion handling, and any product-specific correctness rules the design depends on.
+Target WCAG 2.2 AA. Visible `:focus-visible` ring (2px `--interactive`). Full keyboard operability of the form + hub. Status by label+icon, not color alone. Reduced motion honored (§Motion). Generated artifacts carry their **own** a11y contract (a generation target — see `docs/plans/`); the chrome never depends on an iframe's internals for its own accessibility.
