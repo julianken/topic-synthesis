@@ -1,6 +1,6 @@
 # Optional module — Figma design system (read-only MCP)
 
-**Optional.** This module is enabled by setting `` (a blank value disables it). When enabled, the product's design system lives in a Figma file, read by agents over the Figma MCP. A template consumer whose design source of truth isn't Figma can skip this entirely — the design source of truth is [`DESIGN.md`](../../DESIGN.md), which **wins on any design conflict** regardless of whether Figma is in the picture.
+**Optional.** This module is enabled by setting `FIGMA_FILE_ID` (a blank value disables it). When enabled, the product's design system lives in a Figma file, read by agents over the Figma MCP. A template consumer whose design source of truth isn't Figma can skip this entirely — the design source of truth is [`DESIGN.md`](../../DESIGN.md), which **wins on any design conflict** regardless of whether Figma is in the picture.
 
 This doc is the *adopt-or-skip* narrative. It is **not** the source of truth for *this product's* Figma file ID or node map: those are instance facts in [`INSTANCE.md`](../../INSTANCE.md) → "Design / Figma (read-only)". Don't restate the file key or node-ids here — point at `INSTANCE.md`, which is where they're maintained (and which the Update Triggers table keeps current when frames are renamed or reordered).
 
