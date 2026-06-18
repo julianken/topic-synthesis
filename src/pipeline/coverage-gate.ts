@@ -21,10 +21,10 @@ function routeFor(confidence: number, thresholds: GateThresholds): PageStatus {
 
 /**
  * The grounding/coverage gate — a pure, deterministic pass over the prerequisite
- * graph. It validates structural integrity (no duplicate slugs, no edge to an
- * unknown node, no cycle), throwing on any defect rather than fabricating, and
- * routes each node to built | text | soon by its coverage confidence. Thin coverage
- * degrades to text/soon; the gate never invents an interactive page.
+ * graph. It THROWS on a structural defect among real nodes (a duplicate slug or a
+ * cycle), DROPS edges referencing an unknown node (LLM slug noise shouldn't crash the
+ * run), and routes each node to built | text | soon by its coverage confidence. Thin
+ * coverage degrades to text/soon; the gate never invents an interactive page.
  */
 export function gateGraph(
   graph: PrereqGraph,
@@ -37,18 +37,18 @@ export function gateGraph(
     }
     slugs.add(node.slug);
   }
-  for (const edge of graph.edges) {
-    if (!slugs.has(edge.from) || !slugs.has(edge.to)) {
-      throw new Error(`coverage-gate: edge references an unknown node (${edge.from} -> ${edge.to})`);
-    }
-  }
+  // Drop edges referencing an unknown node rather than rejecting the run: LLM graph
+  // output isn't perfectly slug-consistent (it may abbreviate a slug in an edge), and one
+  // stray prerequisite edge shouldn't crash the whole curriculum. A cycle among real
+  // nodes is still a hard reject (in topoSort below).
+  const edges = graph.edges.filter((edge) => slugs.has(edge.from) && slugs.has(edge.to));
 
-  const topoOrder = topoSort(graph); // throws on a cycle
+  const topoOrder = topoSort({ nodes: graph.nodes, edges }); // throws on a cycle
   const nodes: GatedNode[] = graph.nodes.map((node) => ({
     ...node,
     route: routeFor(node.coverageConfidence, thresholds),
   }));
-  return { nodes, edges: graph.edges, topoOrder };
+  return { nodes, edges, topoOrder };
 }
 
 /** Kahn's algorithm; throws if the prerequisite graph is not a DAG. */

@@ -31,6 +31,14 @@ export interface CodeOutput {
  * (not structured output). The raw HTML is sanitized (DOMPurify) at store/serve time in the
  * app layer, not here. A larger output budget is used since a full page can be sizable.
  */
+/** Strip a Markdown code fence the model sometimes wraps the HTML in (```html … ```),
+ *  despite being told to output only the document — otherwise the artifact is malformed. */
+export function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:html)?\s*\n([\s\S]*?)\n```$/);
+  return fenced?.[1]?.trim() ?? trimmed;
+}
+
 export async function code(
   spec: PageSpec,
   deps: StageDeps = defaultDeps,
@@ -42,6 +50,6 @@ export async function code(
     prompt: codePrompt(spec),
     maxTokens: 16000,
   });
-  const artifact: PageArtifact = { nodeSlug: spec.nodeSlug, html: text, spec };
+  const artifact: PageArtifact = { nodeSlug: spec.nodeSlug, html: stripCodeFence(text), spec };
   return { artifact, records: [record] };
 }

@@ -51,9 +51,17 @@ describe('gateGraph', () => {
     expect(() => gateGraph(graph)).toThrow(/cycle/);
   });
 
-  it('throws on an edge to an unknown node', () => {
-    const graph: PrereqGraph = { nodes: [node('a', 0.8)], edges: [{ from: 'a', to: 'ghost' }] };
-    expect(() => gateGraph(graph)).toThrow(/unknown node/);
+  it('drops an edge referencing an unknown node (LLM slug noise must not crash the run)', () => {
+    const graph: PrereqGraph = {
+      nodes: [node('a', 0.8), node('b', 0.8)],
+      edges: [
+        { from: 'a', to: 'b' }, // valid → kept
+        { from: 'a', to: 'ghost' }, // dangling → dropped
+      ],
+    };
+    const gated = gateGraph(graph);
+    expect(gated.edges).toEqual([{ from: 'a', to: 'b' }]); // only the valid edge survives
+    expect(gated.topoOrder).toHaveLength(2); // both nodes still ordered
   });
 
   it('throws on a duplicate node slug', () => {
