@@ -41,6 +41,25 @@ describe('assembleHub', () => {
     expect(hub.tiers[2]?.categories[0]?.pages[0]?.slug).toBe('c');
   });
 
+  it('tiers a diamond by its longest prerequisite chain', () => {
+    // a→b→d and a→c→d: d depends on b and c (both depth 1), so d lands in Tier 3.
+    const gated: GatedGraph = {
+      nodes: [gnode('a', 'built'), gnode('b', 'built'), gnode('c', 'built'), gnode('d', 'built')],
+      edges: [
+        { from: 'a', to: 'b' },
+        { from: 'a', to: 'c' },
+        { from: 'b', to: 'd' },
+        { from: 'c', to: 'd' },
+      ],
+      topoOrder: ['a', 'b', 'c', 'd'],
+    };
+    const hub = assembleHub(gated, new Set(['a', 'b', 'c', 'd']));
+    const tierOf = (slug: string) =>
+      hub.tiers.find((t) => t.categories.some((c) => c.pages.some((p) => p.slug === slug)))?.tier;
+    expect(tierOf('a')).toBe('Tier 1');
+    expect(tierOf('d')).toBe('Tier 3');
+  });
+
   it('always returns a hub even when every node degraded (a curriculum still ships)', () => {
     const gated: GatedGraph = {
       nodes: [gnode('a', 'soon'), gnode('b', 'text')],

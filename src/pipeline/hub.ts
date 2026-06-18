@@ -48,16 +48,16 @@ function prerequisiteDepth(gated: GatedGraph): Map<string, number> {
   for (const node of gated.nodes) prerequisites.set(node.slug, []);
   for (const edge of gated.edges) prerequisites.get(edge.to)?.push(edge.from);
 
+  // topoOrder lists every node after all its prerequisites, so a single forward pass
+  // computes each node's longest prerequisite chain — no recursion (can't stack-overflow
+  // on a malformed graph) and no Math.max(...spread) (safe for arbitrarily wide nodes).
   const depth = new Map<string, number>();
-  const visit = (slug: string): number => {
-    const cached = depth.get(slug);
-    if (cached !== undefined) return cached;
-    const prereqs = prerequisites.get(slug) ?? [];
-    const value = prereqs.length === 0 ? 0 : 1 + Math.max(...prereqs.map(visit));
+  for (const slug of gated.topoOrder) {
+    let value = 0;
+    for (const prereq of prerequisites.get(slug) ?? []) {
+      value = Math.max(value, (depth.get(prereq) ?? 0) + 1);
+    }
     depth.set(slug, value);
-    return value;
-  };
-  // gated.topoOrder guarantees the graph is acyclic, so the recursion terminates.
-  for (const slug of gated.topoOrder) visit(slug);
+  }
   return depth;
 }
