@@ -45,6 +45,13 @@ export const ResearchSchema = z.object({
 });
 export type Research = z.infer<typeof ResearchSchema>;
 
+/** The researcher's structuring pass: findings cited by index into the REAL retrieved
+ *  sources (the source list comes from the web search, not from the model). */
+export const FindingsSchema = z.object({
+  findings: z.array(FindingSchema),
+});
+export type Findings = z.infer<typeof FindingsSchema>;
+
 /** A concept node with the graph-builder's coverage judgement (0..1). */
 export const GraphNodeSchema = z.object({
   slug: z.string(),
