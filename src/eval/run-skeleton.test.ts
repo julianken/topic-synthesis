@@ -9,9 +9,12 @@ import {
   PlanSchema,
   PrereqGraphSchema,
   type CritiquedArtifact,
+  type TopicRequest,
 } from '../domain/stages';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import type { StageDeps } from '../pipeline/deps';
-import { buildOptions, buildRequest, dumpPages, formatSummary, runSkeleton } from './run-skeleton';
+import type { PipelineRunResult } from '../pipeline/run-pipeline';
+import { buildOptions, buildRequest, dumpPages, formatSummary, persistInput, runSkeleton } from './run-skeleton';
 
 const mkRec = () => ({
   providerModel: 'anthropic:claude-opus-4-8',
@@ -144,5 +147,18 @@ describe('dumpPages', () => {
     };
     const [path] = dumpPages([artifact], dir);
     expect(path).toBe(join(dir, 'escape.html')); // written inside dir, not escaped
+  });
+});
+
+describe('persistInput', () => {
+  it('assembles the persistRun input with STAGE_MODELS merged with the run overrides', () => {
+    const run: PipelineRunResult = { result: { hub: { tiers: [] }, pages: [] }, records: [], costUsd: 0.21 };
+    const request: TopicRequest = { topic: 'Fourier', settings: { level: 'intro', depth: 2, audience: 'a' } };
+    const haiku: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
+    const input = persistInput('run-1', request, run, { models: { planner: haiku } });
+    expect(input.runId).toBe('run-1');
+    expect(input.costUsd).toBe(0.21);
+    expect(input.modelSnapshots.planner).toEqual(haiku); // override merged in
+    expect(input.modelSnapshots.graph).toEqual(STAGE_MODELS.graph); // default preserved
   });
 });
