@@ -67,6 +67,11 @@ describe('buildRequest', () => {
   it('rejects an invalid level', () => {
     expect(() => buildRequest(['--topic', 'x', '--level', 'expert'])).toThrow(/level/);
   });
+
+  it('does not swallow the next flag as a missing value', () => {
+    // `--topic` with no value must throw, not silently take "--level" as the topic
+    expect(() => buildRequest(['--topic', '--level', 'intro'])).toThrow(/topic/);
+  });
 });
 
 describe('runSkeleton + formatSummary', () => {

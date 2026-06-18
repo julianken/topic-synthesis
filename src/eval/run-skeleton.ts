@@ -11,7 +11,11 @@ const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
 export function buildRequest(args: string[]): TopicRequest {
   const flag = (name: string): string | undefined => {
     const i = args.indexOf(name);
-    return i >= 0 ? args[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const value = args[i + 1];
+    // Don't silently swallow the NEXT flag as a missing value
+    // (e.g. `--topic --level intro` must NOT parse topic = "--level").
+    return value !== undefined && !value.startsWith('--') ? value : undefined;
   };
   const topic = flag('--topic');
   if (!topic) {
