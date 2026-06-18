@@ -16,6 +16,7 @@ describe('tileView', () => {
     const t = tileView(mk({ slug: 'sine', title: 'Sine', built: true, status: 'built' }), 'cur1');
     expect(t.href).toBe('/curriculum/cur1/sine');
     expect(t.statusLabel).toBe('Built');
+    expect(t.icon).toBe('✓'); // label + icon, never color alone (DESIGN.md)
   });
 
   it('does not link a soon or text tile (no page to view)', () => {
@@ -23,5 +24,6 @@ describe('tileView', () => {
     const text = tileView(mk({ status: 'text' }), 'cur1');
     expect(text.href).toBeNull();
     expect(text.statusLabel).toBe('Text');
+    expect(text.icon).toBe('≡');
   });
 });
