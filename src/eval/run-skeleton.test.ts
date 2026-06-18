@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CriticVerdictSchema,
@@ -5,9 +8,10 @@ import {
   PageSpecSchema,
   PlanSchema,
   PrereqGraphSchema,
+  type CritiquedArtifact,
 } from '../domain/stages';
 import type { StageDeps } from '../pipeline/deps';
-import { buildOptions, buildRequest, formatSummary, runSkeleton } from './run-skeleton';
+import { buildOptions, buildRequest, dumpPages, formatSummary, runSkeleton } from './run-skeleton';
 
 const mkRec = () => ({
   providerModel: 'anthropic:claude-opus-4-8',
@@ -110,5 +114,22 @@ describe('buildOptions', () => {
 
   it('--max-questions caps the research fan-out', () => {
     expect(buildOptions(['--max-questions', '3']).maxQuestions).toBe(3);
+  });
+});
+
+describe('dumpPages', () => {
+  it('writes each page html to <dir>/<slug>.html', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skeleton-dump-'));
+    const artifact: CritiquedArtifact = {
+      nodeSlug: 'sine',
+      html: '<!doctype html><h1>Sine</h1>',
+      spec: { nodeSlug: 'sine', learningGoal: 'g', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      passed: true,
+      critique: 'ok',
+    };
+    const paths = dumpPages([artifact], dir);
+    expect(paths).toHaveLength(1);
+    expect(paths[0]?.endsWith('sine.html')).toBe(true);
+    expect(readFileSync(paths[0] ?? '', 'utf8')).toBe('<!doctype html><h1>Sine</h1>');
   });
 });
