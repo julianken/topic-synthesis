@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/*
+ * DESIGN.md is the source of truth. The §0 token manifest is materialized here
+ * as CSS custom properties — primitives first, then semantic aliases. Reference
+ * tokens by name in component styles; never repeat a raw literal outside :root.
+ */
+:root {
+  /* primitives — color */
+  --c-ink-950: #0a0d12;
+  --c-ink-900: #11151c;
+  --c-ink-800: #1a212b;
+  --c-ink-700: #2a333f;
+  --c-fog-100: #e8edf3;
+  --c-fog-300: #aab6c4;
+  --c-fog-500: #6b7888;
+  --c-accent-500: #5b9dff;
+  --c-accent-400: #8bb8ff;
+  --c-built-500: #3ecf8e;
+  --c-soon-500: #c9a227;
+  --c-danger-500: #ff6b6b;
+
+  /* semantic — color */
+  --bg-app: var(--c-ink-950);
+  --bg-surface: var(--c-ink-900);
+  --bg-raised: var(--c-ink-800);
+  --border: var(--c-ink-700);
+  --text: var(--c-fog-100);
+  --text-muted: var(--c-fog-300);
+  --text-faint: var(--c-fog-500);
+  --interactive: var(--c-accent-500);
+  --interactive-hover: var(--c-accent-400);
+  --status-built: var(--c-built-500);
+  --status-soon: var(--c-soon-500);
+  --status-error: var(--c-danger-500);
+
+  /* type scale (rem) */
+  --fs-hero: 2.5rem;
+  --fs-h1: 1.875rem;
+  --fs-h2: 1.375rem;
+  --fs-body: 1rem;
+  --fs-small: 0.875rem;
+  --fs-mono: 0.9375rem;
+
+  /* space (rem) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* radii + motion */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html,
+body {
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+.wrap {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-5);
+}
+
+.eyebrow {
+  color: var(--status-soon);
+  font-size: var(--fs-small);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+h1 {
+  font-size: var(--fs-hero);
+  margin: var(--sp-3) 0 var(--sp-4);
+}
+
+.lead {
+  color: var(--text-muted);
+  font-size: var(--fs-h2);
+  line-height: 1.4;
+}
+
+:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

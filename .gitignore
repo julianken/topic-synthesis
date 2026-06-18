@@ -5,10 +5,15 @@ node_modules/
 .next/
 out/
 build/
+next-env.d.ts
+
+# TypeScript
+*.tsbuildinfo
 
 # Misc
 .DS_Store
 *.log
+.env
 .env*.local
 
 # Bootstrap fill answers (local; the filled files are the record)

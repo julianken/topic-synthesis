@@ -6,7 +6,7 @@ You enter a topic + settings; a multi-agent **ANALYSIS → SYNTHESIS** workflow 
 
 ## Status
 
-**Pre-code — building the walking skeleton (sub-project 1).** This repo was just bootstrapped from the [`agentic-seed`](https://github.com/julianken/agentic-seed) template. See [`docs/plans/`](./docs/plans/) for the implementation plan and [`docs/research/`](./docs/research/) for the discovery + platform research that grounds it. No build/test commands exist yet — they'll be documented in [`AGENTS.md`](./AGENTS.md) as they land.
+**Building the walking skeleton (sub-project 1).** Bootstrapped from the [`agentic-seed`](https://github.com/julianken/agentic-seed) template; the project foundation (Next.js app, Postgres schema, Docker infra, domain layer) has landed. See [`docs/plans/`](./docs/plans/) for the implementation plan and [`docs/research/`](./docs/research/) for the discovery + platform research that grounds it.
 
 ## How it works (target architecture)
 
@@ -17,6 +17,19 @@ You enter a topic + settings; a multi-agent **ANALYSIS → SYNTHESIS** workflow 
 ## Repository
 
 Built largely by AI coding agents through reviewed, squash-merged PRs. Process and conventions live in [`AGENTS.md`](./AGENTS.md).
+
+## Develop
+
+```sh
+cp .env.example .env        # adjust if needed
+docker compose up -d        # Postgres + Redis
+npm install
+npm run db:migrate          # apply src/store/schema.sql
+npm run typecheck && npm test
+npm run dev                 # http://localhost:3000
+```
+
+Node ≥ 20. Full command list + module layout in [`AGENTS.md`](./AGENTS.md) → "Working in the tree".
 
 ## License
 
