@@ -112,12 +112,18 @@ export async function persistRun(
       );
     }
     await client.query('COMMIT');
+    client.release();
     return { curriculumId: runId };
   } catch (err) {
-    await client.query('ROLLBACK');
+    // Guard the rollback so its own failure can't mask the original error, and release WITH
+    // the error so a poisoned connection is destroyed rather than handed back to the pool.
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* keep the original error */
+    }
+    client.release(err instanceof Error ? err : new Error(String(err)));
     throw err;
-  } finally {
-    client.release();
   }
 }
 
