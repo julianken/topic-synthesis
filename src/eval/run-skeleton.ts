@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,6 +8,7 @@ import { InlineEngine } from '../engine/inline-engine';
 import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
 import { runPipeline, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
+import { persistRun, type PersistRunInput } from '../store/repo';
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
 
@@ -43,7 +45,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>] [--persist]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -112,6 +114,18 @@ export function dumpPages(pages: CritiquedArtifact[], dir: string): string[] {
   });
 }
 
+/** Assemble the persistRun input for a completed skeleton run (`--persist`). The
+ *  workflow_version snapshot is STAGE_MODELS with the run's per-stage overrides merged in. */
+export function persistInput(
+  runId: string,
+  request: TopicRequest,
+  run: PipelineRunResult,
+  options: RunOptions,
+): PersistRunInput {
+  const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...(options.models ?? {}) };
+  return { runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots };
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const request = buildRequest(args);
@@ -132,6 +146,11 @@ async function main(): Promise<void> {
     if (dumpDir === undefined) throw new Error('--dump-html requires a <dir>');
     const paths = dumpPages(run.result.pages, dumpDir);
     console.log(`\nWrote ${paths.length} page(s) to:\n${paths.map((p) => `  ${p}`).join('\n')}`);
+  }
+  if (args.includes('--persist')) {
+    const runId = randomUUID();
+    const { curriculumId } = await persistRun(persistInput(runId, request, run, options));
+    console.log(`\nPersisted curriculum ${curriculumId} — view at /curriculum/${curriculumId} (needs DATABASE_URL + a migrated DB).`);
   }
 }
 
