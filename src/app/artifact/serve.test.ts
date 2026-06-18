@@ -23,6 +23,7 @@ describe('artifactResponse', () => {
     expect(ARTIFACT_CSP).toContain("default-src 'none'"); // no external loads / exfiltration
     expect(ARTIFACT_CSP).toContain("script-src 'unsafe-inline'"); // the page's own interactivity
     expect(ARTIFACT_CSP).toContain("frame-ancestors 'self'"); // only our hub may iframe it
+    expect(ARTIFACT_CSP).toContain("form-action 'none'"); // doesn't inherit default-src — explicit POST-exfil block
     expect(ARTIFACT_CSP).not.toContain('allow-same-origin'); // sandbox isolation is the boundary
   });
 
