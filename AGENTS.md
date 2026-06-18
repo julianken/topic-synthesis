@@ -103,6 +103,6 @@ Run `git status` / `ls` for current state — don't trust a snapshot here.
 - `npm test` — Vitest unit tests (`npm run test:watch` to watch).
 - `npm run build` — production Next.js build; `npm run dev` — dev server.
 
-**Layout:** `app/` (Next.js routes + `globals.css`, which materializes the `DESIGN.md` §0 tokens), `src/domain/` (pure types + identity/settings — no I/O), `src/store/` (Postgres schema + access). The multi-agent pipeline, the self-hosted Trigger.dev workflow engine, the `@eleatic/eval` trace seam, and the UI land in subsequent PRs per `docs/plans/walking-skeleton.md`.
+**Layout:** `app/` (Next.js routes + `globals.css`, which materializes the `DESIGN.md` §0 tokens), `src/domain/` (pure types + identity/settings/stage-contracts — no I/O), `src/llm/` (the only `@anthropic-ai/sdk` import site — client, model tiers, pricing map), `src/store/` (Postgres schema + access). The multi-agent pipeline, the self-hosted Trigger.dev workflow engine, the `@eleatic/eval` trace seam, and the UI land in subsequent PRs per `docs/plans/walking-skeleton.md`.
 
 New commands and architecture notes get added HERE as they land (anti-invention: never claim a `package.json` script that isn't present).
