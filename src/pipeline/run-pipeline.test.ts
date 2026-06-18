@@ -136,7 +136,7 @@ describe('runPipeline', () => {
     expect((deps.searchWeb as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 
-  it('swaps a single stage (fixture graph) AND the engine, defaults preserved', async () => {
+  it('swaps a single stage (fixture graph) AND the engine; the swap is memoized', async () => {
     // Replace ONLY the graph stage with a deterministic fixture; the other five stay default.
     const fixtureGraph: StageBundle['graph'] = vi.fn(async () => ({
       graph: { nodes: [{ slug: 'fx', title: 'FX', summary: 's', coverageConfidence: 0.95 }], edges: [] },
@@ -144,8 +144,8 @@ describe('runPipeline', () => {
     }));
     const stages: StageBundle = { ...defaultStages, graph: fixtureGraph };
 
-    // Swap the engine too: a spy that still DELEGATES to a real InlineEngine, so the
-    // "called once" assertion genuinely tests memoization-through-injection, not the spy.
+    // Swap the engine too: a spy that still DELEGATES to a real InlineEngine (so memoization
+    // is the real engine's, not the spy's).
     class SpyEngine implements Engine {
       calls = 0;
       private readonly inner = new InlineEngine();
@@ -155,16 +155,22 @@ describe('runPipeline', () => {
       }
     }
     const spy = new SpyEngine();
+    const deps = fakeDeps();
 
     // options `{}` is the 4th positional arg; `stages` is the new 5th — they don't collide.
-    const out = await runPipeline(req, spy, fakeDeps(), {}, stages);
+    const out = await runPipeline(req, spy, deps, {}, stages);
 
-    expect(fixtureGraph).toHaveBeenCalledTimes(1); // injected stage ran, once → engine.step memoized it
     const slugs = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages.map((p) => p.slug)));
-    expect(slugs).toContain('fx'); // the fixture's node flowed through gate → synth → hub
+    expect(slugs).toContain('fx'); // the injected stage's node flowed through gate → synth → hub
     expect(spy.calls).toBeGreaterThan(0); // the swapped engine actually drove the run
     // graph fixture emitted records:[] → cost threads with no graph row:
     // plan(1) + research(2 questions × [searchWeb + findings] = 4) + synth fx(spec+code+critic = 3) = 8
     expect(out.records).toHaveLength(8);
+
+    // Re-run with the SAME engine + req: every step key repeats, so all steps are served from
+    // the engine's memo and the injected stage is NOT re-invoked — proving memoization survives
+    // a stage swap (the property the durable GcpEngine resume will rely on).
+    await runPipeline(req, spy, deps, {}, stages);
+    expect(fixtureGraph).toHaveBeenCalledTimes(1); // ran once across BOTH runs → memoized through the swap
   });
 });
