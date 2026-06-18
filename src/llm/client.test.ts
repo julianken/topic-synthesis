@@ -39,4 +39,15 @@ describe('complete', () => {
       /refused/,
     );
   });
+
+  it('throws on a truncated (max_tokens) response rather than returning partial text', async () => {
+    const client = fakeClient({
+      content: [{ type: 'text', text: 'partial...' }],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 10, output_tokens: 8000 },
+    });
+    await expect(
+      complete({ model: 'claude-opus-4-8', prompt: 'x', maxTokens: 8000 }, client),
+    ).rejects.toThrow(/max_tokens|truncated/);
+  });
 });

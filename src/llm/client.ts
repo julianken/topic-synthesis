@@ -58,6 +58,14 @@ export async function complete(
   if (res.stop_reason === 'refusal') {
     throw new Error(`Claude refused the request (model ${model}); discard any partial output.`);
   }
+  // Every downstream stage parses structured output and trusts this wrapper, so a
+  // silent truncation would surface as an unexplained parse failure. Fail loud.
+  if (res.stop_reason === 'max_tokens') {
+    throw new Error(
+      `Claude hit max_tokens (${maxTokens}) for model ${model}; output is truncated. ` +
+        `Raise maxTokens (and stream above ~16k).`,
+    );
+  }
 
   const text = res.content
     .filter((b): b is Anthropic.TextBlock => b.type === 'text')
