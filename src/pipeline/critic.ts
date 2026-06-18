@@ -1,6 +1,6 @@
 import { CriticVerdictSchema, type CritiquedArtifact, type PageArtifact } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
-import { STAGE_MODELS } from '../llm/models';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 const CRITIC_SYSTEM =
@@ -29,9 +29,13 @@ export interface CriticOutput {
 }
 
 /** Critic (Opus, one pass): judge an artifact against its spec → pass/fail + critique. */
-export async function critique(artifact: PageArtifact, deps: StageDeps = defaultDeps): Promise<CriticOutput> {
+export async function critique(
+  artifact: PageArtifact,
+  deps: StageDeps = defaultDeps,
+  model: StageModel = STAGE_MODELS.critic,
+): Promise<CriticOutput> {
   const { object, record } = await deps.completeObject({
-    model: STAGE_MODELS.critic,
+    model,
     system: CRITIC_SYSTEM,
     prompt: criticPrompt(artifact),
     schema: CriticVerdictSchema,

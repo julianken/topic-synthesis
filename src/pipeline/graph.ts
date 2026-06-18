@@ -1,6 +1,6 @@
 import { PrereqGraphSchema, type PrereqGraph, type Research } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
-import { STAGE_MODELS } from '../llm/models';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 const GRAPH_SYSTEM =
@@ -31,9 +31,13 @@ export interface GraphOutput {
 }
 
 /** Graph-builder (Opus): research → prerequisite DAG + per-node coverage confidence. */
-export async function buildGraph(research: Research[], deps: StageDeps = defaultDeps): Promise<GraphOutput> {
+export async function buildGraph(
+  research: Research[],
+  deps: StageDeps = defaultDeps,
+  model: StageModel = STAGE_MODELS.graph,
+): Promise<GraphOutput> {
   const { object, record } = await deps.completeObject({
-    model: STAGE_MODELS.graph,
+    model,
     system: GRAPH_SYSTEM,
     prompt: graphPrompt(research),
     schema: PrereqGraphSchema,

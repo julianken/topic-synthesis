@@ -1,6 +1,6 @@
 import { PlanSchema, type Plan, type TopicRequest } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
-import { STAGE_MODELS } from '../llm/models';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 const PLANNER_SYSTEM =
@@ -25,9 +25,13 @@ export interface PlanOutput {
 }
 
 /** Planner (Opus): topic + settings → coverage outline + research questions. */
-export async function plan(req: TopicRequest, deps: StageDeps = defaultDeps): Promise<PlanOutput> {
+export async function plan(
+  req: TopicRequest,
+  deps: StageDeps = defaultDeps,
+  model: StageModel = STAGE_MODELS.planner,
+): Promise<PlanOutput> {
   const { object, record } = await deps.completeObject({
-    model: STAGE_MODELS.planner,
+    model,
     system: PLANNER_SYSTEM,
     prompt: plannerPrompt(req),
     schema: PlanSchema,

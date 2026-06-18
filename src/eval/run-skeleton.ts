@@ -2,36 +2,64 @@ import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
 import type { TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
+import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
-import { runPipeline, type PipelineRunResult } from '../pipeline/run-pipeline';
+import { runPipeline, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
 
+/** Read a `--flag value` arg; undefined if absent or if the next token is itself a flag
+ *  (so `--topic --level intro` does NOT parse topic = "--level"). */
+function readFlag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  if (i < 0) return undefined;
+  const value = args[i + 1];
+  return value !== undefined && !value.startsWith('--') ? value : undefined;
+}
+
+const HAIKU: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
+
+/** Every stage on Haiku — the cheapest tier, for low-cost test runs (`--cheap`). */
+function cheapModels(): Partial<Record<Stage, StageModel>> {
+  const models: Partial<Record<Stage, StageModel>> = {};
+  for (const stage of Object.keys(STAGE_MODELS) as Stage[]) models[stage] = HAIKU;
+  return models;
+}
+
 /** Parse `--topic "x" [--level …] [--depth N] [--audience "…"]` into a TopicRequest. */
 export function buildRequest(args: string[]): TopicRequest {
-  const flag = (name: string): string | undefined => {
-    const i = args.indexOf(name);
-    if (i < 0) return undefined;
-    const value = args[i + 1];
-    // Don't silently swallow the NEXT flag as a missing value
-    // (e.g. `--topic --level intro` must NOT parse topic = "--level").
-    return value !== undefined && !value.startsWith('--') ? value : undefined;
-  };
-  const topic = flag('--topic');
+  const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N]',
     );
   }
-  const level = flag('--level') ?? 'intermediate';
+  const level = readFlag(args, '--level') ?? 'intermediate';
   if (!LEVELS.includes(level as Level)) {
     throw new Error(`--level must be one of: ${LEVELS.join(', ')}`);
   }
-  const depth = Number(flag('--depth') ?? '3');
+  const depth = Number(readFlag(args, '--depth') ?? '3');
   return {
     topic,
-    settings: { level: level as Level, depth, audience: flag('--audience') ?? 'a self-taught learner' },
+    settings: { level: level as Level, depth, audience: readFlag(args, '--audience') ?? 'a self-taught learner' },
   };
+}
+
+/** Parse cost-control flags: `--cheap` (Haiku everywhere) and `--max-nodes N` (cap synthesis). */
+export function buildOptions(args: string[]): RunOptions {
+  const options: RunOptions = {};
+  const maxNodes = readFlag(args, '--max-nodes');
+  if (maxNodes !== undefined) {
+    const n = Number(maxNodes);
+    // Guard against a typo silently capping synthesis to zero (slice(0, NaN) → []),
+    // which would spend on plan/research/graph and then build nothing.
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error('--max-nodes must be a positive integer');
+    }
+    options.maxNodes = n;
+  }
+  if (args.includes('--cheap')) options.models = cheapModels();
+  return options;
 }
 
 /** Human-readable run summary: the tiered curriculum + the per-model cost breakdown. */
@@ -58,14 +86,25 @@ export function formatSummary(run: PipelineRunResult): string {
  * `deps` defaults to the live client, so a real run needs a provider API key in the env
  * (ANTHROPIC_API_KEY / OPENAI_API_KEY / …); tests inject fakes.
  */
-export async function runSkeleton(request: TopicRequest, deps: StageDeps = defaultDeps): Promise<PipelineRunResult> {
-  return runPipeline(request, new InlineEngine(), deps);
+export async function runSkeleton(
+  request: TopicRequest,
+  deps: StageDeps = defaultDeps,
+  options: RunOptions = {},
+): Promise<PipelineRunResult> {
+  return runPipeline(request, new InlineEngine(), deps, options);
 }
 
 async function main(): Promise<void> {
-  const request = buildRequest(process.argv.slice(2));
-  console.log(`Generating a curriculum for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth})…\n`);
-  console.log(formatSummary(await runSkeleton(request)));
+  const args = process.argv.slice(2);
+  const request = buildRequest(args);
+  const options = buildOptions(args);
+  const mode = `${options.models ? 'cheap/Haiku' : 'default models'}, ${
+    options.maxNodes !== undefined ? `max ${options.maxNodes} built nodes` : 'all built nodes'
+  }`;
+  console.log(
+    `Generating a curriculum for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth}; ${mode})…\n`,
+  );
+  console.log(formatSummary(await runSkeleton(request, defaultDeps, options)));
 }
 
 // Run only when invoked directly (tsx src/eval/run-skeleton.ts), never when imported by a test.

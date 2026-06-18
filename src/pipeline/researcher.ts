@@ -1,7 +1,7 @@
 import { FindingsSchema, type Research } from '../domain/stages';
 import type { Settings } from '../domain/settings';
 import type { LlmCallRecord } from '../llm/client';
-import { STAGE_MODELS } from '../llm/models';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 export interface ResearchInput {
@@ -57,15 +57,19 @@ export interface ResearchOutput {
  * the model, and findings that cite an out-of-range index are dropped — so a
  * hallucinated citation can't reach the graph. This is the teeth on the fabrication risk.
  */
-export async function research(input: ResearchInput, deps: StageDeps = defaultDeps): Promise<ResearchOutput> {
+export async function research(
+  input: ResearchInput,
+  deps: StageDeps = defaultDeps,
+  model: StageModel = STAGE_MODELS.researcher,
+): Promise<ResearchOutput> {
   const search = await deps.searchWeb({
-    model: STAGE_MODELS.researcher,
+    model,
     system: RESEARCH_SYSTEM,
     prompt: searchPrompt(input),
     ...(input.maxSearches !== undefined ? { maxSearches: input.maxSearches } : {}),
   });
   const structured = await deps.completeObject({
-    model: STAGE_MODELS.researcher,
+    model,
     system: STRUCTURE_SYSTEM,
     prompt: structurePrompt(input, search.text, search.sources),
     schema: FindingsSchema,
