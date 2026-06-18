@@ -162,7 +162,9 @@ export function rebuildHub(rows: PageJoinRow[]): SitemapHub {
       title: row.title,
       status: row.status,
       built: row.status === 'built',
-      href: `/artifact/${row.page_id}`,
+      // encodeURIComponent: the page_id is a content-identity key containing '#'/'@'/':' which
+      // would otherwise truncate the URL at the fragment. Route params are decoded by Next.
+      href: `/artifact/${encodeURIComponent(row.page_id)}`,
     });
   }
   return { tiers };

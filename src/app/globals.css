@@ -110,3 +110,114 @@ h1 {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ── Curriculum hub + artifact detail ─────────────────────────────────────── */
+.wrap--wide {
+  max-width: 64rem;
+}
+
+.hub {
+  margin-top: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.tier__name {
+  font-size: var(--fs-h2);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.category {
+  margin-bottom: var(--sp-4);
+}
+
+.category__name {
+  font-size: var(--fs-small);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: var(--sp-3);
+}
+
+.tiles {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--sp-3);
+}
+
+.tile__link,
+.tile__static {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.tile__link {
+  text-decoration: none;
+  color: var(--text);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.tile__link:hover {
+  border-color: var(--interactive);
+  transform: translateY(-1px);
+}
+
+.tile--soon .tile__static,
+.tile--text .tile__static {
+  color: var(--text-muted);
+  background: var(--bg-surface);
+}
+
+.tile__title {
+  font-size: var(--fs-body);
+}
+
+.badge {
+  flex: none;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  border: 1px solid currentColor;
+}
+
+.badge--built {
+  color: var(--status-built);
+}
+.badge--soon {
+  color: var(--status-soon);
+}
+.badge--text {
+  color: var(--text-faint);
+}
+
+.back {
+  color: var(--interactive);
+  text-decoration: none;
+}
+.back:hover {
+  color: var(--interactive-hover);
+}
+
+.artifact-frame {
+  width: 100%;
+  height: 80vh;
+  margin-top: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+}
