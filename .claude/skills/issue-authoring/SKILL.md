@@ -1,19 +1,19 @@
 ---
 name: issue-authoring
-description: Use when opening or rewriting an implementation issue or plan spec on {{OWNER}}/{{REPO}}. Triggers on "create issue", "write the issue", "issue spec", "implementation plan issue", or batch prep/planning work. Self-contained for worktree dispatch.
+description: Use when opening or rewriting an implementation issue or plan spec on julianken/topic-synthesis. Triggers on "create issue", "write the issue", "issue spec", "implementation plan issue", or batch prep/planning work. Self-contained for worktree dispatch.
 ---
 
-# Issue authoring ({{OWNER}}/{{REPO}})
+# Issue authoring (julianken/topic-synthesis)
 
 **Announce at start:** *"I'm using the issue-authoring skill to draft an implementation-ready issue spec."*
 
-GitHub slug: `{{OWNER}}/{{REPO}}`. After the issue is posted, **dispatch `issue-plan-review`** — the author must not self-approve in the same pass.
+GitHub slug: `julianken/topic-synthesis`. After the issue is posted, **dispatch `issue-plan-review`** — the author must not self-approve in the same pass.
 
 ## Quality bar vs anti-pattern
 
 | | Good | Bad |
 | --- | --- | --- |
-| Context | Grounded in **current repo facts** with links to committed files | Vague program-phase labels + `research/*.md` paths **not on `{{DEFAULT_BRANCH}}`** |
+| Context | Grounded in **current repo facts** with links to committed files | Vague program-phase labels + `research/*.md` paths **not on `main`** |
 | Approach | Explains *why* this shape; names alternatives rejected | Jumps straight to bullet lists |
 | Plan | Numbered steps or matrix; right-sized for solo pre-code repo | Thin Scope In/Out with no rationale |
 | ACs | Atomic, independently verifiable | Bundled checkboxes ("find PR method" = many files) |
@@ -38,7 +38,7 @@ Use these headers (adapt titles slightly if needed; keep the information):
 
 ### 3. Concrete plan
 
-Numbered steps or Scope **In** / **Out** with **rationale per bucket**. Cite real paths (`AGENTS.md`, `.claude/skills/…`) — verify they exist on `{{DEFAULT_BRANCH}}` **this turn** (`Read` / `ls`).
+Numbered steps or Scope **In** / **Out** with **rationale per bucket**. Cite real paths (`AGENTS.md`, `.claude/skills/…`) — verify they exist on `main` **this turn** (`Read` / `ls`).
 
 ### 4. Acceptance criteria
 

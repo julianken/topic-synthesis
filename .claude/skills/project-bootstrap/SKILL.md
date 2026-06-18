@@ -3,7 +3,7 @@ name: project-bootstrap
 description: Use when a fresh agent or human session needs to orient in this repo before doing work — confirm the instance is coherent (paths exist, pointers resolve, no contradictions with DESIGN.md), or stand up a new product by filling the template's placeholders. Triggers on "bootstrap", "orient in this repo", "where do I start", "validate the instance", "is this repo coherent", "get my bearings", "fill the template", "fill mode", "stand up a new product". Self-contained for worktree dispatch.
 ---
 
-# Project bootstrap ({{OWNER}}/{{REPO}})
+# Project bootstrap (julianken/topic-synthesis)
 
 **Announce at start:** *"I'm using the project-bootstrap skill to orient in this repo (\<validate|fill\> mode)."*
 
@@ -15,7 +15,7 @@ This repo is a **template** that can be in one of two states, distinguished by *
 
 | Mode | When | What it does | Status |
 | --- | --- | --- | --- |
-| **fill** | Unfilled template — files still contain `{{PLACEHOLDERS}}` | Substitute every placeholder (`{{PROJECT_NAME}}`, `{{OWNER}}/{{REPO}}`, optional `{{FIGMA_FILE_ID}}`/`{{REVIEW_BOT}}`, …) from `.seed/placeholders.json` to stand up a new product from the scaffold. | **Implemented** — driver is [`scripts/fill-template.sh`](../../../scripts/fill-template.sh). |
+| **fill** | Unfilled template — files still contain `{{PLACEHOLDERS}}` | Substitute every placeholder (`Topic Synthesis`, `julianken/topic-synthesis`, optional ``/`julianken-bot`, …) from `.seed/placeholders.json` to stand up a new product from the scaffold. | **Implemented** — driver is [`scripts/fill-template.sh`](../../../scripts/fill-template.sh). |
 | **validate** | Filled instance — every placeholder has a real value | Audit that the instance is coherent — files exist, pointers resolve, no contradictions with `DESIGN.md`. **Never** wipes or rewrites domain content. | **Implemented (this skill).** |
 
 **Which mode am I in?** Run `grep -rl '{{' INSTANCE.md DESIGN.md README.md 2>/dev/null`. If it finds placeholders, you are in an **unfilled template** → run **fill**. If it finds none, you are in a **filled instance** → run **validate**. Do **not** re-run fill on an already-filled instance (it would have nothing to substitute and risks clobbering domain content).
@@ -28,7 +28,7 @@ Fill stamps the template into a concrete product by replacing every `{{PLACEHOLD
 
 ### Fill workflow
 
-1. **Read the glossary.** Open [`.seed/placeholders.json`](../../../.seed/placeholders.json) and note which placeholders are **required** and which are **optional** (`"optional": true` — currently `{{REVIEW_BOT}}` and `{{FIGMA_FILE_ID}}`). An optional placeholder left blank **disables its module** (the review bot / the Figma design source); the sections those modules own are marked OPTIONAL in `INSTANCE.md` and are deleted when blanked.
+1. **Read the glossary.** Open [`.seed/placeholders.json`](../../../.seed/placeholders.json) and note which placeholders are **required** and which are **optional** (`"optional": true` — currently `julianken-bot` and ``). An optional placeholder left blank **disables its module** (the review bot / the Figma design source); the sections those modules own are marked OPTIONAL in `INSTANCE.md` and are deleted when blanked.
 2. **Gather values.** Provide a value for every required placeholder. The script reads them from `.seed/answers.json` (a flat `{"KEY": "value", …}` map). Copy [`.seed/answers.example.json`](../../../.seed/answers.example.json) to `.seed/answers.json` and edit it, or assemble your own. If `.seed/answers.json` is absent, the script prints exactly which placeholders it needs and exits non-zero — it never guesses.
 3. **Substitute.** Run `bash scripts/fill-template.sh`. It substitutes every `{{KEY}}` across tracked text files, **excluding** `.git/`, `.seed/`, `tmp/`, and `.remember/` (so the glossary, the answers, and scratch state are never rewritten). Optional placeholders left blank are blanked in place with a warning, so their clearly-marked OPTIONAL sections become deletable.
 4. **Verify nothing remains.** The script **fails** if any required placeholder was unset or any `{{…}}` token survives the pass — a green run means the tree is fully stamped. (Re-run after fixing `.seed/answers.json` if it fails.)

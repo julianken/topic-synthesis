@@ -1,17 +1,17 @@
 ---
 name: creating-prs
-description: Use when drafting a PR body or deciding what goes in the description on {{OWNER}}/{{REPO}}. Triggers on "draft a PR description", "what should the PR body say", "fill the PR template", "PR body sections", or a PR that came back with template-shaped feedback. The generic five-section method, conventional-commit rules, and plan-reference discipline — bot-agnostic, no credentials. Self-contained for worktree dispatch.
+description: Use when drafting a PR body or deciding what goes in the description on julianken/topic-synthesis. Triggers on "draft a PR description", "what should the PR body say", "fill the PR template", "PR body sections", or a PR that came back with template-shaped feedback. The generic five-section method, conventional-commit rules, and plan-reference discipline — bot-agnostic, no credentials. Self-contained for worktree dispatch.
 ---
 
 # Creating PRs — the body method
 
 **Announce at start:** *"I'm using the creating-prs skill to fill the five-section PR body."*
 
-This skill owns the **generic method** for a PR body: the five-section shape, conventional commits, the plan/issue reference, and the screenshot policy. It is **bot-agnostic** — it carries no review-bot (`@{{REVIEW_BOT}}`) credentials and no merge mechanics. Read it alongside `.claude/skills/pr-workflow/SKILL.md`, which holds the **instance facts** (the ruleset, the merge-queue slug, the doc-currency checkbox) and routes the review and merge steps. A cold-start agent that can read only `.claude/skills/` can describe and fill the PR body from this file alone, without opening the owner's user-level `~/.claude/skills/`.
+This skill owns the **generic method** for a PR body: the five-section shape, conventional commits, the plan/issue reference, and the screenshot policy. It is **bot-agnostic** — it carries no review-bot (`@julianken-bot`) credentials and no merge mechanics. Read it alongside `.claude/skills/pr-workflow/SKILL.md`, which holds the **instance facts** (the ruleset, the merge-queue slug, the doc-currency checkbox) and routes the review and merge steps. A cold-start agent that can read only `.claude/skills/` can describe and fill the PR body from this file alone, without opening the owner's user-level `~/.claude/skills/`.
 
 ## No-drift relationship
 
-The generic method here mirrors the user-level `creating-prs` skill (shared across the owner's repos). This repo-local copy is the canonical one for `{{OWNER}}/{{REPO}}`; the user-level skill is the portable overlay. Per `AGENTS.md` → **Skill ownership** "No-drift rule": a change to either copy must update the other in the **same PR**, and the PR Summary must say so. On conflict, the repo-local copy wins for anything instance-specific; the user-level skill wins for the portable method itself.
+The generic method here mirrors the user-level `creating-prs` skill (shared across the owner's repos). This repo-local copy is the canonical one for `julianken/topic-synthesis`; the user-level skill is the portable overlay. Per `AGENTS.md` → **Skill ownership** "No-drift rule": a change to either copy must update the other in the **same PR**, and the PR Summary must say so. On conflict, the repo-local copy wins for anything instance-specific; the user-level skill wins for the portable method itself.
 
 ## The five-section body
 
@@ -35,7 +35,7 @@ Before opening the PR, update — **in the same PR** — every drift-prone file 
 
 ## What this skill does NOT own
 
-- **The review** — dispatch a fresh-context reviewer; the rubric is `.claude/skills/reviewing/SKILL.md`. The bot identity (`@{{REVIEW_BOT}}`) + credentials are an **optional module** — the user-level `reviewing-as-{{REVIEW_BOT}}` skill (`docs/optional/review-bot.md` is the adopt-or-skip explainer, which points back at that overlay); blanking `{{REVIEW_BOT}}` disables it and a human reviewer applies the rubric directly. Never `gh pr review` from the main session — that posts as the owner (`@{{CODEOWNER}}`) and can't satisfy the per-HEAD ruleset. (`pr-workflow` rule 2.)
+- **The review** — dispatch a fresh-context reviewer; the rubric is `.claude/skills/reviewing/SKILL.md`. The bot identity (`@julianken-bot`) + credentials are an **optional module** — the user-level `reviewing-as-julianken-bot` skill (`docs/optional/review-bot.md` is the adopt-or-skip explainer, which points back at that overlay); blanking `julianken-bot` disables it and a human reviewer applies the rubric directly. Never `gh pr review` from the main session — that posts as the owner (`@julianken`) and can't satisfy the per-HEAD ruleset. (`pr-workflow` rule 2.)
 - **The merge** — the merge-queue trigger as a standalone exact-body comment; never `gh pr merge`. (`pr-workflow` rule, user-level `mergify-merge-workflow`.) Mergify is an **optional module** — `docs/optional/mergify.md` is the adopt-or-skip explainer.
 - **The instance facts** — the ruleset, the merge-queue slug, the `gh` repo slug: `.claude/skills/pr-workflow/SKILL.md` and `INSTANCE.md`.
 

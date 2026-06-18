@@ -1,7 +1,7 @@
-# `.claude/agents/` — Subagent index for `{{OWNER}}/{{REPO}}`
+# `.claude/agents/` — Subagent index for `julianken/topic-synthesis`
 
-This directory holds repo-specific subagents for `{{OWNER}}/{{REPO}}` (local folder
-`{{LOCAL_FOLDER}}/`). Agents placed here are dispatchable via the `Task` tool from a
+This directory holds repo-specific subagents for `julianken/topic-synthesis` (local folder
+`topic-synthesis/`). Agents placed here are dispatchable via the `Task` tool from a
 session running at the repo root. The slug/folder are restated here on purpose —
 worktree-isolated dispatches don't load `AGENTS.md`/`INSTANCE.md`; the canonical
 catalogue of instance facts (product, slug, design file, merge/review infra) is
@@ -23,7 +23,7 @@ the credential split, and how the bot loads its token — is documented in
 content** (the anti-slop rubric) is bot-agnostic and lives in
 [`.claude/skills/reviewing/SKILL.md`](../../.claude/skills/reviewing/SKILL.md),
 which carries no credentials; an agent file here would only wire dispatch + identity,
-not restate that rubric. Blanking `{{REVIEW_BOT}}` disables the review-bot module.
+not restate that rubric. Blanking `julianken-bot` disables the review-bot module.
 
 ## How a skill or session dispatches an agent
 

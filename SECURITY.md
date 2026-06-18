@@ -1,7 +1,7 @@
 # Security Policy
 
-{{PROJECT_NAME}} is a personal, non-commercial, solo-maintained open-source
-project — {{PROJECT_TAGLINE}}. There is no backend, no accounts, no personal data
+Topic Synthesis is a personal, non-commercial, solo-maintained open-source
+project — Generate interactive, scaffolded learning curricula from a topic. There is no backend, no accounts, no personal data
 collected, and no analytics today. This file tells you how to report a security
 problem and what to honestly expect in return.
 
@@ -60,10 +60,10 @@ example, a way to get malicious code or content to execute in their browser).
 
 ## Supported versions
 
-There is one actively developed line of work: the current `{{DEFAULT_BRANCH}}`
+There is one actively developed line of work: the current `main`
 branch and whatever is currently deployed from it. There is no release-version
 matrix and no back-porting. Until the app is actually deployed somewhere,
-"supported" effectively means `{{DEFAULT_BRANCH}}`.
+"supported" effectively means `main`.
 
 ## Secrets and sensitive data
 
