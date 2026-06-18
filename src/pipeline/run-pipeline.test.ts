@@ -126,4 +126,11 @@ describe('runPipeline', () => {
     expect(calls.find(([o]) => o.schema === PlanSchema)?.[0].model).toEqual(haiku); // planner overridden
     expect(calls.find(([o]) => o.schema === PrereqGraphSchema)?.[0].model.model).toBe('claude-opus-4-8'); // graph still default
   });
+
+  it('caps research fan-out at maxQuestions (the main cost lever)', async () => {
+    const deps = fakeDeps(['q1', 'q2', 'q3']); // 3 research questions
+    await runPipeline(req, new InlineEngine(), deps, { maxQuestions: 1 });
+    // only the first question is researched → 1 web search, not 3
+    expect((deps.searchWeb as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
 });

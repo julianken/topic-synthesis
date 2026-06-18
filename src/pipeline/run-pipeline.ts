@@ -35,6 +35,8 @@ export interface RunOptions {
   maxNodes?: number;
   /** Per-stage model overrides, merged over STAGE_MODELS (a workflow_version arm; also cheap-mode). */
   models?: Partial<Record<Stage, StageModel>>;
+  /** Cap on research questions fanned out — each drives a web search, the run's main cost driver. */
+  maxQuestions?: number;
 }
 
 /**
@@ -68,7 +70,10 @@ export async function runPipeline(
   // uniqueness constraint, so a duplicate is valid input we must collapse here.
   const subtopics = planned.plan.subtopics;
   const uniqueQuestions = [...new Set(planned.plan.researchQuestions)];
-  const researchInputs: ResearchInput[] = uniqueQuestions.map((question, i) => ({
+  // Cap the research fan-out: each question drives a web search, the run's main cost driver.
+  const questions =
+    options.maxQuestions !== undefined ? uniqueQuestions.slice(0, options.maxQuestions) : uniqueQuestions;
+  const researchInputs: ResearchInput[] = questions.map((question, i) => ({
     subtopic: subtopics[i % subtopics.length] ?? planned.plan.scope,
     question,
     settings: req.settings,

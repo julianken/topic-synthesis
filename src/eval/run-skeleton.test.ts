@@ -107,4 +107,8 @@ describe('buildOptions', () => {
   it('rejects a non-numeric --max-nodes (no silent zero-node run)', () => {
     expect(() => buildOptions(['--max-nodes', 'lots'])).toThrow(/max-nodes/);
   });
+
+  it('--max-questions caps the research fan-out', () => {
+    expect(buildOptions(['--max-questions', '3']).maxQuestions).toBe(3);
+  });
 });
