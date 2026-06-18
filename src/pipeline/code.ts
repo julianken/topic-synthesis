@@ -1,6 +1,6 @@
 import type { PageArtifact, PageSpec } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
-import { STAGE_MODELS } from '../llm/models';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 const CODE_SYSTEM =
@@ -31,9 +31,13 @@ export interface CodeOutput {
  * (not structured output). The raw HTML is sanitized (DOMPurify) at store/serve time in the
  * app layer, not here. A larger output budget is used since a full page can be sizable.
  */
-export async function code(spec: PageSpec, deps: StageDeps = defaultDeps): Promise<CodeOutput> {
+export async function code(
+  spec: PageSpec,
+  deps: StageDeps = defaultDeps,
+  model: StageModel = STAGE_MODELS.code,
+): Promise<CodeOutput> {
   const { text, record } = await deps.complete({
-    model: STAGE_MODELS.code,
+    model,
     system: CODE_SYSTEM,
     prompt: codePrompt(spec),
     maxTokens: 16000,

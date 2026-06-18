@@ -7,7 +7,7 @@ import {
   PrereqGraphSchema,
 } from '../domain/stages';
 import type { StageDeps } from '../pipeline/deps';
-import { buildRequest, formatSummary, runSkeleton } from './run-skeleton';
+import { buildOptions, buildRequest, formatSummary, runSkeleton } from './run-skeleton';
 
 const mkRec = () => ({
   providerModel: 'anthropic:claude-opus-4-8',
@@ -84,5 +84,23 @@ describe('runSkeleton + formatSummary', () => {
     expect(summary).toContain('1/1 passed the critic');
     expect(summary).toContain('Total: $');
     expect(run.costUsd).toBeGreaterThan(0);
+  });
+});
+
+describe('buildOptions', () => {
+  it('is empty by default (default models, all nodes)', () => {
+    const opts = buildOptions(['--topic', 'x']);
+    expect(opts.models).toBeUndefined();
+    expect(opts.maxNodes).toBeUndefined();
+  });
+
+  it('--cheap sets every stage to Haiku', () => {
+    const opts = buildOptions(['--cheap']);
+    expect(opts.models?.planner?.model).toBe('claude-haiku-4-5');
+    expect(opts.models?.critic?.model).toBe('claude-haiku-4-5');
+  });
+
+  it('--max-nodes caps the synthesized node count', () => {
+    expect(buildOptions(['--max-nodes', '2']).maxNodes).toBe(2);
   });
 });

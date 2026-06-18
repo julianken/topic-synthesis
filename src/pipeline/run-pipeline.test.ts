@@ -8,6 +8,7 @@ import {
   type TopicRequest,
 } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
+import type { StageModel } from '../llm/models';
 import { InlineEngine } from '../engine/inline-engine';
 import type { StageDeps } from './deps';
 import { runPipeline } from './run-pipeline';
@@ -23,8 +24,8 @@ const mkRec = (): LlmCallRecord => ({
 
 // Fake deps that return stage-appropriate output, dispatched by the Zod schema each
 // stage passes — so one fake serves the whole pipeline with no live model.
-function fakeDeps(questions: string[] = ['q1', 'q2']): StageDeps {
-  const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string }) => {
+function fakeDeps(questions: string[] = ['q1', 'q2'], coverages: number[] = [0.9, 0.3]): StageDeps {
+  const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string; model: StageModel }) => {
     if (opts.schema === PlanSchema) {
       return { object: { scope: 'S', subtopics: ['a', 'b'], researchQuestions: questions }, record: mkRec() };
     }
@@ -32,16 +33,13 @@ function fakeDeps(questions: string[] = ['q1', 'q2']): StageDeps {
       return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
     }
     if (opts.schema === PrereqGraphSchema) {
-      return {
-        object: {
-          nodes: [
-            { slug: 'n1', title: 'N1', summary: 's', coverageConfidence: 0.9 }, // → built
-            { slug: 'n2', title: 'N2', summary: 's', coverageConfidence: 0.3 }, // → soon
-          ],
-          edges: [{ from: 'n1', to: 'n2' }],
-        },
-        record: mkRec(),
-      };
+      const nodes = coverages.map((c, i) => ({
+        slug: `n${i + 1}`,
+        title: `N${i + 1}`,
+        summary: 's',
+        coverageConfidence: c,
+      }));
+      return { object: { nodes, edges: [] }, record: mkRec() };
     }
     if (opts.schema === PageSpecSchema) {
       const slug = opts.prompt.match(/slug: (\w+)/)?.[1] ?? 'n1';
@@ -109,5 +107,23 @@ describe('runPipeline', () => {
     // records/cost reflect the 2 real research calls, not a double-counted duplicate
     expect(out.records).toHaveLength(9); // plan 1 + research 2×2 + graph 1 + synth 3
     expect(out.costUsd).toBeCloseTo(0.09, 6);
+  });
+
+  it('caps synthesis at maxNodes — capped-out built nodes surface as soon (cost control)', async () => {
+    const deps = fakeDeps(['q1'], [0.9, 0.9, 0.9]); // 3 built-routed nodes
+    const out = await runPipeline(req, new InlineEngine(), deps, { maxNodes: 1 });
+    expect(out.result.pages).toHaveLength(1); // only 1 synthesized despite 3 buildable
+    const pages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    expect(pages.filter((p) => p.built)).toHaveLength(1);
+    expect(pages.filter((p) => p.status === 'soon')).toHaveLength(2); // the rest degrade, not fabricated
+  });
+
+  it('applies per-stage model overrides (the workflow_version arm / cheap-mode)', async () => {
+    const deps = fakeDeps();
+    const haiku: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
+    await runPipeline(req, new InlineEngine(), deps, { models: { planner: haiku } });
+    const calls = (deps.completeObject as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.find(([o]) => o.schema === PlanSchema)?.[0].model).toEqual(haiku); // planner overridden
+    expect(calls.find(([o]) => o.schema === PrereqGraphSchema)?.[0].model.model).toBe('claude-opus-4-8'); // graph still default
   });
 });

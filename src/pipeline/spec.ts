@@ -1,7 +1,7 @@
 import { PageSpecSchema, type GatedNode, type PageSpec, type Source } from '../domain/stages';
 import type { Settings } from '../domain/settings';
 import type { LlmCallRecord } from '../llm/client';
-import { STAGE_MODELS } from '../llm/models';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 export interface SpecInput {
@@ -39,9 +39,13 @@ export interface SpecOutput {
 }
 
 /** Spec (Sonnet): a gated node → the plan for one accessible, interactive page. */
-export async function spec(input: SpecInput, deps: StageDeps = defaultDeps): Promise<SpecOutput> {
+export async function spec(
+  input: SpecInput,
+  deps: StageDeps = defaultDeps,
+  model: StageModel = STAGE_MODELS.spec,
+): Promise<SpecOutput> {
   const { object, record } = await deps.completeObject({
-    model: STAGE_MODELS.spec,
+    model,
     system: SPEC_SYSTEM,
     prompt: specPrompt(input),
     schema: PageSpecSchema,
