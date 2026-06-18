@@ -49,7 +49,15 @@ export function buildRequest(args: string[]): TopicRequest {
 export function buildOptions(args: string[]): RunOptions {
   const options: RunOptions = {};
   const maxNodes = readFlag(args, '--max-nodes');
-  if (maxNodes !== undefined) options.maxNodes = Number(maxNodes);
+  if (maxNodes !== undefined) {
+    const n = Number(maxNodes);
+    // Guard against a typo silently capping synthesis to zero (slice(0, NaN) → []),
+    // which would spend on plan/research/graph and then build nothing.
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error('--max-nodes must be a positive integer');
+    }
+    options.maxNodes = n;
+  }
   if (args.includes('--cheap')) options.models = cheapModels();
   return options;
 }

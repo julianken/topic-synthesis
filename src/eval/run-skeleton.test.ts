@@ -103,4 +103,8 @@ describe('buildOptions', () => {
   it('--max-nodes caps the synthesized node count', () => {
     expect(buildOptions(['--max-nodes', '2']).maxNodes).toBe(2);
   });
+
+  it('rejects a non-numeric --max-nodes (no silent zero-node run)', () => {
+    expect(() => buildOptions(['--max-nodes', 'lots'])).toThrow(/max-nodes/);
+  });
 });
