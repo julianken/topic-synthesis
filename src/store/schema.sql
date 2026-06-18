@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS run (
 CREATE TABLE IF NOT EXISTS concept_page (
   id              TEXT PRIMARY KEY,
   concept_slug    TEXT NOT NULL,
+  title           TEXT NOT NULL,
   settings_bucket TEXT NOT NULL,
   content_hash    TEXT NOT NULL,
   status          TEXT NOT NULL CHECK (status IN ('built', 'soon', 'text')),
@@ -37,6 +38,12 @@ CREATE TABLE IF NOT EXISTS concept_page (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (concept_slug, settings_bucket, content_hash)
 );
+-- Idempotent upgrade for DBs created before `title` existed (the CREATE above covers fresh
+-- DBs): add nullable, backfill legacy rows from the slug, then enforce NOT NULL — so the
+-- column's NOT NULL invariant holds regardless of DB provenance.
+ALTER TABLE concept_page ADD COLUMN IF NOT EXISTS title TEXT;
+UPDATE concept_page SET title = concept_slug WHERE title IS NULL;
+ALTER TABLE concept_page ALTER COLUMN title SET NOT NULL;
 
 -- One curriculum (a single topic request).
 CREATE TABLE IF NOT EXISTS curriculum (
