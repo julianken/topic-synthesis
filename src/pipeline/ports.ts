@@ -1,5 +1,6 @@
 import type { Engine } from '../engine/engine';
-import type { StageModel } from '../llm/models';
+import type { LlmCallRecord } from '../llm/client';
+import type { Stage, StageModel } from '../llm/models';
 import type { StoreDeps } from '../store/repo';
 import { code } from './code';
 import { critique } from './critic';
@@ -23,6 +24,7 @@ import { spec } from './spec';
  *   LLM + web search  StageDeps       real ↔ fakes ↔ recorded cassettes ↔ a cheap model
  *   Per-stage model   StageModel      the A/B arm (RunOptions.models)
  *   Store             StoreDeps       Postgres ↔ in-memory (lives in src/store/repo.ts)
+ *   Observability     TraceSink       noopSink (default) ↔ SpanCollector→eleatic ↔ an OTel sink
  *
  * Known residual limits, so this doesn't over-claim full swappability:
  *  (i)   StageModel.params (effort/thinking/cacheSystem) are carried on an arm but not yet
@@ -30,7 +32,9 @@ import { spec } from './spec';
  *        indistinguishable today;
  *  (ii)  searchWeb is Anthropic-only, so a non-Anthropic researcher arm isn't swappable via
  *        StageModel alone;
- *  (iii) StoreDeps is per-call (post-pipeline persistRun), not threaded through runPipeline.
+ *  (iii) StoreDeps is per-call (post-pipeline persistRun), not threaded through runPipeline;
+ *  (iv)  TraceSink is an OBSERVABILITY seam, not a workflow_version axis (it can't change the
+ *        artifact); its spans carry cost/tokens but no wall-clock (LlmCallRecord has no timing).
  */
 export type { Engine, StageDeps, StageModel, StoreDeps };
 
@@ -61,3 +65,27 @@ export const defaultStages: StageBundle = {
   code,
   critic: critique,
 };
+
+/**
+ * One per-LLM-call trace span: which stage produced it, the built node it belongs to (absent for
+ * the run-level analysis stages plan/research/graph), and that call's cost/token record.
+ */
+export interface TraceSpan {
+  stage: Stage;
+  nodeSlug?: string;
+  record: LlmCallRecord;
+}
+
+/**
+ * The OBSERVABILITY port. runPipeline notifies the sink once per LLM call. The default drops
+ * every span, so the Next app (which injects `noopSink`) never reaches the eleatic adapter or its
+ * heavy better-sqlite3/express deps; the eval/CLI path injects a `SpanCollector` (src/trace/span.ts)
+ * that reduces the spans to an eleatic trace. Swapping the sink never changes the generated
+ * artifact — this is observability, not a workflow_version axis.
+ */
+export interface TraceSink {
+  onSpan(span: TraceSpan): void;
+}
+
+/** The real default — drops every span (no observability overhead, no eleatic dependency). */
+export const noopSink: TraceSink = { onSpan() {} };

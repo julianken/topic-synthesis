@@ -24,8 +24,19 @@ export default {
         'frontend. Keeps the core a Next-free deployable (a Cloud Run Job image), per ADR 0001 §4. ' +
         'Starts green — the decoupling audit found zero such imports.',
       severity: 'error',
-      from: { path: '^src/(domain|llm|pipeline|engine|store|eval)/' },
+      from: { path: '^src/(domain|llm|pipeline|engine|store|eval|trace)/' },
       to: { path: 'node_modules/(next|react-dom|react|server-only|client-only)(/|$)' },
+    },
+    {
+      name: 'eleatic-only-in-trace',
+      comment:
+        'Only src/trace/eleatic-adapter.ts may import @eleatic/eval — its better-sqlite3 + express ' +
+        'transitive deps must stay OUT of the Next app bundle (ADR 0001 §4). span.ts/reduce.ts ' +
+        're-declare the record shapes locally (src/trace/eval-records.ts) and import nothing from the ' +
+        'package; tsPreCompilationDeps:true means even an `import type` here would be caught.',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '^src/trace/eleatic-adapter\\.ts$' },
+      to: { path: 'node_modules/@eleatic/eval(/|$)' },
     },
   ],
   options: {
