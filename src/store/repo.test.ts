@@ -88,6 +88,10 @@ describe('persistRun (transaction shape, fake pool)', () => {
     expect(sqls.at(-1)).toBe('COMMIT');
     expect(sqls.some((s) => s.includes('INTO workflow_version'))).toBe(true);
     expect(sqls.some((s) => s.includes('INTO run'))).toBe(true);
+    // run + curriculum inserts are idempotent so a Job retry that re-reaches persist after a prior
+    // successful commit no-ops instead of throwing a duplicate-key error (crash-resume prerequisite).
+    expect(sqls.find((s) => s.includes('INTO run'))).toContain('ON CONFLICT (id) DO NOTHING');
+    expect(sqls.find((s) => s.includes('INTO curriculum ('))).toContain('ON CONFLICT (id) DO NOTHING');
     expect(sqls.filter((s) => s.includes('INTO concept_page'))).toHaveLength(2); // one per hub page
     expect(client.release).toHaveBeenCalled();
   });

@@ -37,8 +37,8 @@ function readPositiveInt(args: string[], name: string): number | undefined {
 
 const HAIKU: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
 
-/** Every stage on Haiku — the cheapest tier, for low-cost test runs (`--cheap`). */
-function cheapModels(): Partial<Record<Stage, StageModel>> {
+/** Every stage on Haiku — the cheapest tier, for low-cost runs (`--cheap`; reused by the Job's CHEAP). */
+export function cheapModels(): Partial<Record<Stage, StageModel>> {
   const models: Partial<Record<Stage, StageModel>> = {};
   for (const stage of Object.keys(STAGE_MODELS) as Stage[]) models[stage] = HAIKU;
   return models;
