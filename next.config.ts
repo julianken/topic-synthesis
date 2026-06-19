@@ -4,6 +4,9 @@ import type { NextConfig } from 'next';
 // route handler (see the walking-skeleton plan) so the sandbox is enforced at
 // the exact surface that serves untrusted generated HTML — not globally here.
 const nextConfig: NextConfig = {
+  // Standalone output → a lean Cloud Run Service image: `.next/standalone/server.js` + only the
+  // traced node_modules (no full install at runtime). See docs/decisions/0001 §1.
+  output: 'standalone',
   // `pg` is a Node-only driver (optional native bindings); keep it external so the App Router
   // bundler doesn't trace it into a route/serverless bundle. Route handlers + server components
   // require it at runtime (the store reads Postgres). See docs/decisions/0001 §1.
