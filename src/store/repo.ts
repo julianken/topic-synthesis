@@ -70,12 +70,12 @@ export async function persistRun(
     );
     await client.query(
       `INSERT INTO run (id, workflow_ver, page_count, cost_usd, eleatic_run_id)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
       [runId, workflowVer, pages.length, costUsd, eleaticRunId ?? null],
     );
     await client.query(
       `INSERT INTO curriculum (id, topic, settings_json, workflow_ver, run_id)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
       [runId, request.topic, JSON.stringify(request.settings), workflowVer, runId],
     );
     for (const { tier, category, ordinal, page } of pages) {
