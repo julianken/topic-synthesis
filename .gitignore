@@ -42,3 +42,10 @@ tmp/
 # Cursor: commit shared config (rules/agents/commands) if ever added; ignore per-developer state.
 # Do NOT blanket-ignore .cursor/ — that would hide a future committed pointer/config.
 .cursor/mcp.json
+
+# Terraform (IaC in infra/): local provider cache + state stay out of git; the lock file IS committed.
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
