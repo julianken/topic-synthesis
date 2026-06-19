@@ -69,3 +69,15 @@ CREATE TABLE IF NOT EXISTS curriculum_page (
 CREATE INDEX IF NOT EXISTS idx_concept_page_identity ON concept_page (concept_slug, settings_bucket);
 CREATE INDEX IF NOT EXISTS idx_curriculum_page_curriculum ON curriculum_page (curriculum_id);
 CREATE INDEX IF NOT EXISTS idx_run_workflow ON run (workflow_ver);
+
+-- Durable step memoization for the GcpEngine (Cloud Run Job resume). A completed (run, step name,
+-- content-identity key) is read back, never re-run, on retry/resume — so a crash never repeats
+-- (or re-pays for) finished LLM work. This is the durable-execution ledger, not curriculum data.
+CREATE TABLE IF NOT EXISTS step_result (
+  run_id      TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  step_key    TEXT NOT NULL,
+  result_json JSONB NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (run_id, name, step_key)
+);
