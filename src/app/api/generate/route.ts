@@ -6,6 +6,7 @@ import { STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
 import { defaultDeps } from '../../../pipeline/deps';
 import { runPipeline } from '../../../pipeline/run-pipeline';
 import { persistRun } from '../../../store/repo';
+import { dispatchJob, isJobDispatchEnabled } from './dispatch';
 
 // The pipeline + pg need the Node runtime, not Edge. Never statically cached.
 export const runtime = 'nodejs';
@@ -65,6 +66,17 @@ export async function POST(req: Request): Promise<Response> {
   // The runId IS the curriculum id (persistRun keys on it); the client redirects to
   // /curriculum/<id> and the hub polls it. 202: accepted, generation in flight.
   const runId = randomUUID();
-  startRun(runId, request);
+  if (isJobDispatchEnabled()) {
+    // Deployed: dispatch the durable Cloud Run Job — the Service stays scale-to-zero (it never holds
+    // the run in-process). A failed dispatch is honest (502), not a phantom 202 the poller waits on.
+    try {
+      await dispatchJob(runId, request);
+    } catch (err) {
+      console.error('[generate] job dispatch failed', runId, err);
+      return Response.json({ error: 'Could not start generation.' }, { status: 502 });
+    }
+  } else {
+    startRun(runId, request); // local dev (no PIPELINE_JOB_NAME): run the pipeline in-process.
+  }
   return Response.json({ id: runId }, { status: 202 });
 }
