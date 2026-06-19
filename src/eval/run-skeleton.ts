@@ -7,8 +7,12 @@ import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
 import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
+import { defaultStages, noopSink, type TraceSink } from '../pipeline/ports';
 import { runPipeline, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
 import { persistRun, type PersistRunInput } from '../store/repo';
+import { writeTrace } from '../trace/eleatic-adapter';
+import { reduceTrace } from '../trace/reduce';
+import { SpanCollector } from '../trace/span';
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
 
@@ -45,7 +49,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>] [--persist]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -99,8 +103,9 @@ export async function runSkeleton(
   request: TopicRequest,
   deps: StageDeps = defaultDeps,
   options: RunOptions = {},
+  sink: TraceSink = noopSink,
 ): Promise<PipelineRunResult> {
-  return runPipeline(request, new InlineEngine(), deps, options);
+  return runPipeline(request, new InlineEngine(), deps, options, defaultStages, sink);
 }
 
 /** Write each synthesized page's HTML to `<dir>/<slug>.html` (for `--dump-html`); returns the paths. */
@@ -138,7 +143,11 @@ async function main(): Promise<void> {
   console.log(
     `Generating a curriculum for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth}; ${mode})…\n`,
   );
-  const run = await runSkeleton(request, defaultDeps, options);
+  // One id for this invocation — shared by --trace + --persist so the eleatic run links the curriculum.
+  const runId = randomUUID();
+  const startedAt = new Date().toISOString();
+  const collector = args.includes('--trace') ? new SpanCollector() : undefined;
+  const run = await runSkeleton(request, defaultDeps, options, collector ?? noopSink);
   console.log(formatSummary(run));
   if (args.includes('--dump-html')) {
     const dumpDir = readFlag(args, '--dump-html');
@@ -147,8 +156,22 @@ async function main(): Promise<void> {
     const paths = dumpPages(run.result.pages, dumpDir);
     console.log(`\nWrote ${paths.length} page(s) to:\n${paths.map((p) => `  ${p}`).join('\n')}`);
   }
+  if (collector) {
+    const reduced = reduceTrace(collector.spans(), {
+      runId,
+      label: request.topic,
+      startedAt,
+      config: { models: { ...STAGE_MODELS, ...(options.models ?? {}) }, settings: request.settings },
+    });
+    const tracePath = readFlag(args, '--trace');
+    const { path, rowCount } = writeTrace(reduced, tracePath !== undefined ? { path: tracePath } : {});
+    console.log(
+      path === ':memory:'
+        ? `\nTraced ${rowCount} row(s) (ephemeral :memory: — pass \`--trace <path>\` to persist).`
+        : `\nTraced ${rowCount} row(s) to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
+    );
+  }
   if (args.includes('--persist')) {
-    const runId = randomUUID();
     const { curriculumId } = await persistRun(persistInput(runId, request, run, options));
     console.log(`\nPersisted curriculum ${curriculumId} — view at /curriculum/${curriculumId} (needs DATABASE_URL + a migrated DB).`);
   }
