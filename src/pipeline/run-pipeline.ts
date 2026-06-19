@@ -14,7 +14,7 @@ import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { gateGraph, type GateThresholds } from './coverage-gate';
 import { defaultDeps, type StageDeps } from './deps';
 import { assembleHub } from './hub';
-import { defaultStages, type StageBundle } from './ports';
+import { defaultStages, noopSink, type StageBundle, type TraceSink } from './ports';
 import type { ResearchInput } from './researcher';
 
 export interface PipelineRunResult {
@@ -53,14 +53,22 @@ export async function runPipeline(
   // `stages` is the 5th param (AFTER options) on purpose: existing callers/tests pass
   // `options` as the 4th positional arg, so it must come after to not capture them.
   stages: StageBundle = defaultStages,
+  // The observability sink — 6th positional, AFTER stages. Default no-op, so the Next app (which
+  // injects noopSink) never reaches the eleatic adapter; the eval/CLI injects a SpanCollector.
+  sink: TraceSink = noopSink,
 ): Promise<PipelineRunResult> {
   const records: LlmCallRecord[] = [];
   const bucket = bucketize(req.settings);
   const models: Record<Stage, StageModel> = { ...STAGE_MODELS, ...(options.models ?? {}) };
+  // Emit one span per LLM call, tagged with its stage (per-node analysis stages carry no slug).
+  const emit = (stage: Stage, recs: LlmCallRecord[]): void => {
+    for (const record of recs) sink.onSpan({ stage, record });
+  };
 
   // 1. plan
   const planned = await engine.step('plan', contentHash(req.topic, bucket), () => stages.plan(req, deps, models.planner));
   records.push(...planned.records);
+  emit('planner', planned.records);
 
   // 2. researchers — one grounded retrieval per research question (fanned out).
   // Dedup identical questions first: the engine memoizes a repeated question to one
@@ -82,7 +90,10 @@ export async function runPipeline(
       engine.step('research', contentHash(input.question, bucket), () => stages.research(input, deps, models.researcher)),
     ),
   );
-  for (const r of researched) records.push(...r.records);
+  for (const r of researched) {
+    records.push(...r.records);
+    emit('researcher', r.records);
+  }
   const allResearch: Research[] = researched.map((r) => r.research);
   const allSources: Source[] = allResearch.flatMap((r) => r.sources);
 
@@ -93,6 +104,7 @@ export async function runPipeline(
     () => stages.graph(allResearch, deps, models.graph),
   );
   records.push(...graphed.records);
+  emit('graph', graphed.records);
 
   // 4. coverage gate (pure) — routes nodes built|text|soon, throws on a structural defect
   const gated = gateGraph(graphed.graph, options.thresholds);
@@ -105,7 +117,7 @@ export async function runPipeline(
     .sort((a, b) => gated.topoOrder.indexOf(a.slug) - gated.topoOrder.indexOf(b.slug));
   const toBuild = options.maxNodes !== undefined ? buildable.slice(0, options.maxNodes) : buildable;
   const built = await Promise.all(
-    toBuild.map((node) => synthesizeNode(node, req, allSources, bucket, engine, deps, models, stages)),
+    toBuild.map((node) => synthesizeNode(node, req, allSources, bucket, engine, deps, models, stages, sink)),
   );
   const pages: CritiquedArtifact[] = [];
   const passedSlugs = new Set<string>();
@@ -130,14 +142,21 @@ async function synthesizeNode(
   deps: StageDeps,
   models: Record<Stage, StageModel>,
   stages: StageBundle,
+  sink: TraceSink,
 ): Promise<{ artifact: CritiquedArtifact; records: LlmCallRecord[] }> {
   const records: LlmCallRecord[] = [];
+  const emitNode = (stage: Stage, recs: LlmCallRecord[]): void => {
+    for (const record of recs) sink.onSpan({ stage, nodeSlug: node.slug, record });
+  };
   const key = contentHash(node.slug, bucket);
   const specced = await engine.step('spec', key, () => stages.spec({ node, settings: req.settings, sources }, deps, models.spec));
   records.push(...specced.records);
+  emitNode('spec', specced.records);
   const coded = await engine.step('code', key, () => stages.code(specced.spec, deps, models.code));
   records.push(...coded.records);
+  emitNode('code', coded.records);
   const critiqued = await engine.step('critic', key, () => stages.critic(coded.artifact, deps, models.critic));
   records.push(...critiqued.records);
+  emitNode('critic', critiqued.records);
   return { artifact: critiqued.artifact, records };
 }

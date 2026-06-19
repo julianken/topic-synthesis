@@ -11,6 +11,7 @@ import type { LlmCallRecord } from '../llm/client';
 import type { StageModel } from '../llm/models';
 import type { Engine } from '../engine/engine';
 import { InlineEngine } from '../engine/inline-engine';
+import { SpanCollector } from '../trace/span';
 import type { StageDeps } from './deps';
 import { defaultStages, type StageBundle } from './ports';
 import { runPipeline } from './run-pipeline';
@@ -172,5 +173,19 @@ describe('runPipeline', () => {
     // a stage swap (the property the durable GcpEngine resume will rely on).
     await runPipeline(req, spy, deps, {}, stages);
     expect(fixtureGraph).toHaveBeenCalledTimes(1); // ran once across BOTH runs → memoized through the swap
+  });
+
+  it('emits one span per LLM call to the injected TraceSink, tagging synthesis spans with the node slug', async () => {
+    const collector = new SpanCollector();
+    // sink is the 6th positional arg, after the (defaulted) stages — the observability seam.
+    const out = await runPipeline(req, new InlineEngine(), fakeDeps(), {}, defaultStages, collector);
+    expect(collector.spans()).toHaveLength(out.records.length); // exactly one span per LLM call (9)
+    const synth = collector.spans().filter((s) => s.nodeSlug !== undefined);
+    expect(synth.map((s) => s.stage)).toEqual(['spec', 'code', 'critic']); // n1's synthesis, in order
+    expect(synth.every((s) => s.nodeSlug === 'n1')).toBe(true);
+    const analysis = collector.spans().filter((s) => s.nodeSlug === undefined).map((s) => s.stage);
+    expect(analysis.filter((s) => s === 'researcher')).toHaveLength(4); // 2 questions × (searchWeb + findings)
+    expect(analysis).toContain('planner');
+    expect(analysis).toContain('graph');
   });
 });
