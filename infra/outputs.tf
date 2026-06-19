@@ -20,3 +20,16 @@ output "db_name" {
 output "db_user" {
   value = google_sql_user.app.name
 }
+
+output "app_service_url" {
+  description = "The Cloud Run Service URL (the deployed app)."
+  value       = google_cloud_run_v2_service.app.uri
+}
+
+output "pipeline_job_name" {
+  value = google_cloud_run_v2_job.pipeline.name
+}
+
+output "migrate_job_name" {
+  value = google_cloud_run_v2_job.migrate.name
+}
