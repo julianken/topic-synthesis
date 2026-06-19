@@ -170,11 +170,20 @@ resource "google_cloud_run_v2_job" "migrate" {
   }
 }
 
-# The Service dispatches the pipeline Job → run.invoker (includes run.jobs.run) on that Job, scoped
-# per-job (not project-level run.developer). Explicit even though both run as the same ts-runtime SA.
+# The Service dispatches the pipeline Job WITH per-run env overrides. roles/run.invoker grants
+# run.jobs.run but NOT run.jobs.runWithOverrides (the override call), so a least-privilege custom
+# role carries exactly the two run-job permissions — narrower than the broad roles/run.developer.
+resource "google_project_iam_custom_role" "job_runner" {
+  role_id     = "tsJobRunner"
+  title       = "topic-synthesis Job runner"
+  description = "Run a Cloud Run Job, including with per-execution overrides (the /api/generate dispatch)."
+  permissions = ["run.jobs.run", "run.jobs.runWithOverrides"]
+}
+
+# Bind it per-job (not project-wide) for the runtime SA — explicit even though Service + Job share it.
 resource "google_cloud_run_v2_job_iam_member" "pipeline_invoker" {
   name     = google_cloud_run_v2_job.pipeline.name
   location = var.region
-  role     = "roles/run.invoker"
+  role     = google_project_iam_custom_role.job_runner.id
   member   = "serviceAccount:${google_service_account.runtime.email}"
 }
