@@ -32,6 +32,7 @@ Docs drift silently; updating them in the same PR is cheaper than catching it la
 | ------------------------------------------------ | ----------------------------------------------------------------------- |
 | design tokens, motion, layout, or any UI surface | `DESIGN.md` (it wins on design conflicts) — reconcile it in the same PR  |
 | the product identity, GitHub slug, Figma file/node map, or merge/review infra | `INSTANCE.md` (the instance source of truth) — reconcile it in the same PR |
+| the product's public tagline or the GitHub repo description (live metadata) | `INSTANCE.md` → "GitHub repository description" — reconcile in the same PR; the **orchestrator** syncs the live value via `scripts/sync-repo-description.sh` (the reviewer flags drift, never runs the write) |
 | the Figma file's page or screen node-ids change   | the Design/Figma node map in `INSTANCE.md` — reconcile it in the same PR  |
 | a process, convention, or agent rule             | this file (`AGENTS.md`); then re-check the `CLAUDE.md` shim still passes |
 | public-facing claims, setup, or security posture | `README.md` and/or `SECURITY.md`                                        |
@@ -47,6 +48,8 @@ Docs drift silently; updating them in the same PR is cheaper than catching it la
 The table lists only what exists today; grow it (code, deps, CI rows) when those land — never reference a file the repo doesn't have.
 
 **Reviewer:** verify the PR updated every drift-prone file its diff implies (per the table), or that the author wrote `No doc updates needed` / justified leaving a specific doc stale. A change that alters behavior, a convention, or the design surface but leaves the matching file untouched is a finding. If the diff touched `AGENTS.md` or `CLAUDE.md`, confirm `scripts/check-claude-shim.sh` passes. **This is never a merge blocker** — a spec can be wrong while the PR is right. Raise it as an IMPORTANT finding with an escape hatch: a one-line note (and, if it should be tracked, a `drift:docs` follow-up issue) is enough.
+
+**Live-state exception — the GitHub repo description.** Most drift-prone targets are files reconciled *in the diff*; the GitHub repo description is **live GitHub metadata**, not a file, so it splits across two actors. The **reviewer** detects drift — on a PR touching `INSTANCE.md` or `README.md`, run `scripts/sync-repo-description.sh --check` (read-only) and, on mismatch, raise an IMPORTANT **"repo-description drift (orchestrator action)"** finding — but never runs the write. The **orchestrator** owns the fix: it runs `scripts/sync-repo-description.sh` (it holds `gh` auth) once the PR merges, so the live value reflects merged `main`. This keeps repo-settings mutation out of the review pass and gives the reviewer→orchestrator escalation a recognizable name. The canonical value lives in `INSTANCE.md` → "GitHub repository description".
 
 _(This is a repo convention the reviewing subagent reads from this file. Adding the same check to the shared user-level review skill would affect every repo and is a separate decision — deliberately not made here.)_
 
