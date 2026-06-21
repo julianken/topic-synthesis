@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CriticVerdictSchema,
   FindingsSchema,
+  LessonBriefSchema,
   PageSpecSchema,
   PlanSchema,
   PrereqGraphSchema,
@@ -14,7 +15,7 @@ import { InlineEngine } from '../engine/inline-engine';
 import { SpanCollector } from '../trace/span';
 import type { StageDeps } from './deps';
 import { defaultStages, type StageBundle } from './ports';
-import { runPipeline } from './run-pipeline';
+import { runLesson, runPipeline } from './run-pipeline';
 
 const mkRec = (): LlmCallRecord => ({
   providerModel: 'anthropic:x',
@@ -205,5 +206,137 @@ describe('runPipeline', () => {
     expect(analysis.filter((s) => s === 'researcher')).toHaveLength(4); // 2 questions × (searchWeb + findings)
     expect(analysis).toContain('planner');
     expect(analysis).toContain('graph');
+  });
+});
+
+// ── single-lesson path (runLesson) ───────────────────────────────────────────
+// The lesson path runs plan → research → brief → spec → code → critic; it has NO graph stage,
+// so its fake DROPS the PrereqGraphSchema arm and asserts it is never reached. The brief arm
+// returns a grounded LessonBrief whose finding cites the researcher's real source.
+function lessonFakeDeps(questions: string[] = ['q1', 'q2'], criticPassed = true): StageDeps {
+  const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string; model: StageModel }) => {
+    if (opts.schema === PlanSchema) {
+      return { object: { scope: 'S', subtopics: ['a', 'b'], researchQuestions: questions }, record: mkRec() };
+    }
+    if (opts.schema === FindingsSchema) {
+      return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
+    }
+    if (opts.schema === PrereqGraphSchema) {
+      throw new Error('the lesson path must NOT call the graph stage');
+    }
+    if (opts.schema === LessonBriefSchema) {
+      return {
+        object: {
+          learningGoal: 'understand T',
+          keyPoints: ['key point one'],
+          // Cites the researcher's real source (https://s.example) so the brief's anti-fabrication
+          // filter keeps it — proving the grounded finding reaches the spec via the brief.
+          findings: [{ claim: 'grounded fact', source: { url: 'https://s.example', title: 'S' } }],
+          audience: 'a',
+        },
+        record: mkRec(),
+      };
+    }
+    if (opts.schema === PageSpecSchema) {
+      return {
+        object: {
+          nodeSlug: 'lesson',
+          interactionKind: 'canvas',
+          a11yContract: 'a',
+          citations: [{ url: 'https://s.example', title: 'S' }],
+        },
+        record: mkRec(),
+      };
+    }
+    if (opts.schema === CriticVerdictSchema) {
+      return { object: { passed: criticPassed, critique: 'ok' }, record: mkRec() };
+    }
+    throw new Error('unexpected schema');
+  });
+  const searchWeb = vi.fn(async () => ({
+    text: 'synthesis',
+    sources: [{ url: 'https://s.example', title: 'S' }],
+    record: mkRec(),
+  }));
+  const complete = vi.fn(async () => ({ text: '<!doctype html><html></html>', record: mkRec() }));
+  return { complete, completeObject, searchWeb } as unknown as StageDeps;
+}
+
+describe('runLesson (single-lesson path)', () => {
+  it('runs plan → research → brief → spec → code → critic into exactly ONE page (no graph/gate/hub)', async () => {
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps());
+
+    // exactly one page, one tier, one category, one page in the hub
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.hub.tiers).toHaveLength(1);
+    expect(out.result.hub.tiers[0]?.categories).toHaveLength(1);
+    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    expect(hubPages).toHaveLength(1);
+
+    // the page is keyed by the topic-derived slug (topic 'T' → 't')
+    expect(out.result.pages[0]?.nodeSlug).toBe('t');
+    expect(hubPages[0]?.slug).toBe('t');
+    // critic passed → built
+    expect(out.result.pages[0]?.passed).toBe(true);
+    expect(hubPages[0]?.status).toBe('built');
+    expect(hubPages[0]?.built).toBe(true);
+  });
+
+  it('NEVER invokes the graph stage (the PrereqGraphSchema arm is unreachable)', async () => {
+    const deps = lessonFakeDeps();
+    await runLesson(req, new InlineEngine(), deps);
+    const calls = (deps.completeObject as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.some(([o]) => o.schema === PrereqGraphSchema)).toBe(false); // graph never called
+    expect(calls.some(([o]) => o.schema === LessonBriefSchema)).toBe(true); // brief IS called
+  });
+
+  it('feeds the brief stage to spec (grounded findings reach spec via brief, not synthesized)', async () => {
+    const deps = lessonFakeDeps();
+    await runLesson(req, new InlineEngine(), deps);
+    const calls = (deps.completeObject as ReturnType<typeof vi.fn>).mock.calls;
+    const briefIdx = calls.findIndex(([o]) => o.schema === LessonBriefSchema);
+    const specIdx = calls.findIndex(([o]) => o.schema === PageSpecSchema);
+    expect(briefIdx).toBeGreaterThanOrEqual(0);
+    expect(specIdx).toBeGreaterThan(briefIdx); // brief runs BEFORE spec
+    // the spec prompt carries the brief's grounded finding (claim + source) — the fact-starvation fix
+    const specPrompt = calls[specIdx]?.[0].prompt;
+    expect(specPrompt).toContain('grounded fact');
+    expect(specPrompt).toContain('https://s.example');
+  });
+
+  it('degrades the lesson to soon (not built) when the critic fails — never a broken page', async () => {
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1'], false));
+    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    // a critic-failed lesson still has a page row (it was synthesized) but is NOT built
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.pages[0]?.passed).toBe(false);
+    expect(hubPages[0]?.status).toBe('soon');
+    expect(hubPages[0]?.built).toBe(false);
+  });
+
+  it('does NOT crash when synthesis throws — degrades to a zero-page soon lesson', async () => {
+    const deps = lessonFakeDeps(['q1']);
+    (deps.complete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('output cap hit'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const out = await runLesson(req, new InlineEngine(), deps);
+    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    expect(out.result.pages).toHaveLength(0); // no fabricated page for a failed lesson
+    expect(hubPages).toHaveLength(1); // the hub still has its single 'soon' page
+    expect(hubPages[0]?.status).toBe('soon');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('memoizes the synthesis trio across two runs on one engine (keyed by the topic-derived slug)', async () => {
+    const deps = lessonFakeDeps(['q1']);
+    const engine = new InlineEngine();
+    await runLesson(req, engine, deps);
+    await runLesson(req, engine, deps); // same engine + req → every step key repeats
+    const calls = (deps.completeObject as ReturnType<typeof vi.fn>).mock.calls;
+    // spec + brief + critic each ran exactly ONCE across both runs (memoized); code (complete) too.
+    expect(calls.filter(([o]) => o.schema === PageSpecSchema)).toHaveLength(1);
+    expect(calls.filter(([o]) => o.schema === LessonBriefSchema)).toHaveLength(1);
+    expect(calls.filter(([o]) => o.schema === CriticVerdictSchema)).toHaveLength(1);
+    expect((deps.complete as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 });

@@ -4,7 +4,7 @@ import type { TopicRequest } from '../domain/stages';
 import { GcpEngine } from '../engine/gcp-engine';
 import { defaultDeps } from '../pipeline/deps';
 import { defaultStages, noopSink } from '../pipeline/ports';
-import { runPipeline, type RunOptions } from '../pipeline/run-pipeline';
+import { runLesson, type RunOptions } from '../pipeline/run-pipeline';
 import { closePool } from '../store/db';
 import { persistRun } from '../store/repo';
 import { cheapModels, persistInput } from './run-skeleton';
@@ -57,9 +57,12 @@ export function buildJobInput(): { runId: string; request: TopicRequest; options
 async function main(): Promise<void> {
   const { runId, request, options } = buildJobInput();
   try {
-    // GcpEngine (durable, Postgres-backed) — NOT InlineEngine. persist is unconditional: the
-    // curriculum IS the deliverable + the app's status-poll target. noopSink: no trace in the Job.
-    const run = await runPipeline(request, new GcpEngine(runId), defaultDeps, options, defaultStages, noopSink);
+    // SINGLE-LESSON path (runLesson): plan → research → brief → spec → code → critic → ONE lesson,
+    // persisted as a one-page curriculum (no graph/gate/hub). GcpEngine (durable, Postgres-backed) —
+    // NOT InlineEngine. persist is unconditional: the curriculum IS the deliverable + the app's
+    // status-poll target. noopSink: no trace in the Job. `MAX_NODES` is inert here (the path builds
+    // exactly one page) but stays in the env contract (dispatch.ts) so no Terraform change is needed.
+    const run = await runLesson(request, new GcpEngine(runId), defaultDeps, options, defaultStages, noopSink);
     // The owning user's sub — set by the Service as the RUN_OWNER override at gated dispatch (the Job
     // has no session to re-verify; it trusts the override, which is set only AFTER the spend gate). §5.
     const base = persistInput(runId, request, run, options);
