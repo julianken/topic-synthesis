@@ -33,3 +33,14 @@ output "pipeline_job_name" {
 output "migrate_job_name" {
   value = google_cloud_run_v2_job.migrate.name
 }
+
+output "auth_web_api_key" {
+  description = "Identity Platform web API key for the firebase/auth client SDK (public — browser-shipped by design)."
+  value       = google_identity_platform_config.default.client[0].api_key
+  sensitive   = true
+}
+
+output "auth_domain" {
+  description = "The Firebase auth domain for the client SDK config (authDomain)."
+  value       = "${var.project_id}.firebaseapp.com"
+}
