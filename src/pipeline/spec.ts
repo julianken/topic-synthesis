@@ -10,7 +10,7 @@ export interface SpecInput {
   settings: Settings;
 }
 
-const SPEC_SYSTEM =
+export const SPEC_SYSTEM =
   'You are an instructional designer. Plan ONE interactive learning page for a lesson: the best ' +
   'interaction kind, an accessibility contract (text alternative + keyboard support stated up ' +
   'front, not retrofitted), and which sources it cites. The learning goal is given — design the ' +

@@ -162,6 +162,10 @@ async function main(): Promise<void> {
       label: request.topic,
       startedAt,
       config: { models: { ...STAGE_MODELS, ...(options.models ?? {}) }, settings: request.settings },
+      // The analysis row carries the assembled LessonBrief when the run exposes one (the single-lesson
+      // path; issue #50). The curriculum path runSkeleton drives leaves it undefined → reduceTrace
+      // falls back to the legacy `{ phase: 'analysis' }` sentinel. (exactOptionalPropertyTypes: spread.)
+      ...(run.brief !== undefined ? { analysisOutput: run.brief } : {}),
     });
     const tracePath = readFlag(args, '--trace');
     const { path, rowCount } = writeTrace(reduced, tracePath !== undefined ? { path: tracePath } : {});

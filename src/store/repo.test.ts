@@ -29,6 +29,9 @@ function fakePool(canned: Canned[] = []) {
   return { deps: { pool } satisfies StoreDeps, client };
 }
 const sqlsOf = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map((c) => c[0] as string);
+/** The params array of the first emitted query whose SQL includes `match` (e.g. the wf-version INSERT). */
+const paramsOf = (fn: { mock: { calls: unknown[][] } }, match: string): unknown[] | undefined =>
+  fn.mock.calls.find((c) => (c[0] as string).includes(match))?.[1] as unknown[] | undefined;
 
 const request: TopicRequest = {
   topic: 'Fourier',
@@ -144,6 +147,50 @@ describe('persistRun (transaction shape, fake pool)', () => {
     ).rejects.toThrow('boom');
     expect(sqlsOf(client.query)).toContain('ROLLBACK');
     expect(client.release).toHaveBeenCalled();
+  });
+});
+
+describe('persistRun — contract-aware workflow_version (issue #50)', () => {
+  it('inserts a real prompt_hash (the LessonBrief+prompts hash), no longer the literal "v1"', async () => {
+    const { deps, client } = fakePool();
+    await persistRun({ runId: 'r', request, result, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+    const params = paramsOf(client.query, 'INTO workflow_version');
+    // [id, model_snapshots, prompt_hash] — AC #1: the 3rd param is no longer 'v1'.
+    expect(params?.[2]).not.toBe('v1');
+    expect(typeof params?.[2]).toBe('string');
+    expect((params?.[2] as string).length).toBeGreaterThan(0);
+  });
+
+  it('the workflow_version id depends on prompt_hash, not on the model snapshots alone', async () => {
+    // AC #2: the id is a function of the prompt/contract hash. The wf-version id (1st param) and the
+    // prompt_hash (3rd param) are emitted together; the id must fold the prompt_hash in, so it is NOT
+    // contentHash(snapshotsJson) anymore. We can't recompute the old value here, but we CAN assert the
+    // id and prompt_hash co-vary across a schema change (next test) and that the prompt_hash is present.
+    const { deps, client } = fakePool();
+    await persistRun({ runId: 'r', request, result, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+    const params = paramsOf(client.query, 'INTO workflow_version');
+    expect(params?.[0]).toEqual(expect.any(String)); // the workflow_version id
+    expect(params?.[2]).toEqual(expect.any(String)); // the real prompt_hash folded into it
+  });
+
+  it('changing the LessonBrief schema hash flips the workflow_version while modelSnapshots are constant', async () => {
+    // AC #3: re-import persistRun twice with two different mocked LESSON_BRIEF_SCHEMA_HASH values; the
+    // emitted workflow_version id must differ even though modelSnapshots (and prompts) are identical.
+    const versionWithSchemaHash = async (schemaHash: string): Promise<string> => {
+      vi.resetModules();
+      vi.doMock('../domain/stages', async () => {
+        const actual = await vi.importActual<typeof import('../domain/stages')>('../domain/stages');
+        return { ...actual, LESSON_BRIEF_SCHEMA_HASH: schemaHash };
+      });
+      const { persistRun: persistFresh } = await import('./repo');
+      const { deps, client } = fakePool();
+      await persistFresh({ runId: 'r', request, result, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+      vi.doUnmock('../domain/stages');
+      return paramsOf(client.query, 'INTO workflow_version')?.[0] as string;
+    };
+    const v1 = await versionWithSchemaHash('schema-hash-AAAA');
+    const v2 = await versionWithSchemaHash('schema-hash-BBBB');
+    expect(v1).not.toBe(v2); // a contract change → a distinct eval arm, models unchanged
   });
 });
 

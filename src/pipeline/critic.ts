@@ -3,7 +3,7 @@ import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
-const CRITIC_SYSTEM =
+export const CRITIC_SYSTEM =
   'You are a strict reviewer. Judge whether a generated learning page meets its spec: it ' +
   'teaches the learning goal, is genuinely interactive, satisfies the accessibility contract, ' +
   'and is self-contained. Pass only if all hold. Give a terse critique either way.';

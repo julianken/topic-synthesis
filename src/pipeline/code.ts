@@ -3,7 +3,7 @@ import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
-const CODE_SYSTEM =
+export const CODE_SYSTEM =
   'You are a front-end engineer. Generate ONE standalone, self-contained HTML document ' +
   '(inline CSS + JS, no external dependencies or network requests) that teaches the concept ' +
   'interactively and satisfies the accessibility contract exactly. Output only the HTML document.';

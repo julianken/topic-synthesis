@@ -2,8 +2,9 @@ import type { Pool } from 'pg';
 import { contentHash, contentIdentityKey } from '../domain/identity';
 import { bucketize, type Settings } from '../domain/settings';
 import type { PageStatus, SitemapHub, SitemapPage } from '../domain/sitemap';
-import type { PipelineResult, TopicRequest } from '../domain/stages';
+import { LESSON_BRIEF_SCHEMA_HASH, type PipelineResult, type TopicRequest } from '../domain/stages';
 import type { Stage, StageModel } from '../llm/models';
+import { PROMPTS_VERSION } from '../pipeline/prompts';
 import { getPool } from './db';
 
 /** Injectable pg pool so the repo unit-tests against a fake (no live DB needed). */
@@ -58,7 +59,14 @@ export async function persistRun(
   const { runId, request, result, costUsd, modelSnapshots, eleaticRunId, ownerSub } = input;
   const bucket = bucketize(request.settings);
   const snapshotsJson = JSON.stringify(modelSnapshots);
-  const workflowVer = contentHash(snapshotsJson);
+  // The workflow_version IS the eval arm (schema.sql: "A workflow VERSION = an eval arm"; its id is
+  // "a content hash of the pipeline shape: DAG + prompts + … model snapshots"). Fold in BOTH the
+  // contract shape (LessonBrief schema hash, the single source of truth — derived, not restated) and
+  // a real prompt hash, so a LessonBrief schema change OR a prompt change yields a distinct version
+  // even when the model snapshots are unchanged. Previously this hashed snapshots only — conflating
+  // two distinct arms — and inserted the literal 'v1' as prompt_hash (a lie the column now tells true).
+  const promptHash = contentHash(PROMPTS_VERSION, LESSON_BRIEF_SCHEMA_HASH);
+  const workflowVer = contentHash(snapshotsJson, promptHash);
   const pages = flattenHub(result.hub);
   const artifactBySlug = new Map(result.pages.map((a) => [a.nodeSlug, a]));
 
@@ -68,7 +76,7 @@ export async function persistRun(
     await client.query(
       `INSERT INTO workflow_version (id, model_snapshots, prompt_hash)
        VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
-      [workflowVer, snapshotsJson, 'v1'],
+      [workflowVer, snapshotsJson, promptHash],
     );
     await client.query(
       `INSERT INTO run (id, workflow_ver, page_count, cost_usd, eleatic_run_id)
