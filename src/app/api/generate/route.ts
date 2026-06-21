@@ -4,7 +4,7 @@ import type { TopicRequest } from '../../../domain/stages';
 import { InlineEngine } from '../../../engine/inline-engine';
 import { STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
 import { defaultDeps } from '../../../pipeline/deps';
-import { runPipeline } from '../../../pipeline/run-pipeline';
+import { runLesson } from '../../../pipeline/run-pipeline';
 import { persistRun, recordRunOwner } from '../../../store/repo';
 import { getSessionIdentity } from '../../auth/require-session';
 import { isSameOrigin } from '../../auth/session';
@@ -50,7 +50,11 @@ const inflight = new Set<Promise<unknown>>();
 
 function startRun(runId: string, request: TopicRequest, ownerSub: string): void {
   const work = (async () => {
-    const run = await runPipeline(request, new InlineEngine(), defaultDeps, APP_RUN);
+    // SINGLE-LESSON path (runLesson) — matches the deployed Cloud Run Job (run-job.ts) + the
+    // single-lesson UI (#49), so `npm run dev` generates one lesson locally instead of a full
+    // curriculum. `maxNodes` in APP_RUN is inert on this path (it builds exactly one page), kept only
+    // so the cheap+capped knobs read identically to the curriculum-era config.
+    const run = await runLesson(request, new InlineEngine(), defaultDeps, APP_RUN);
     const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...CHEAP_MODELS };
     await persistRun({ runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots, ownerSub });
   })();

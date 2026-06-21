@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CriticVerdictSchema,
   FindingsSchema,
+  LessonBriefSchema,
   PageSpecSchema,
   PlanSchema,
   PrereqGraphSchema,
@@ -14,6 +15,7 @@ import {
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import type { StageDeps } from '../pipeline/deps';
 import type { PipelineRunResult } from '../pipeline/run-pipeline';
+import type { judgeBrief } from '../trace/judge';
 import { ANALYSIS_ROW_KEY } from '../trace/reduce';
 import { SpanCollector } from '../trace/span';
 import {
@@ -35,35 +37,51 @@ const mkRec = () => ({
   finishReason: 'stop',
 });
 
-// Fake deps dispatched by Zod schema — serves the whole pipeline with no live model.
+// Fake deps dispatched by Zod schema — serves the SINGLE-LESSON path (runSkeleton → runLesson) with no
+// live model. The lesson path runs plan → research → brief → spec → code → critic (NO graph), so the
+// graph arm is unreachable (throws if hit) and a LessonBrief arm replaces it. searchWeb returns a real
+// source so the brief's anti-fabrication filter keeps its finding.
 function fakeDeps(): StageDeps {
   const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string }) => {
     if (opts.schema === PlanSchema) {
       return { object: { scope: 'S', subtopics: ['a'], researchQuestions: ['q1'] }, record: mkRec() };
     }
-    if (opts.schema === FindingsSchema) return { object: { findings: [] }, record: mkRec() };
+    if (opts.schema === FindingsSchema) {
+      return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
+    }
     if (opts.schema === PrereqGraphSchema) {
+      throw new Error('the lesson path must NOT call the graph stage');
+    }
+    if (opts.schema === LessonBriefSchema) {
       return {
         object: {
-          nodes: [
-            { slug: 'n1', title: 'N1', summary: 's', coverageConfidence: 0.9 },
-            { slug: 'n2', title: 'N2', summary: 's', coverageConfidence: 0.3 },
-          ],
-          edges: [],
+          learningGoal: 'understand T',
+          keyPoints: ['key point one'],
+          findings: [{ claim: 'grounded fact', source: { url: 'https://s.example', title: 'S' } }],
+          audience: 'a',
         },
         record: mkRec(),
       };
     }
     if (opts.schema === PageSpecSchema) {
       return {
-        object: { nodeSlug: 'n1', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+        object: {
+          nodeSlug: 't',
+          interactionKind: 'canvas',
+          a11yContract: 'a',
+          citations: [{ url: 'https://s.example', title: 'S' }],
+        },
         record: mkRec(),
       };
     }
     if (opts.schema === CriticVerdictSchema) return { object: { passed: true, critique: 'ok' }, record: mkRec() };
     throw new Error('unexpected schema');
   });
-  const searchWeb = vi.fn(async () => ({ text: 't', sources: [], record: mkRec() }));
+  const searchWeb = vi.fn(async () => ({
+    text: 't',
+    sources: [{ url: 'https://s.example', title: 'S' }],
+    record: mkRec(),
+  }));
   const complete = vi.fn(async () => ({ text: '<!doctype html>', record: mkRec() }));
   return { complete, completeObject, searchWeb } as unknown as StageDeps;
 }
@@ -92,12 +110,15 @@ describe('buildRequest', () => {
 });
 
 describe('runSkeleton + formatSummary', () => {
-  it('runs the pipeline and summarizes the curriculum + cost', async () => {
+  it('runs the single-lesson path into ONE built page and summarizes it + cost', async () => {
     const run = await runSkeleton({ topic: 'T', settings: { level: 'intro', depth: 2, audience: 'a' } }, fakeDeps());
+    // runSkeleton now drives runLesson: exactly one page, keyed by the topic-derived slug ('T' → 't').
+    expect(run.result.pages).toHaveLength(1);
+    expect(run.result.pages[0]?.nodeSlug).toBe('t');
+    expect(run.brief).toBeDefined(); // the lesson path exposes the brief (so --trace fires the judge)
     const summary = formatSummary(run);
     expect(summary).toContain('Curriculum —');
-    expect(summary).toMatch(/\[built\].*n1/); // n1 (0.9) routed built + critic passed
-    expect(summary).toMatch(/\[soon\].*n2/); // n2 (0.3) degraded to soon
+    expect(summary).toMatch(/\[built\].*\(t\)/); // the single lesson, built (critic passed)
     expect(summary).toContain('1/1 passed the critic');
     expect(summary).toContain('Total: $');
     expect(run.costUsd).toBeGreaterThan(0);
@@ -221,6 +242,34 @@ describe('reduceRunTrace (CLI trace wiring — issue #51)', () => {
     expect(withBaseline.run.baseline).toBe('run0');
     const without = await reduceRunTrace(new SpanCollector(), noBrief, base);
     expect('baseline' in without.run).toBe(false);
+  });
+
+  it('runs the judge on the threaded judgeModel (a --cheap run judges on the cheap model, not opus)', async () => {
+    // #57 SUGGESTION #2: the judge must follow the run's tier. A spy judge captures the model arg it
+    // is called with; passing the cheap Haiku as judgeModel must reach the judge (not STAGE_MODELS.critic).
+    const haiku: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
+    const captured: (StageModel | undefined)[] = [];
+    const spyJudge: typeof judgeBrief = (_brief, _deps, model) => {
+      captured.push(model);
+      return fakeJudge();
+    };
+    const collector = new SpanCollector();
+    collector.onSpan({ stage: 'planner', record: mkRec() });
+    await reduceRunTrace(collector, runWithBrief(), base, { judge: spyJudge, judgeModel: haiku });
+    expect(captured).toEqual([haiku]); // the judge ran on the threaded cheap model
+  });
+
+  it('leaves the judge on its own default when no judgeModel is threaded', async () => {
+    // No judgeModel → the judge is called WITHOUT a model arg, so judgeBrief uses STAGE_MODELS.critic.
+    const captured: (StageModel | undefined)[] = [];
+    const spyJudge: typeof judgeBrief = (_brief, _deps, model) => {
+      captured.push(model);
+      return fakeJudge();
+    };
+    const collector = new SpanCollector();
+    collector.onSpan({ stage: 'planner', record: mkRec() });
+    await reduceRunTrace(collector, runWithBrief(), base, { judge: spyJudge });
+    expect(captured).toEqual([undefined]); // no model arg → judgeBrief falls back to its default (opus)
   });
 
   it('skips the judge when the run exposes no brief (curriculum path) — no judge span, no scores', async () => {
