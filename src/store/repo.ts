@@ -20,6 +20,8 @@ export interface PersistRunInput {
   /** The per-stage models this run used — the workflow_version's pinned snapshot. */
   modelSnapshots: Record<Stage, StageModel>;
   eleaticRunId?: string;
+  /** The owning user's verified Google `sub` (ADR 0002 §2) — omitted for unauthenticated/legacy runs. */
+  ownerSub?: string;
 }
 
 interface FlatPage {
@@ -53,7 +55,7 @@ export async function persistRun(
   input: PersistRunInput,
   deps: StoreDeps = { pool: getPool() },
 ): Promise<{ curriculumId: string }> {
-  const { runId, request, result, costUsd, modelSnapshots, eleaticRunId } = input;
+  const { runId, request, result, costUsd, modelSnapshots, eleaticRunId, ownerSub } = input;
   const bucket = bucketize(request.settings);
   const snapshotsJson = JSON.stringify(modelSnapshots);
   const workflowVer = contentHash(snapshotsJson);
@@ -74,9 +76,9 @@ export async function persistRun(
       [runId, workflowVer, pages.length, costUsd, eleaticRunId ?? null],
     );
     await client.query(
-      `INSERT INTO curriculum (id, topic, settings_json, workflow_ver, run_id)
-       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
-      [runId, request.topic, JSON.stringify(request.settings), workflowVer, runId],
+      `INSERT INTO curriculum (id, topic, settings_json, workflow_ver, run_id, owner_sub)
+       VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+      [runId, request.topic, JSON.stringify(request.settings), workflowVer, runId, ownerSub ?? null],
     );
     for (const { tier, category, ordinal, page } of pages) {
       const artifact = artifactBySlug.get(page.slug);
