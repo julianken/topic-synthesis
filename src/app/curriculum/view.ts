@@ -18,8 +18,8 @@ const STATUS_ICON: Record<PageStatus, string> = { built: '✓', soon: '◷', tex
  * Presentational props for one hub tile. Pure. A built tile links to its detail view keyed by
  * the URL-safe **slug** (`/curriculum/<id>/<slug>`) — NOT the content-identity pageId, which
  * contains `#`/`@`/`:` and breaks Next's nested page-route matching even URL-encoded. The slug
- * is curriculum-unique (the gate rejects duplicate slugs); the detail page resolves it to the
- * page's `/artifact/<encoded pageId>` href for the iframe.
+ * is curriculum-unique (the gate rejects duplicate slugs); the detail page's iframe loads the
+ * page's owner-scoped `/curriculum/<id>/artifact/<slug>` href (set by rebuildHub) over the cookie.
  */
 export function tileView(page: SitemapPage, curriculumId: string): TileView {
   return {
