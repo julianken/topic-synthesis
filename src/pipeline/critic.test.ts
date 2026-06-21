@@ -14,7 +14,8 @@ const rec = {
 const artifact: PageArtifact = {
   nodeSlug: 'sine',
   html: '<!doctype html><html><body>sine</body></html>',
-  spec: { nodeSlug: 'sine', learningGoal: 'understand sine', interactionKind: 'canvas', a11yContract: 'kbd', citations: [] },
+  learningGoal: 'understand sine',
+  spec: { nodeSlug: 'sine', interactionKind: 'canvas', a11yContract: 'kbd', citations: [] },
 };
 
 describe('critique', () => {
@@ -30,6 +31,7 @@ describe('critique', () => {
     expect(out.artifact.nodeSlug).toBe('sine');
     const [arg] = completeObject.mock.calls[0]!;
     expect(arg.model.model).toBe('claude-opus-4-8');
+    expect(arg.prompt).toContain('understand sine'); // the goal (read off the artifact) is judged against
     expect(arg.prompt).toContain(artifact.html); // the HTML is shown to the critic
   });
 

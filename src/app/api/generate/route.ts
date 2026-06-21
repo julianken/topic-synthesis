@@ -22,6 +22,7 @@ const CHEAP_MODELS: Record<Stage, StageModel> = {
   planner: HAIKU,
   researcher: HAIKU,
   graph: HAIKU,
+  brief: HAIKU,
   spec: HAIKU,
   code: HAIKU,
   critic: HAIKU,

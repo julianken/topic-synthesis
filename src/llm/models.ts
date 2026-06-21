@@ -1,5 +1,5 @@
 export type Provider = 'anthropic' | 'openai' | 'google' | 'local';
-export type Stage = 'planner' | 'researcher' | 'graph' | 'spec' | 'code' | 'critic';
+export type Stage = 'planner' | 'researcher' | 'graph' | 'brief' | 'spec' | 'code' | 'critic';
 
 /**
  * Provider-specific knobs that ride on a StageModel. These have NO portable
@@ -29,7 +29,7 @@ export function registryId(m: StageModel): string {
 
 /**
  * Default per-stage model assignment. Opus for the reasoning-heavy stages
- * (planner, graph-builder, critic); Sonnet for the high-volume stages
+ * (planner, graph-builder, brief, critic); Sonnet for the high-volume stages
  * (researchers, first-draft spec + code). A workflow_version overrides this map —
  * that override IS the A/B arm.
  */
@@ -37,6 +37,7 @@ export const STAGE_MODELS: Record<Stage, StageModel> = {
   planner: { provider: 'anthropic', model: 'claude-opus-4-8', params: { effort: 'high' } },
   researcher: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
   graph: { provider: 'anthropic', model: 'claude-opus-4-8', params: { effort: 'high' } },
+  brief: { provider: 'anthropic', model: 'claude-opus-4-8', params: { effort: 'high' } },
   spec: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
   code: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
   critic: { provider: 'anthropic', model: 'claude-opus-4-8', params: { effort: 'high' } },

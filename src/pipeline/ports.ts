@@ -2,6 +2,7 @@ import type { Engine } from '../engine/engine';
 import type { LlmCallRecord } from '../llm/client';
 import type { Stage, StageModel } from '../llm/models';
 import type { StoreDeps } from '../store/repo';
+import { brief } from './brief';
 import { code } from './code';
 import { critique } from './critic';
 import type { StageDeps } from './deps';
@@ -51,6 +52,7 @@ export interface StageBundle {
   plan: typeof plan;
   research: typeof research;
   graph: typeof buildGraph;
+  brief: typeof brief;
   spec: typeof spec;
   code: typeof code;
   critic: typeof critique;
@@ -61,6 +63,7 @@ export const defaultStages: StageBundle = {
   plan,
   research,
   graph: buildGraph,
+  brief,
   spec,
   code,
   critic: critique,

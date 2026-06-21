@@ -45,9 +45,10 @@ function fakeDeps(questions: string[] = ['q1', 'q2'], coverages: number[] = [0.9
       return { object: { nodes, edges: [] }, record: mkRec() };
     }
     if (opts.schema === PageSpecSchema) {
-      const slug = opts.prompt.match(/slug: (\w+)/)?.[1] ?? 'n1';
+      // The spec consumes a LessonBrief (no slug); run-pipeline pins the artifact's nodeSlug to
+      // the gated node's slug, so the spec stage's own nodeSlug is a placeholder here.
       return {
-        object: { nodeSlug: slug, learningGoal: 'g', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+        object: { nodeSlug: 'lesson', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
         record: mkRec(),
       };
     }

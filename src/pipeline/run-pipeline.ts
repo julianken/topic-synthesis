@@ -3,6 +3,7 @@ import { bucketize } from '../domain/settings';
 import type {
   CritiquedArtifact,
   GatedNode,
+  LessonBrief,
   PipelineResult,
   Research,
   Source,
@@ -155,11 +156,26 @@ async function synthesizeNode(
     for (const record of recs) sink.onSpan({ stage, nodeSlug: node.slug, record });
   };
   const key = contentHash(node.slug, bucket);
+  // TODO(#48): the single-lesson path rewires this to run `brief → spec → code → critic`
+  // graph-free, so the brief comes from `stages.brief(plan, research, …)`. Until then, this
+  // curriculum path keeps compiling by deriving a transitional LessonBrief per node from the
+  // gated node + its sources. This shim is #48's to delete — #47 only ships the contract,
+  // producer, and the retargeted spec (proven by spec.test.ts), not the end-to-end wiring.
+  const lessonBrief: LessonBrief = {
+    learningGoal: node.summary,
+    keyPoints: [node.title],
+    findings: sources.map((source) => ({ claim: source.title, source })),
+    audience: req.settings.audience,
+  };
   try {
-    const specced = await engine.step('spec', key, () => stages.spec({ node, settings: req.settings, sources }, deps, models.spec));
+    const specced = await engine.step('spec', key, () => stages.spec({ brief: lessonBrief, settings: req.settings }, deps, models.spec));
     records.push(...specced.records);
     emitNode('spec', specced.records);
-    const coded = await engine.step('code', key, () => stages.code(specced.spec, deps, models.code));
+    // The brief carries no slug (it's the single-lesson contract); on this curriculum path each
+    // lesson IS a gated node, so pin the artifact to node.slug here. TODO(#48): the slug binding
+    // belongs to the single-lesson-path wiring, not the contract.
+    const nodeSpec = { ...specced.spec, nodeSlug: node.slug };
+    const coded = await engine.step('code', key, () => stages.code(nodeSpec, lessonBrief.learningGoal, deps, models.code));
     records.push(...coded.records);
     emitNode('code', coded.records);
     const critiqued = await engine.step('critic', key, () => stages.critic(coded.artifact, deps, models.critic));
