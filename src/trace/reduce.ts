@@ -13,6 +13,13 @@ export interface TraceMeta {
   /** Optional run-config snapshot (workflow_version / model snapshots) → eleatic config_json. */
   config?: Record<string, unknown>;
   /**
+   * Another run's id this run is paired against (issue #51): eleatic uses `EvalRunRecord.baseline`
+   * to compare two arms over the SAME topic, so an Analysis-only change is ranked arm-vs-arm, not
+   * just by absolute USD. The CLI reads it from a `--baseline <runId>` flag. Absent → the field is
+   * OMITTED from the run record (not `undefined` — the `exactOptionalPropertyTypes` discipline).
+   */
+  baseline?: string;
+  /**
    * The Analysis phase's product — the assembled `LessonBrief` — carried as the `_analysis` row's
    * `output` (issue #50). When present, an Analysis-only eval arm is inspectable/scoreable end-to-end
    * WITHOUT running Synthesis. Typed loosely (`EvalRowRecord.output` is `unknown`) so `reduce.ts`
@@ -20,17 +27,40 @@ export interface TraceMeta {
    * 'analysis' }` sentinel, so existing callers (and a brief-less run) are unchanged.
    */
   analysisOutput?: unknown;
+  /**
+   * Per-slug critic pass/fail (slug → passed), threaded by the CLI from the pipeline result it
+   * already holds (each `CritiquedArtifact` has `.nodeSlug` + `.passed`) — NOT read from a span,
+   * because a `TraceSpan` is a call-level record with no verdict (issue #51). When a synthesis row's
+   * slug is present here, `reduceTrace` writes `scores.passed` (1/0) onto it ALONGSIDE the existing
+   * `costUsd`/`calls` — a QUALITY signal on the synthesis row, not a replacement of the cost signal.
+   */
+  verdicts?: Record<string, boolean>;
+  /**
+   * The LLM-judge's quality sub-scores over the `LessonBrief` (groundedness/goalClarity/audienceFit),
+   * computed by the CLI/eval path (src/trace/judge.ts) and merged onto the `_analysis` row's `scores`
+   * alongside `costUsd`/`calls` (issue #51). `reduce.ts` stays pure: it receives the numbers, it never
+   * calls the judge. Absent → the analysis row carries cost only, as before.
+   */
+  analysisScores?: Record<string, number>;
 }
 
 const sumCost = (spans: readonly TraceSpan[]): number => spans.reduce((sum, s) => sum + s.record.costUsd, 0);
 
-function row(runId: string, rowKey: string, output: unknown, spans: readonly TraceSpan[]): EvalRowRecord {
+function row(
+  runId: string,
+  rowKey: string,
+  output: unknown,
+  spans: readonly TraceSpan[],
+  // Extra QUALITY scores merged AFTER the cost signal, so cost is preserved, never replaced (issue
+  // #51: the critic verdict on a synthesis row, the LLM-judge scores on the analysis row).
+  extraScores: Record<string, number> = {},
+): EvalRowRecord {
   return {
     runId,
     rowKey,
     output,
     expected: null,
-    scores: { costUsd: sumCost(spans), calls: spans.length },
+    scores: { costUsd: sumCost(spans), calls: spans.length, ...extraScores },
     trace: { spans: spanTreeFor(rowKey, spans) },
   };
 }
@@ -61,13 +91,25 @@ export function reduceTrace(
   // OWNS this swap — it carries the Analysis OUTPUT; issue #51 owns the analysis-row SCORES, untouched
   // here). Absent → the legacy `{ phase: 'analysis' }` sentinel, so a brief-less run is unchanged.
   const analysisOutput = meta.analysisOutput ?? { phase: 'analysis' };
-  if (analysis.length > 0) rows.push(row(meta.runId, ANALYSIS_ROW_KEY, analysisOutput, analysis));
-  for (const [slug, nodeSpans] of byNode) rows.push(row(meta.runId, slug, { phase: 'synthesis', slug }, nodeSpans));
+  // The LLM-judge's quality scores ride onto the analysis row alongside its cost (issue #51); absent
+  // → the row carries cost only.
+  const analysisScores = meta.analysisScores ?? {};
+  if (analysis.length > 0) rows.push(row(meta.runId, ANALYSIS_ROW_KEY, analysisOutput, analysis, analysisScores));
+  for (const [slug, nodeSpans] of byNode) {
+    // The critic's pass/fail (1/0) rides onto the synthesis row alongside its cost (issue #51) when
+    // the CLI threaded a verdict for this slug; absent → the row carries cost only, as before.
+    const verdict = meta.verdicts?.[slug];
+    const extra = verdict !== undefined ? { passed: verdict ? 1 : 0 } : {};
+    rows.push(row(meta.runId, slug, { phase: 'synthesis', slug }, nodeSpans, extra));
+  }
 
   const run: EvalRunRecord = {
     id: meta.runId,
     label: meta.label,
     startedAt: meta.startedAt,
+    // Conditionally spread the optional fields so an absent one is OMITTED, not set to `undefined`
+    // (exactOptionalPropertyTypes), matching how `config` is threaded.
+    ...(meta.baseline !== undefined ? { baseline: meta.baseline } : {}),
     ...(meta.config !== undefined ? { config: meta.config } : {}),
     metrics: { costUsd: sumCost(spans), calls: spans.length },
   };

@@ -70,11 +70,23 @@ export const defaultStages: StageBundle = {
 };
 
 /**
- * One per-LLM-call trace span: which stage produced it, the built node it belongs to (absent for
- * the run-level analysis stages plan/research/graph), and that call's cost/token record.
+ * What produced a trace span: one of the pipeline `Stage`s, OR `'judge'` — the post-pipeline
+ * LLM-judge scorer (src/trace/judge.ts). The judge is NOT a pipeline stage (it doesn't produce an
+ * artifact, it scores one), so it's deliberately kept off the `Stage` union; but its LLM call still
+ * spends real tokens, so it rides the span channel as a distinct tag. A `'judge'` span carries no
+ * `nodeSlug`, so `reduceTrace` folds its cost into the `_analysis` row — keeping the row-cost-sums-
+ * to-run-cost invariant honest (the judge scores Analysis). The CLI/eval path emits it; run-pipeline
+ * never does.
+ */
+export type TraceStage = Stage | 'judge';
+
+/**
+ * One per-LLM-call trace span: which stage (or the judge) produced it, the built node it belongs to
+ * (absent for the run-level analysis stages plan/research/graph and the judge), and that call's
+ * cost/token record.
  */
 export interface TraceSpan {
-  stage: Stage;
+  stage: TraceStage;
   nodeSlug?: string;
   record: LlmCallRecord;
 }
