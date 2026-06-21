@@ -12,11 +12,19 @@ export interface TraceMeta {
   startedAt: string;
   /** Optional run-config snapshot (workflow_version / model snapshots) → eleatic config_json. */
   config?: Record<string, unknown>;
+  /**
+   * The Analysis phase's product — the assembled `LessonBrief` — carried as the `_analysis` row's
+   * `output` (issue #50). When present, an Analysis-only eval arm is inspectable/scoreable end-to-end
+   * WITHOUT running Synthesis. Typed loosely (`EvalRowRecord.output` is `unknown`) so `reduce.ts`
+   * imports no domain stage type and stays a pure trace reducer. Absent → the legacy `{ phase:
+   * 'analysis' }` sentinel, so existing callers (and a brief-less run) are unchanged.
+   */
+  analysisOutput?: unknown;
 }
 
 const sumCost = (spans: readonly TraceSpan[]): number => spans.reduce((sum, s) => sum + s.record.costUsd, 0);
 
-function row(runId: string, rowKey: string, output: Record<string, unknown>, spans: readonly TraceSpan[]): EvalRowRecord {
+function row(runId: string, rowKey: string, output: unknown, spans: readonly TraceSpan[]): EvalRowRecord {
   return {
     runId,
     rowKey,
@@ -49,7 +57,11 @@ export function reduceTrace(
   }
 
   const rows: EvalRowRecord[] = [];
-  if (analysis.length > 0) rows.push(row(meta.runId, ANALYSIS_ROW_KEY, { phase: 'analysis' }, analysis));
+  // The analysis row's output carries the assembled LessonBrief when the caller threads it (issue #50
+  // OWNS this swap — it carries the Analysis OUTPUT; issue #51 owns the analysis-row SCORES, untouched
+  // here). Absent → the legacy `{ phase: 'analysis' }` sentinel, so a brief-less run is unchanged.
+  const analysisOutput = meta.analysisOutput ?? { phase: 'analysis' };
+  if (analysis.length > 0) rows.push(row(meta.runId, ANALYSIS_ROW_KEY, analysisOutput, analysis));
   for (const [slug, nodeSpans] of byNode) rows.push(row(meta.runId, slug, { phase: 'synthesis', slug }, nodeSpans));
 
   const run: EvalRunRecord = {

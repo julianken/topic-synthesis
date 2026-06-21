@@ -3,7 +3,7 @@ import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
-const PLANNER_SYSTEM =
+export const PLANNER_SYSTEM =
   'You are a curriculum architect. Decompose a topic into a focused learning scope, the ' +
   'key subtopics a learner must master, and the open research questions whose grounded ' +
   'answers the curriculum must teach. Tailor everything to the level and audience.';

@@ -3,7 +3,7 @@ import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
-const GRAPH_SYSTEM =
+export const GRAPH_SYSTEM =
   'You are a learning-science expert. From researched subtopics, build a prerequisite ' +
   'graph of concept nodes: a directed ACYCLIC graph where an edge from A to B means A is ' +
   'a prerequisite of B. Judge how well the research covers each node (0..1).';

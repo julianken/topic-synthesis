@@ -50,6 +50,24 @@ describe('reduceTrace', () => {
     expect(rows.map((r) => r.rowKey)).toEqual([ANALYSIS_ROW_KEY]);
   });
 
+  it('carries the assembled LessonBrief as the analysis row output when provided (issue #50)', () => {
+    const brief = {
+      learningGoal: 'understand the Fourier transform',
+      keyPoints: ['frequency domain', 'orthogonality'],
+      findings: [{ claim: 'sin and cos are orthogonal', source: { url: 'https://x', title: 'X' } }],
+      audience: 'devs',
+    };
+    const { rows } = reduceTrace([{ stage: 'planner', record: rec(0.01) }], { ...meta, analysisOutput: brief });
+    const analysisRow = rows.find((r) => r.rowKey === ANALYSIS_ROW_KEY);
+    expect(analysisRow?.output).toEqual(brief); // the Analysis product, not the { phase: 'analysis' } sentinel
+    expect(analysisRow?.output).not.toEqual({ phase: 'analysis' });
+  });
+
+  it('falls back to the { phase: "analysis" } sentinel when no brief is threaded', () => {
+    const { rows } = reduceTrace([{ stage: 'planner', record: rec(0.01) }], meta);
+    expect(rows.find((r) => r.rowKey === ANALYSIS_ROW_KEY)?.output).toEqual({ phase: 'analysis' });
+  });
+
   it('omits config when absent and carries it when present (exactOptionalPropertyTypes)', () => {
     const without = reduceTrace([{ stage: 'planner', record: rec(0.01) }], meta).run;
     expect('config' in without).toBe(false);

@@ -14,6 +14,7 @@ import type {
 import type { Engine } from '../engine/engine';
 import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
+import { BriefOutputSchema } from './brief';
 import { gateGraph, type GateThresholds } from './coverage-gate';
 import { defaultDeps, type StageDeps } from './deps';
 import { assembleHub } from './hub';
@@ -26,6 +27,14 @@ export interface PipelineRunResult {
   records: LlmCallRecord[];
   /** The run's total cost — the sum of the records' costUsd. */
   costUsd: number;
+  /**
+   * The assembled LessonBrief — the Analysis phase's product (issue #50). Set only by the
+   * single-lesson path (`runLesson`, which has exactly one canonical brief); undefined on the
+   * curriculum path (`runPipeline` uses transitional PER-NODE briefs, with no single one to expose).
+   * The trace reducer carries it as the `_analysis` row's `output`, so an Analysis-only arm is
+   * inspectable without running Synthesis.
+   */
+  brief?: LessonBrief;
 }
 
 export interface RunOptions {
@@ -263,10 +272,16 @@ export async function runLesson(
 
   // 3. brief (Analysis) — folds plan + research[] into ONE LessonBrief; replaces graph as the
   // "what to teach" producer. Keyed off the topic + research count so it memoizes on resume.
+  // The 4th arg arms validate-on-resume (issue #50): the durable engine re-runs this step if a
+  // cached brief no longer parses against the CURRENT LessonBrief contract (BriefOutputSchema wraps
+  // LessonBriefSchema), so a deploy that changes the contract mid-run can't feed an old-shape brief
+  // into `spec`. The brief is the contract that crosses the Analysis→Synthesis seam — the one step
+  // where a stale shape would corrupt the run, so it's the one pinned with a validator.
   const briefed = await engine.step(
     'brief',
     contentHash(req.topic, bucket, String(allResearch.length)),
     () => stages.brief({ plan: thePlan, research: allResearch, settings: req.settings }, deps, models.brief),
+    BriefOutputSchema,
   );
   records.push(...briefed.records);
   emit('brief', briefed.records);
@@ -300,7 +315,8 @@ export async function runLesson(
     console.warn(`[pipeline] lesson degraded to 'soon' after a synthesis failure — ${synth.degraded}`);
   }
   const costUsd = records.reduce((sum, r) => sum + r.costUsd, 0);
-  return { result: { hub, pages }, records, costUsd };
+  // Expose the assembled brief so a trace carries it as the analysis row's output (issue #50).
+  return { result: { hub, pages }, records, costUsd, brief: briefed.brief };
 }
 
 /** A human title for the one lesson: the brief's first keyPoint, else its learningGoal. */

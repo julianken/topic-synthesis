@@ -12,12 +12,12 @@ export interface ResearchInput {
   maxSearches?: number;
 }
 
-const RESEARCH_SYSTEM =
+export const RESEARCH_SYSTEM =
   'You are a research assistant. Use web search to gather current, authoritative ' +
   'information and synthesize a grounded answer. State only claims supported by the pages ' +
   'you actually retrieved — never invent a source.';
 
-const STRUCTURE_SYSTEM =
+export const STRUCTURE_SYSTEM =
   'You extract grounded findings from researched material. Cite ONLY the numbered sources ' +
   'provided, by their index — never invent a source or cite an index that is not listed.';
 

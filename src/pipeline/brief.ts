@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   LessonBriefSchema,
   type LessonBrief,
@@ -15,7 +16,7 @@ export interface BriefInput {
   settings: Settings;
 }
 
-const BRIEF_SYSTEM =
+export const BRIEF_SYSTEM =
   'You are an instructional architect. From a topic plan and the grounded research, write ' +
   'ONE lesson brief: the single learning goal, the key points a learner must master, and the ' +
   'grounded findings (each a claim with its supporting source) that the lesson should teach. ' +
@@ -53,6 +54,29 @@ export interface BriefOutput {
   brief: LessonBrief;
   records: LlmCallRecord[];
 }
+
+/**
+ * The validate-on-resume schema for the `brief` engine step (issue #50). The step memoizes the whole
+ * `BriefOutput` envelope, so the validator must match THAT shape — but the load-bearing arm is
+ * `brief: LessonBriefSchema`, the Analysis→Synthesis contract: a cached brief whose shape no longer
+ * matches the current `LessonBriefSchema` (e.g. after a deploy changed the contract mid-run) fails
+ * this parse, so `GcpEngine.durableStep` treats it as a cache miss and re-runs — a stale-shape brief
+ * can never feed `spec`. `records` is the LLM-call metadata envelope, validated loosely (not the
+ * contract under deploy-drift risk; `rawUsage` is `unknown`). This arms a REAL check, not a no-op.
+ */
+export const BriefOutputSchema: z.ZodType<BriefOutput> = z.object({
+  brief: LessonBriefSchema,
+  records: z.array(
+    z.object({
+      providerModel: z.string(),
+      inputTokens: z.number(),
+      outputTokens: z.number(),
+      costUsd: z.number(),
+      rawUsage: z.unknown(),
+      finishReason: z.string(),
+    }),
+  ),
+});
 
 /**
  * Brief (Opus, Analysis): plan + research[] → ONE LessonBrief, the single object that
