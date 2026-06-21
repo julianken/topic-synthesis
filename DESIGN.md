@@ -42,6 +42,8 @@ Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no ru
 - **Curriculum hub** — tiered SITEMAP (tier → category → page tiles); built tiles link to the page, `soon`/`text` tiles are muted with a status badge.
 - **Page tile** — title + status badge (`--status-built` / `--status-soon` / text).
 - **Artifact frame** — sandboxed cross-origin iframe; the chrome supplies only the frame (a "report a problem" affordance is deferred).
+- **Sign in** (`(auth)/sign-in`) — a `.wrap` card: eyebrow → h1 → `.lead` → a single "Continue with Google" `.btn`, with branded `.intake__error` states for a rejected / non-allowlisted account. The Google consent popup is the one external surface; no values beyond the §0 tokens.
+- **Session top bar** (`.topbar`) — right-aligned; the signed-in email in `--text-muted` + a `.topbar__signout` text button in `--interactive` (focus-visible ring, reduced-motion-safe). Shown only when signed in, so the sign-in page stays chromeless.
 
 ## Accessibility
 Target WCAG 2.2 AA. Visible `:focus-visible` ring (2px `--interactive`). Full keyboard operability of the form + hub. Status by label+icon, not color alone. Reduced motion honored (§Motion). Generated artifacts carry their **own** a11y contract (a generation target — see `docs/plans/`); the chrome never depends on an iframe's internals for its own accessibility.
