@@ -32,8 +32,9 @@ export function sessionCookieOptions(): {
  * Fail-closed on a malformed Origin.
  */
 export function isSameOrigin(req: Request): boolean {
+  // Sec-Fetch-* are browser-set forbidden headers (JS can't spoof them), so trust the signal directly.
   const site = req.headers.get('sec-fetch-site');
-  if (site && site !== 'same-origin' && site !== 'none') return false;
+  if (site) return site === 'same-origin' || site === 'none';
   const origin = req.headers.get('origin');
   if (origin) {
     try {
@@ -42,6 +43,8 @@ export function isSameOrigin(req: Request): boolean {
       return false;
     }
   }
-  // No Origin header (e.g. a top-level navigation) — Sec-Fetch-Site already vouched same-origin/none.
-  return true;
+  // Neither Sec-Fetch-Site nor Origin on a state-changing request → no CSRF signal → reject. The app's
+  // own POSTs are fetch() calls that always carry Origin, so this is fail-closed without leaning on
+  // SameSite=Lax — the check still holds if the cookie's SameSite is ever relaxed.
+  return false;
 }

@@ -49,4 +49,10 @@ describe('CSRF same-origin (isSameOrigin)', () => {
   it('accepts a same-origin request', () => {
     expect(isSameOrigin(make({ origin: 'https://app.example', 'sec-fetch-site': 'same-origin' }))).toBe(true);
   });
+  it('rejects a request with NO CSRF signal (no Origin, no Sec-Fetch-Site) — fail-closed', () => {
+    expect(isSameOrigin(make({}))).toBe(false);
+  });
+  it('trusts a same-origin Sec-Fetch-Site even without an Origin header', () => {
+    expect(isSameOrigin(make({ 'sec-fetch-site': 'same-origin' }))).toBe(true);
+  });
 });
