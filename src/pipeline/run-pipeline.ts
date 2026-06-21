@@ -122,7 +122,13 @@ export async function runPipeline(
   const pages: CritiquedArtifact[] = [];
   const passedSlugs = new Set<string>();
   for (const b of built) {
-    records.push(...b.records);
+    records.push(...b.records); // a degraded node's partial records still count toward cost/trace
+    if (!b.artifact) {
+      // The node failed synthesis and was degraded to 'soon' (see synthesizeNode). Skip the page;
+      // its absence from passedSlugs makes assembleHub route it 'soon'. Surface it in the logs.
+      console.warn(`[pipeline] node degraded to 'soon' after a synthesis failure — ${b.degraded}`);
+      continue;
+    }
     pages.push(b.artifact);
     if (b.artifact.passed) passedSlugs.add(b.artifact.nodeSlug);
   }
@@ -143,20 +149,29 @@ async function synthesizeNode(
   models: Record<Stage, StageModel>,
   stages: StageBundle,
   sink: TraceSink,
-): Promise<{ artifact: CritiquedArtifact; records: LlmCallRecord[] }> {
+): Promise<{ artifact: CritiquedArtifact | null; records: LlmCallRecord[]; degraded?: string }> {
   const records: LlmCallRecord[] = [];
   const emitNode = (stage: Stage, recs: LlmCallRecord[]): void => {
     for (const record of recs) sink.onSpan({ stage, nodeSlug: node.slug, record });
   };
   const key = contentHash(node.slug, bucket);
-  const specced = await engine.step('spec', key, () => stages.spec({ node, settings: req.settings, sources }, deps, models.spec));
-  records.push(...specced.records);
-  emitNode('spec', specced.records);
-  const coded = await engine.step('code', key, () => stages.code(specced.spec, deps, models.code));
-  records.push(...coded.records);
-  emitNode('code', coded.records);
-  const critiqued = await engine.step('critic', key, () => stages.critic(coded.artifact, deps, models.critic));
-  records.push(...critiqued.records);
-  emitNode('critic', critiqued.records);
-  return { artifact: critiqued.artifact, records };
+  try {
+    const specced = await engine.step('spec', key, () => stages.spec({ node, settings: req.settings, sources }, deps, models.spec));
+    records.push(...specced.records);
+    emitNode('spec', specced.records);
+    const coded = await engine.step('code', key, () => stages.code(specced.spec, deps, models.code));
+    records.push(...coded.records);
+    emitNode('code', coded.records);
+    const critiqued = await engine.step('critic', key, () => stages.critic(coded.artifact, deps, models.critic));
+    records.push(...critiqued.records);
+    emitNode('critic', critiqued.records);
+    return { artifact: critiqued.artifact, records };
+  } catch (err) {
+    // One node's synthesis failing — e.g. the code stage hitting the model output cap on an oversized
+    // page — must NOT crash the whole run. Degrade THIS node to 'soon' (a null artifact → absent from
+    // passedSlugs → assembleHub routes it 'soon') and keep the partial records so its cost/trace still
+    // counts. Walking-skeleton error-handling contract: a node that fails degrades; the hub still assembles.
+    const reason = err instanceof Error ? err.message : String(err);
+    return { artifact: null, records, degraded: `${node.slug}: ${reason}` };
+  }
 }

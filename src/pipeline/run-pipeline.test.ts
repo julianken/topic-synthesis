@@ -121,6 +121,23 @@ describe('runPipeline', () => {
     expect(pages.filter((p) => p.status === 'soon')).toHaveLength(2); // the rest degrade, not fabricated
   });
 
+  it('degrades a node to soon when its synthesis throws — does NOT crash the whole run', async () => {
+    const deps = fakeDeps(['q1'], [0.9, 0.9]); // 2 built-routed nodes
+    // The code stage hits the model output cap → the client guard throws (the real failure mode).
+    (deps.complete as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('"anthropic:x" hit the output cap (16000); output is truncated. Raise maxTokens.'),
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The run must complete (not reject) even though every built node's code stage fails.
+    const out = await runPipeline(req, new InlineEngine(), deps);
+    const pages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    expect(pages.filter((p) => p.status === 'soon').length).toBeGreaterThanOrEqual(2); // both degraded
+    expect(pages.every((p) => !p.built)).toBe(true); // a failed node is never 'built'
+    expect(out.result.pages).toHaveLength(0); // no page persisted for a failed node (never fabricated)
+    expect(warn).toHaveBeenCalled(); // the degrade is surfaced in the logs
+    warn.mockRestore();
+  });
+
   it('applies per-stage model overrides (the workflow_version arm / cheap-mode)', async () => {
     const deps = fakeDeps();
     const haiku: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
