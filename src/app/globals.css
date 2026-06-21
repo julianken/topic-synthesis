@@ -222,6 +222,16 @@ h1 {
   background: var(--bg-surface);
 }
 
+/* Single-lesson degraded state: the run produced a soon/text lesson, not a built page.
+   Status by label + icon (the .badge), never a blank iframe (DESIGN.md — §Accessibility). */
+.lesson-degraded {
+  margin-top: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
 /* ── Intake form ──────────────────────────────────────────────────────────── */
 .intake {
   margin-top: var(--sp-6);

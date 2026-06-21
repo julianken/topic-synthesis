@@ -8,9 +8,9 @@ const MAX_ATTEMPTS = 160; // ~6-7 min, then stop polling and surface a hint
 
 /**
  * Polls the curriculum status while a run is in flight. When the row lands it calls
- * router.refresh(), which re-runs the hub server component — now getCurriculum returns the
- * curriculum and the hub renders. After MAX_ATTEMPTS it stops and shows a "still working" hint
- * (covers both a slow run and a bad id, without polling forever).
+ * router.refresh(), which re-runs the lesson server component — now getCurriculum returns the
+ * one-page curriculum and the lesson renders. After MAX_ATTEMPTS it stops and shows a "still
+ * working" hint (covers both a slow run and a bad id, without polling forever).
  */
 export function GeneratingPoller({ id }: { id: string }) {
   const router = useRouter();
