@@ -59,6 +59,15 @@ CREATE TABLE IF NOT EXISTS curriculum (
 -- persistRun's transaction (ADR 0002 §2 — no second store). Owner-scoped reads land in a later PR.
 ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS owner_sub TEXT;
 
+-- Run ownership stamped at DISPATCH (before the curriculum persists), so the hub can tell a caller's
+-- own still-generating run (→ "generating") from a foreign/absent id (→ uniform 404) with no DB
+-- existence oracle. The Job later writes the same sub onto curriculum.owner_sub at persist. ADR 0002 §5.
+CREATE TABLE IF NOT EXISTS run_owner (
+  run_id     TEXT PRIMARY KEY,
+  owner_sub  TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- The curriculum<->page JOIN: the seam that lets one page belong to many
 -- curricula once sharing is enabled.
 CREATE TABLE IF NOT EXISTS curriculum_page (

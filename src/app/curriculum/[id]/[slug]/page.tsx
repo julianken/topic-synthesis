@@ -1,4 +1,5 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { getSessionIdentity } from '../../../auth/require-session';
 import { getCurriculum } from '../../../../store/repo';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +12,9 @@ export default async function ArtifactDetail({
   // Next URL-decodes the param → the raw slug. Keyed by slug (URL-safe, curriculum-unique)
   // rather than the content-identity pageId, whose `#` breaks nested page-route matching.
   const { id, slug } = await params;
-  const view = await getCurriculum(id);
+  const identity = await getSessionIdentity();
+  if (!identity) redirect('/sign-in');
+  const view = await getCurriculum(id, identity.sub);
   const page = view?.hub.tiers
     .flatMap((tier) => tier.categories.flatMap((category) => category.pages))
     .find((p) => p.slug === slug && p.built);

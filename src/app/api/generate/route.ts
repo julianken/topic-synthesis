@@ -5,7 +5,7 @@ import { InlineEngine } from '../../../engine/inline-engine';
 import { STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
 import { defaultDeps } from '../../../pipeline/deps';
 import { runPipeline } from '../../../pipeline/run-pipeline';
-import { persistRun } from '../../../store/repo';
+import { persistRun, recordRunOwner } from '../../../store/repo';
 import { getSessionIdentity } from '../../auth/require-session';
 import { isSameOrigin } from '../../auth/session';
 import { dispatchJob, isJobDispatchEnabled } from './dispatch';
@@ -74,6 +74,9 @@ export async function POST(req: Request): Promise<Response> {
   // The runId IS the curriculum id (persistRun keys on it); the client redirects to
   // /curriculum/<id> and the hub polls it. 202: accepted, generation in flight.
   const runId = randomUUID();
+  // Stamp ownership at dispatch (before the curriculum persists) so the hub can owner-scope the
+  // pre-persist poll window with no existence oracle; the Job writes owner_sub onto the curriculum.
+  await recordRunOwner(runId, identity.sub);
   if (isJobDispatchEnabled()) {
     // Deployed: dispatch the durable Cloud Run Job — the Service stays scale-to-zero (it never holds
     // the run in-process). A failed dispatch is honest (502), not a phantom 202 the poller waits on.

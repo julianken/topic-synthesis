@@ -1,4 +1,6 @@
-import { getCurriculum } from '../../../store/repo';
+import { notFound, redirect } from 'next/navigation';
+import { getSessionIdentity } from '../../auth/require-session';
+import { getCurriculum, ownsRun } from '../../../store/repo';
 import { tileView } from '../view';
 import { GeneratingPoller } from './generating';
 
@@ -7,11 +9,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function CurriculumHub({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const view = await getCurriculum(id);
+  const identity = await getSessionIdentity();
+  if (!identity) redirect('/sign-in');
+  const view = await getCurriculum(id, identity.sub);
 
-  // No row yet = the run is still in flight (persistRun writes the whole curriculum atomically
-  // on completion). Show a generating state that polls until the row lands, then refreshes.
+  // Owner-scoped null: show "generating" ONLY for the caller's own not-yet-persisted run (persistRun
+  // writes the curriculum atomically on completion); a foreign/absent id is a uniform 404 (no oracle).
   if (!view) {
+    if (!(await ownsRun(id, identity.sub))) notFound();
     return (
       <main className="wrap">
         <p className="eyebrow">Curriculum</p>

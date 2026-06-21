@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock only the auth gate + the dispatcher; isSameOrigin (from ../../auth/session) runs for real, and
-// the in-process startRun path (runPipeline/persistRun) is never reached because dispatch is enabled.
+// Mock the auth gate, the dispatcher, and the store writes (recordRunOwner stamps ownership at
+// dispatch — mock it so the test needs no DB); isSameOrigin (from ../../auth/session) runs for real,
+// and the in-process startRun path (runPipeline/persistRun) is never reached because dispatch is on.
 const getSessionIdentity = vi.hoisted(() => vi.fn());
 const dispatchJob = vi.hoisted(() => vi.fn());
+const recordRunOwner = vi.hoisted(() => vi.fn());
 vi.mock('../../auth/require-session', () => ({ getSessionIdentity }));
 vi.mock('./dispatch', () => ({ dispatchJob, isJobDispatchEnabled: () => true }));
+vi.mock('../../../store/repo', () => ({ recordRunOwner, persistRun: vi.fn() }));
 
 import { POST } from './route';
 
