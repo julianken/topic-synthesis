@@ -38,6 +38,17 @@ export default {
       from: { path: '^src/', pathNot: '^src/trace/eleatic-adapter\\.ts$' },
       to: { path: 'node_modules/@eleatic/eval(/|$)' },
     },
+    {
+      name: 'firebase-admin-only-in-auth-adapter',
+      comment:
+        'Only src/app/auth/gcp-auth-provider.ts may import firebase-admin (the server Admin SDK) — its ' +
+        'gRPC/credential transitive deps stay confined to the one adapter, mirroring eleatic-only-in-trace ' +
+        '(ADR 0002 §3). The firebase CLIENT SDK (firebase/auth) is browser code the sign-in UI imports and ' +
+        'is intentionally NOT confined here.',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '^src/app/auth/gcp-auth-provider\\.ts$' },
+      to: { path: 'node_modules/firebase-admin(/|$)' },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },

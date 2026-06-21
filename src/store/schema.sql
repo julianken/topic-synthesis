@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS curriculum (
   run_id        TEXT REFERENCES run(id),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Auth: the owning user (the verified Google `sub`). Additive + idempotent (same pattern as the
+-- `title` backfill above) — nullable so legacy/unauthenticated rows are owner-only; written inside
+-- persistRun's transaction (ADR 0002 §2 — no second store). Owner-scoped reads land in a later PR.
+ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS owner_sub TEXT;
 
 -- The curriculum<->page JOIN: the seam that lets one page belong to many
 -- curricula once sharing is enabled.
