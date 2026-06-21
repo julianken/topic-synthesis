@@ -1,13 +1,15 @@
 import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { getCurriculum, ownsRun } from '../../../store/repo';
-import { tileView } from '../view';
 import { GeneratingPoller } from './generating';
+
+const STATUS_LABEL = { built: 'Built', soon: 'Soon', text: 'Text' } as const;
+const STATUS_ICON = { built: '✓', soon: '◷', text: '≡' } as const;
 
 // Read per request — the curriculum lives in Postgres, not at build time.
 export const dynamic = 'force-dynamic';
 
-export default async function CurriculumHub({ params }: { params: Promise<{ id: string }> }) {
+export default async function LessonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const identity = await getSessionIdentity();
   if (!identity) redirect('/sign-in');
@@ -19,65 +21,54 @@ export default async function CurriculumHub({ params }: { params: Promise<{ id: 
     if (!(await ownsRun(id, identity.sub))) notFound();
     return (
       <main className="wrap">
-        <p className="eyebrow">Curriculum</p>
+        <p className="eyebrow">Lesson</p>
         <h1>Generating…</h1>
-        <p className="lead">
-          Researching, mapping prerequisites, and synthesizing interactive pages. This usually
-          takes a minute or two.
-        </p>
+        <p className="lead">Researching and building your lesson. This usually takes a minute or two.</p>
         <GeneratingPoller id={id} />
       </main>
     );
   }
 
+  // The single-lesson run persists as a one-page curriculum (the existing persistRun/getCurriculum
+  // reuse — ADR-0002). Resolve the lone page out of the existing view regardless of `built` (a
+  // soon/text lesson is a valid, non-`built` page), then branch on its status: built → render the
+  // sandboxed artifact directly; soon/text → a labeled degraded state (never a blank iframe).
+  const page = view.hub.tiers
+    .flatMap((tier) => tier.categories.flatMap((category) => category.pages))
+    .find(() => true);
+
   return (
     <main className="wrap wrap--wide">
-      <p className="eyebrow">Curriculum</p>
-      <h1>{view.topic}</h1>
+      <p className="eyebrow">{view.topic}</p>
+      <h1>{page ? page.title : view.topic}</h1>
       <p className="lead">
         {view.settings.level} · depth {view.settings.depth}
       </p>
 
-      <div className="hub">
-        {view.hub.tiers.map((tier) => (
-          <section key={tier.tier} className="tier">
-            <h2 className="tier__name">{tier.tier}</h2>
-            {tier.categories.map((category) => (
-              <div key={category.name} className="category">
-                {category.name ? <h3 className="category__name">{category.name}</h3> : null}
-                <ul className="tiles">
-                  {category.pages.map((page) => {
-                    const tile = tileView(page, id);
-                    const badge = (
-                      <span className={`badge badge--${tile.status}`}>
-                        <span className="badge__icon" aria-hidden="true">
-                          {tile.icon}
-                        </span>{' '}
-                        {tile.statusLabel}
-                      </span>
-                    );
-                    return (
-                      <li key={page.slug} className={`tile tile--${tile.status}`}>
-                        {tile.href ? (
-                          <a className="tile__link" href={tile.href}>
-                            <span className="tile__title">{tile.title}</span>
-                            {badge}
-                          </a>
-                        ) : (
-                          <span className="tile__static">
-                            <span className="tile__title">{tile.title}</span>
-                            {badge}
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </section>
-        ))}
-      </div>
+      {page && page.status === 'built' ? (
+        // sandbox="allow-scripts" WITHOUT allow-same-origin → opaque origin: the lesson runs its own
+        // canvas/SVG scripts but can't reach this app's origin/cookies/storage. The strict CSP is set
+        // by the /artifact route (page.href → src/app/artifact/serve.ts), authorized through the
+        // owning curriculum (the same-origin GET carries the session cookie — ADR-0002 §5).
+        <iframe
+          className="artifact-frame"
+          title={page.title}
+          src={page.href}
+          sandbox="allow-scripts"
+        />
+      ) : (
+        <div className="lesson-degraded" role="status">
+          <span className={`badge badge--${page ? page.status : 'soon'}`}>
+            <span className="badge__icon" aria-hidden="true">
+              {STATUS_ICON[page ? page.status : 'soon']}
+            </span>{' '}
+            {STATUS_LABEL[page ? page.status : 'soon']}
+          </span>
+          <p className="lead">
+            This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
+          </p>
+        </div>
+      )}
     </main>
   );
 }

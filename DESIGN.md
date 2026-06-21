@@ -38,9 +38,10 @@ Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no ru
 
 ## Components (skeleton surfaces)
 - **Intake form** — topic field + settings (level, depth); submit triggers a generation run.
-- **Progress** — live phase timeline (admit → plan → research → graph → gate → synthesize → assemble) + per-node status; the client polls run status (the curriculum appears atomically when the run completes).
-- **Curriculum hub** — tiered SITEMAP (tier → category → page tiles); built tiles link to the page, `soon`/`text` tiles are muted with a status badge.
-- **Page tile** — title + status badge (`--status-built` / `--status-soon` / text).
+- **Progress** — a single-lesson generating state: an eyebrow → "Generating…" → a `.lead` ("Researching and building your lesson.") + the spinner (`.generating`); the client polls run status (the one-page curriculum appears atomically when the run completes). No per-node timeline — the live path builds one lesson.
+- **Single lesson** (`/curriculum/<id>`) — the read route for a completed single-lesson run. Standalone framing: the parent topic as eyebrow → the lesson title as `h1` → `.lead` (`level · depth N`), then the lesson's interactive artifact in the sandboxed `.artifact-frame` (`sandbox="allow-scripts"`, no `allow-same-origin`). When the run produced a non-`built` (`soon`/`text`) lesson, a labeled degraded state (`.lesson-degraded`: a status `.badge` with label + icon + a `.lead`) replaces the frame — never a blank iframe.
+- **Curriculum hub** (tiered SITEMAP — DORMANT) — tier → category → page tiles; built tiles link to the page, `soon`/`text` tiles are muted with a status badge. Built by `tileView` + the tiered CSS (`.hub`/`.tier`/`.tiles`/`.tile*`/`.category*`); retained for the future curriculum-wrapper milestone (decompose → N lessons) but **not** rendered by `/curriculum/<id>` today, which renders the single lesson directly.
+- **Page tile** (DORMANT — part of the tiered hub above) — title + status badge (`--status-built` / `--status-soon` / text).
 - **Artifact frame** — sandboxed cross-origin iframe; the chrome supplies only the frame (a "report a problem" affordance is deferred).
 - **Sign in** (`(auth)/sign-in`) — a `.wrap` card: eyebrow → h1 → `.lead` → a single "Continue with Google" `.btn`, with branded `.intake__error` states for a rejected / non-allowlisted account. The Google consent popup is the one external surface; no values beyond the §0 tokens.
 - **Session top bar** (`.topbar`) — right-aligned; the signed-in email in `--text-muted` + a `.topbar__signout` text button in `--interactive` (focus-visible ring, reduced-motion-safe). Shown only when signed in, so the sign-in page stays chromeless.
