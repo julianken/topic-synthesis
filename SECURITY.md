@@ -76,6 +76,38 @@ is the single source of truth, and it is not restated here. If you spot a
 committed credential or personal data, please report it privately as above so
 the value can be rotated.
 
+## Authentication & access
+
+The deployed app is private and invite-only. The controls below are in the spirit
+above — real protections for the people running the app and its LLM budget, not
+audit-theater (ADR `docs/decisions/0002-auth-architecture.md`):
+
+- **Identity** is GCP Identity Platform, **Google sign-in only** — `email_verified`
+  is trustworthy precisely because Google is the sole IdP. The app stores no
+  passwords.
+- **An explicit allowlist** (`AUTH_ALLOWLIST`, keyed by the stable Google `sub`,
+  never the mutable email) authorizes use. A verified Google account alone is open
+  registration on an endpoint that spends real LLM tokens, so the allowlist — not
+  just a valid sign-in — is the gate.
+- **Sessions** are `httpOnly` + `Secure` + `SameSite=Lax` cookies (the opaque
+  Identity Platform session cookie), verified server-side against cached certs.
+  `POST /api/generate` runs an authoritative, **revocation-checked** session +
+  allowlist check **before any spend**; private reads are owner-scoped. State-
+  changing POSTs also carry an `Origin`/`Sec-Fetch-Site` same-origin check (CSRF).
+- **`RUN_OWNER`** trust boundary: the pipeline Job has no session, so it trusts the
+  `RUN_OWNER` env override as the run's owner — but the Service sets it only *after*
+  the spend gate, so it is authoritative-because-set-by-the-trusted-Service, not an
+  unauthenticated input.
+- **`AUTH_DEV_BYPASS`** is a local-dev-only escape hatch, **hard-gated to
+  non-production** (`NODE_ENV` is checked first and unconditionally) and settable
+  only from server env — it can never grant a session on a deployed build.
+
+The web API key shipped to the browser (`NEXT_PUBLIC_FIREBASE_API_KEY`) is **not a
+secret** — it identifies the project, it does not authorize; the IdP enforces the
+Google-only + authorized-domains policy. The deploy must set the auth env (the
+`NEXT_PUBLIC_FIREBASE_*` build args + `AUTH_ALLOWLIST`); wiring those into the image
+build + Cloud Run is the operational deploy step.
+
 ## How this project is built
 
 Most code here is written by AI coding agents under human review, then

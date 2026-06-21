@@ -15,13 +15,18 @@ export function isJobDispatchEnabled(): boolean {
 
 /** The per-run container env overrides for a Job execution (pure + testable). `RUN_ID` is the
  *  curriculum id the app polls; the Job reads these instead of argv. */
-export function overrideEnv(runId: string, request: TopicRequest): { name: string; value: string }[] {
+export function overrideEnv(
+  runId: string,
+  request: TopicRequest,
+  ownerSub: string,
+): { name: string; value: string }[] {
   return [
     { name: 'RUN_ID', value: runId },
     { name: 'TOPIC', value: request.topic },
     { name: 'LEVEL', value: request.settings.level },
     { name: 'DEPTH', value: String(request.settings.depth) },
     { name: 'AUDIENCE', value: request.settings.audience },
+    { name: 'RUN_OWNER', value: ownerSub }, // the gated owner's verified sub → run-job persists owner_sub
     ...APP_RUN_ENV,
   ];
 }
@@ -43,10 +48,10 @@ function requireEnv(name: string): string {
  * completion (the execution runs async; the app polls the curriculum status). ADC auth = the
  * runtime SA on Cloud Run.
  */
-export async function dispatchJob(runId: string, request: TopicRequest): Promise<void> {
+export async function dispatchJob(runId: string, request: TopicRequest, ownerSub: string): Promise<void> {
   const name = `projects/${requireEnv('GCP_PROJECT')}/locations/${requireEnv('PIPELINE_REGION')}/jobs/${requireEnv('PIPELINE_JOB_NAME')}`;
   await jobsClient().runJob({
     name,
-    overrides: { containerOverrides: [{ env: overrideEnv(runId, request) }] },
+    overrides: { containerOverrides: [{ env: overrideEnv(runId, request, ownerSub) }] },
   });
 }

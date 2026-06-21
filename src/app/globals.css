@@ -318,3 +318,43 @@ h1 {
 .badge__icon {
   font-weight: 700;
 }
+
+/* Session top bar (DESIGN.md → "Auth surfaces"): the signed-in email + a sign-out affordance. */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: var(--fs-small);
+}
+
+.topbar__email {
+  color: var(--text-muted);
+}
+
+.topbar__signout {
+  background: none;
+  border: none;
+  color: var(--interactive);
+  font: inherit;
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+}
+
+.topbar__signout:hover {
+  color: var(--interactive-hover);
+}
+
+.topbar__signout:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+.topbar__signout:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}

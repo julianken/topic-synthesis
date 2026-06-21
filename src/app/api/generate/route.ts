@@ -6,6 +6,8 @@ import { STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
 import { defaultDeps } from '../../../pipeline/deps';
 import { runPipeline } from '../../../pipeline/run-pipeline';
 import { persistRun } from '../../../store/repo';
+import { getSessionIdentity } from '../../auth/require-session';
+import { isSameOrigin } from '../../auth/session';
 import { dispatchJob, isJobDispatchEnabled } from './dispatch';
 
 // The pipeline + pg need the Node runtime, not Edge. Never statically cached.
@@ -45,11 +47,11 @@ function parseRequest(body: unknown): TopicRequest | null {
 // simply never appears — the hub's poller eventually surfaces its "still working" hint.
 const inflight = new Set<Promise<unknown>>();
 
-function startRun(runId: string, request: TopicRequest): void {
+function startRun(runId: string, request: TopicRequest, ownerSub: string): void {
   const work = (async () => {
     const run = await runPipeline(request, new InlineEngine(), defaultDeps, APP_RUN);
     const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...CHEAP_MODELS };
-    await persistRun({ runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots });
+    await persistRun({ runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots, ownerSub });
   })();
   inflight.add(work);
   work
@@ -58,6 +60,12 @@ function startRun(runId: string, request: TopicRequest): void {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // Spend gate (ADR 0002 §5): an authoritative, revocation-checked, allowlisted session BEFORE any
+  // runId / dispatch / in-process spend — above the dispatch-vs-in-process branch, since BOTH spend.
+  const identity = await getSessionIdentity({ checkRevoked: true });
+  if (!identity) return Response.json({ error: 'Sign in to generate.' }, { status: 401 });
+  if (!isSameOrigin(req)) return Response.json({ error: 'cross-origin request rejected' }, { status: 403 });
+
   const body = await req.json().catch(() => null);
   const request = parseRequest(body);
   if (!request) {
@@ -70,13 +78,13 @@ export async function POST(req: Request): Promise<Response> {
     // Deployed: dispatch the durable Cloud Run Job — the Service stays scale-to-zero (it never holds
     // the run in-process). A failed dispatch is honest (502), not a phantom 202 the poller waits on.
     try {
-      await dispatchJob(runId, request);
+      await dispatchJob(runId, request, identity.sub);
     } catch (err) {
       console.error('[generate] job dispatch failed', runId, err);
       return Response.json({ error: 'Could not start generation.' }, { status: 502 });
     }
   } else {
-    startRun(runId, request); // local dev (no PIPELINE_JOB_NAME): run the pipeline in-process.
+    startRun(runId, request, identity.sub); // local dev (no PIPELINE_JOB_NAME): run the pipeline in-process.
   }
   return Response.json({ id: runId }, { status: 202 });
 }

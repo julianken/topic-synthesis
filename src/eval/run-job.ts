@@ -60,7 +60,11 @@ async function main(): Promise<void> {
     // GcpEngine (durable, Postgres-backed) — NOT InlineEngine. persist is unconditional: the
     // curriculum IS the deliverable + the app's status-poll target. noopSink: no trace in the Job.
     const run = await runPipeline(request, new GcpEngine(runId), defaultDeps, options, defaultStages, noopSink);
-    const { curriculumId } = await persistRun(persistInput(runId, request, run, options));
+    // The owning user's sub — set by the Service as the RUN_OWNER override at gated dispatch (the Job
+    // has no session to re-verify; it trusts the override, which is set only AFTER the spend gate). §5.
+    const base = persistInput(runId, request, run, options);
+    const ownerSub = process.env.RUN_OWNER?.trim();
+    const { curriculumId } = await persistRun(ownerSub ? { ...base, ownerSub } : base);
     console.log(
       JSON.stringify({ event: 'run-complete', curriculumId, costUsd: run.costUsd, pages: run.result.pages.length }),
     );
