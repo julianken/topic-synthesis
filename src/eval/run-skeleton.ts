@@ -37,11 +37,21 @@ function readPositiveInt(args: string[], name: string): number | undefined {
 }
 
 const HAIKU: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
+const SONNET: StageModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' };
 
-/** Every stage on Haiku — the cheapest tier, for low-cost runs (`--cheap`; reused by the Job's CHEAP). */
+/** SYNTHESIS stages run on Sonnet even in the cheap profile: Haiku's output cap truncated the
+ *  interactive page, and for a SINGLE lesson a truncated `code` stage degrades the whole lesson to
+ *  'soon'. Sonnet's larger output budget reliably builds a full page. */
+const CHEAP_SYNTHESIS: ReadonlySet<Stage> = new Set(['spec', 'code', 'critic']);
+
+/** Cheap profile: Haiku for the ANALYSIS stages (planner/researcher/graph/brief) to stay low-cost,
+ *  Sonnet for SYNTHESIS (spec/code/critic) so a single lesson actually builds (`--cheap`; reused by
+ *  the Job's CHEAP). */
 export function cheapModels(): Partial<Record<Stage, StageModel>> {
   const models: Partial<Record<Stage, StageModel>> = {};
-  for (const stage of Object.keys(STAGE_MODELS) as Stage[]) models[stage] = HAIKU;
+  for (const stage of Object.keys(STAGE_MODELS) as Stage[]) {
+    models[stage] = CHEAP_SYNTHESIS.has(stage) ? SONNET : HAIKU;
+  }
   return models;
 }
 

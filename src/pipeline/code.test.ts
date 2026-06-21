@@ -33,7 +33,7 @@ describe('code', () => {
     expect(out.artifact.spec).toEqual(pageSpec);
     const [arg] = complete.mock.calls[0]!;
     expect(arg.model.model).toBe('claude-sonnet-4-6');
-    expect(arg.maxTokens).toBe(16000); // larger budget for a full page
+    expect(arg.maxTokens).toBe(32000); // larger budget so a full interactive page isn't truncated
     expect(arg.prompt).toContain('keyboard + text alt'); // a11y contract carried into the prompt
     expect(arg.prompt).toContain(LEARNING_GOAL); // the goal (now threaded) reaches the prompt
   });

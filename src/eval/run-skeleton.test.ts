@@ -132,10 +132,14 @@ describe('buildOptions', () => {
     expect(opts.maxNodes).toBeUndefined();
   });
 
-  it('--cheap sets every stage to Haiku', () => {
+  it('--cheap runs ANALYSIS on Haiku and SYNTHESIS on Sonnet (a truncated single lesson degrades to soon)', () => {
     const opts = buildOptions(['--cheap']);
-    expect(opts.models?.planner?.model).toBe('claude-haiku-4-5');
-    expect(opts.models?.critic?.model).toBe('claude-haiku-4-5');
+    expect(opts.models?.planner?.model).toBe('claude-haiku-4-5'); // analysis → Haiku
+    expect(opts.models?.researcher?.model).toBe('claude-haiku-4-5');
+    expect(opts.models?.brief?.model).toBe('claude-haiku-4-5');
+    expect(opts.models?.spec?.model).toBe('claude-sonnet-4-6'); // synthesis → Sonnet
+    expect(opts.models?.code?.model).toBe('claude-sonnet-4-6');
+    expect(opts.models?.critic?.model).toBe('claude-sonnet-4-6');
   });
 
   it('--max-nodes caps the synthesized node count', () => {
