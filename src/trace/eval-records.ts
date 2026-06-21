@@ -40,6 +40,8 @@ export interface EvalTrace {
 export interface EvalRunRecord {
   id: string;
   label: string;
+  /** Another run's id this run is paired against — eleatic compares the two arms (set from
+   *  `--baseline` via `TraceMeta.baseline`; issue #51). Omitted, never `undefined`, when unset. */
   baseline?: string;
   config?: Record<string, unknown>;
   startedAt: string;

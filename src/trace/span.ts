@@ -30,10 +30,14 @@ export function metricsOf(record: LlmCallRecord): NonNullable<EvalSpan['metrics'
   };
 }
 
+/** The span tags that are scoring passes (a verdict over an artifact), not generation calls. */
+const SCORER_STAGES = new Set<TraceSpan['stage']>(['critic', 'judge']);
+
 /**
  * Build a self-contained EvalSpan subtree for one row: a `task` root named `rootName`, with each
- * call as an `llm` (or `scorer`, for the critic) child carrying that call's cost/token metrics.
- * ids are namespaced under `rootName` so subtrees from different rows never collide.
+ * call as an `llm` (or `scorer`, for the critic and the LLM-judge) child carrying that call's
+ * cost/token metrics. ids are namespaced under `rootName` so subtrees from different rows never
+ * collide.
  */
 export function spanTreeFor(rootName: string, spans: readonly TraceSpan[]): EvalSpan[] {
   const root: EvalSpan = { id: rootName, parentId: null, name: rootName, kind: 'task' };
@@ -41,7 +45,7 @@ export function spanTreeFor(rootName: string, spans: readonly TraceSpan[]): Eval
     id: `${rootName}:${span.stage}:${i}`,
     parentId: rootName,
     name: span.stage,
-    kind: span.stage === 'critic' ? 'scorer' : 'llm',
+    kind: SCORER_STAGES.has(span.stage) ? 'scorer' : 'llm',
     metrics: metricsOf(span.record),
   }));
   return [root, ...children];

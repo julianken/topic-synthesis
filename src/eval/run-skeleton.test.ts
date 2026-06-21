@@ -14,7 +14,17 @@ import {
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import type { StageDeps } from '../pipeline/deps';
 import type { PipelineRunResult } from '../pipeline/run-pipeline';
-import { buildOptions, buildRequest, dumpPages, formatSummary, persistInput, runSkeleton } from './run-skeleton';
+import { ANALYSIS_ROW_KEY } from '../trace/reduce';
+import { SpanCollector } from '../trace/span';
+import {
+  buildOptions,
+  buildRequest,
+  dumpPages,
+  formatSummary,
+  persistInput,
+  reduceRunTrace,
+  runSkeleton,
+} from './run-skeleton';
 
 const mkRec = () => ({
   providerModel: 'anthropic:claude-opus-4-8',
@@ -149,6 +159,83 @@ describe('dumpPages', () => {
     };
     const [path] = dumpPages([artifact], dir);
     expect(path).toBe(join(dir, 'escape.html')); // written inside dir, not escaped
+  });
+});
+
+describe('reduceRunTrace (CLI trace wiring — issue #51)', () => {
+  const base = { runId: 'run1', label: 'Fourier', startedAt: '2026-06-21T00:00:00Z' };
+  const page = (slug: string, passed: boolean): CritiquedArtifact => ({
+    nodeSlug: slug,
+    html: '<p>x</p>',
+    learningGoal: 'g',
+    spec: { nodeSlug: slug, interactionKind: 'html', a11yContract: 'a', citations: [] },
+    passed,
+    critique: 'c',
+  });
+  const runWithBrief = (): PipelineRunResult => ({
+    result: { hub: { tiers: [] }, pages: [page('sine', true)] },
+    records: [],
+    costUsd: 0.05,
+    brief: {
+      learningGoal: 'understand the Fourier transform',
+      keyPoints: ['frequency domain'],
+      findings: [{ claim: 'orthogonality', source: { url: 'https://x', title: 'X' } }],
+      audience: 'devs',
+    },
+  });
+  // An injected fake judge — no live model; emits a fixed verdict + a 0.07 cost record.
+  const fakeJudge = async () => ({
+    scores: { groundedness: 0.9, goalClarity: 0.8, audienceFit: 0.7 },
+    record: { ...mkRec(), costUsd: 0.07 },
+  });
+
+  it('threads the critic verdict onto the synthesis row and the judge scores onto _analysis', async () => {
+    const collector = new SpanCollector();
+    collector.onSpan({ stage: 'planner', record: { ...mkRec(), costUsd: 0.02 } });
+    collector.onSpan({ stage: 'spec', nodeSlug: 'sine', record: { ...mkRec(), costUsd: 0.03 } });
+    const { rows } = await reduceRunTrace(collector, runWithBrief(), base, { judge: fakeJudge });
+    const sine = rows.find((r) => r.rowKey === 'sine');
+    expect(sine?.scores?.passed).toBe(1); // critic verdict from run.result.pages
+    const analysis = rows.find((r) => r.rowKey === ANALYSIS_ROW_KEY);
+    expect(analysis?.scores?.groundedness).toBe(0.9); // judge scores on the analysis row
+    expect(analysis?.output).toEqual(runWithBrief().brief); // brief is the analysis output (#50)
+  });
+
+  it("folds the judge call's cost into the run + _analysis row (the cost invariant, AC 10)", async () => {
+    const collector = new SpanCollector();
+    collector.onSpan({ stage: 'planner', record: { ...mkRec(), costUsd: 0.02 } });
+    const { run, rows } = await reduceRunTrace(collector, runWithBrief(), base, { judge: fakeJudge });
+    // planner 0.02 + judge 0.07 — both in the analysis row and the run total.
+    expect(run.metrics?.costUsd).toBeCloseTo(0.09);
+    const analysis = rows.find((r) => r.rowKey === ANALYSIS_ROW_KEY);
+    expect(analysis?.scores?.costUsd).toBeCloseTo(0.09);
+    const rowSum = rows.reduce((s, r) => s + (r.scores?.costUsd ?? 0), 0);
+    expect(rowSum).toBeCloseTo(run.metrics?.costUsd ?? 0);
+  });
+
+  it('flows --baseline into meta.baseline → the run record; omits it when unset', async () => {
+    const collector = new SpanCollector();
+    collector.onSpan({ stage: 'planner', record: mkRec() });
+    const noBrief: PipelineRunResult = { result: { hub: { tiers: [] }, pages: [] }, records: [], costUsd: 0 };
+    const withBaseline = await reduceRunTrace(collector, noBrief, base, { baseline: 'run0' });
+    expect(withBaseline.run.baseline).toBe('run0');
+    const without = await reduceRunTrace(new SpanCollector(), noBrief, base);
+    expect('baseline' in without.run).toBe(false);
+  });
+
+  it('skips the judge when the run exposes no brief (curriculum path) — no judge span, no scores', async () => {
+    const collector = new SpanCollector();
+    collector.onSpan({ stage: 'planner', record: { ...mkRec(), costUsd: 0.02 } });
+    const noBrief: PipelineRunResult = {
+      result: { hub: { tiers: [] }, pages: [page('a', false)] },
+      records: [],
+      costUsd: 0.02,
+    };
+    const judge = vi.fn(fakeJudge);
+    const { run, rows } = await reduceRunTrace(collector, noBrief, base, { judge });
+    expect(judge).not.toHaveBeenCalled();
+    expect(run.metrics?.costUsd).toBeCloseTo(0.02); // only the planner span; no judge cost
+    expect(rows.find((r) => r.rowKey === ANALYSIS_ROW_KEY)?.output).toEqual({ phase: 'analysis' });
   });
 });
 

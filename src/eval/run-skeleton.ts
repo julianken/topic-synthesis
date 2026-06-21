@@ -11,7 +11,8 @@ import { defaultStages, noopSink, type TraceSink } from '../pipeline/ports';
 import { runPipeline, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
 import { persistRun, type PersistRunInput } from '../store/repo';
 import { writeTrace } from '../trace/eleatic-adapter';
-import { reduceTrace } from '../trace/reduce';
+import { judgeBrief } from '../trace/judge';
+import { reduceTrace, type TraceMeta } from '../trace/reduce';
 import { SpanCollector } from '../trace/span';
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
@@ -49,7 +50,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-nodes N] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--baseline <runId>]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -131,6 +132,66 @@ export function persistInput(
   return { runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots };
 }
 
+/**
+ * Build the eleatic trace for a `--trace` run — the QUALITY signals (issue #51) plus the cost signal
+ * (#50/earlier) — and REDUCE it (no I/O; the pure step the CLI-wiring test asserts on). It (a) maps
+ * each built page's critic verdict onto `meta.verdicts` (slug → passed) from the result the run
+ * already holds — NOT from a span, since a span carries no verdict; (b) when the run exposes a
+ * `LessonBrief`, runs the LLM-judge over it, EMITS the judge's call as a `'judge'` span into the
+ * collector (so its cost folds into the `_analysis` row and the row-cost-sums-to-run-cost invariant
+ * stays honest) and threads its scores onto `meta.analysisScores`; (c) carries the assembled brief as
+ * the analysis output (#50) and an optional `--baseline` for arm pairing (#51). The judge is INJECTED
+ * (`judge`, default the real `judgeBrief`) so a test runs it with a fake `completeObject` and no live
+ * model. Reduces AFTER the judge span is collected, so the analysis row's cost includes it.
+ */
+export async function reduceRunTrace(
+  collector: SpanCollector,
+  run: PipelineRunResult,
+  base: Pick<TraceMeta, 'runId' | 'label' | 'startedAt' | 'config'>,
+  opts: { baseline?: string; judge?: typeof judgeBrief } = {},
+): Promise<ReturnType<typeof reduceTrace>> {
+  const judge = opts.judge ?? judgeBrief;
+  // (a) critic verdicts from the pipeline result (each page is a CritiquedArtifact with .passed).
+  const verdicts: Record<string, boolean> = Object.fromEntries(
+    run.result.pages.map((p) => [p.nodeSlug, p.passed]),
+  );
+  // (b) the LLM-judge over the brief, when the run exposes one (the single-lesson path). Its call is
+  // emitted as a 'judge' span (no nodeSlug → it lands in the _analysis row) so judge spend folds into
+  // the cost accounting; its scores ride onto the analysis row via meta.analysisScores.
+  let analysisScores: Record<string, number> | undefined;
+  if (run.brief !== undefined) {
+    const judged = await judge(run.brief);
+    collector.onSpan({ stage: 'judge', record: judged.record });
+    analysisScores = judged.scores;
+  }
+  const meta: TraceMeta = {
+    ...base,
+    verdicts,
+    // (c) analysisOutput (#50) + the optional fields, conditionally spread so an absent one is
+    // OMITTED, not `undefined` (exactOptionalPropertyTypes).
+    ...(run.brief !== undefined ? { analysisOutput: run.brief } : {}),
+    ...(analysisScores !== undefined ? { analysisScores } : {}),
+    ...(opts.baseline !== undefined ? { baseline: opts.baseline } : {}),
+  };
+  // Reduce AFTER the judge span is collected, so the analysis row's costUsd/calls include it.
+  return reduceTrace(collector.spans(), meta);
+}
+
+/** As `reduceRunTrace`, then WRITE the reduced trace to the eleatic store (the CLI's I/O step). */
+export async function buildAndReduceTrace(
+  collector: SpanCollector,
+  run: PipelineRunResult,
+  base: Pick<TraceMeta, 'runId' | 'label' | 'startedAt' | 'config'>,
+  opts: { baseline?: string; tracePath?: string; judge?: typeof judgeBrief } = {},
+): Promise<{ path: string; rowCount: number }> {
+  const { judge, baseline } = opts;
+  const reduced = await reduceRunTrace(collector, run, base, {
+    ...(baseline !== undefined ? { baseline } : {}),
+    ...(judge !== undefined ? { judge } : {}),
+  });
+  return writeTrace(reduced, opts.tracePath !== undefined ? { path: opts.tracePath } : {});
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const request = buildRequest(args);
@@ -157,18 +218,25 @@ async function main(): Promise<void> {
     console.log(`\nWrote ${paths.length} page(s) to:\n${paths.map((p) => `  ${p}`).join('\n')}`);
   }
   if (collector) {
-    const reduced = reduceTrace(collector.spans(), {
-      runId,
-      label: request.topic,
-      startedAt,
-      config: { models: { ...STAGE_MODELS, ...(options.models ?? {}) }, settings: request.settings },
-      // The analysis row carries the assembled LessonBrief when the run exposes one (the single-lesson
-      // path; issue #50). The curriculum path runSkeleton drives leaves it undefined → reduceTrace
-      // falls back to the legacy `{ phase: 'analysis' }` sentinel. (exactOptionalPropertyTypes: spread.)
-      ...(run.brief !== undefined ? { analysisOutput: run.brief } : {}),
-    });
     const tracePath = readFlag(args, '--trace');
-    const { path, rowCount } = writeTrace(reduced, tracePath !== undefined ? { path: tracePath } : {});
+    const baseline = readFlag(args, '--baseline');
+    // buildAndReduceTrace threads the QUALITY signals (critic verdicts + the LLM-judge over the
+    // brief + the analysis output) and the optional baseline onto the trace, EMITS the judge span
+    // into `collector` so judge spend folds into the cost invariant, then reduces + writes (#50/#51).
+    const { path, rowCount } = await buildAndReduceTrace(
+      collector,
+      run,
+      {
+        runId,
+        label: request.topic,
+        startedAt,
+        config: { models: { ...STAGE_MODELS, ...(options.models ?? {}) }, settings: request.settings },
+      },
+      {
+        ...(baseline !== undefined ? { baseline } : {}),
+        ...(tracePath !== undefined ? { tracePath } : {}),
+      },
+    );
     console.log(
       path === ':memory:'
         ? `\nTraced ${rowCount} row(s) (ephemeral :memory: — pass \`--trace <path>\` to persist).`
