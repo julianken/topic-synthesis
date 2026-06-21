@@ -47,7 +47,10 @@ export default {
         'is intentionally NOT confined here.',
       severity: 'error',
       from: { path: '^src/', pathNot: '^src/app/auth/gcp-auth-provider\\.ts$' },
-      to: { path: 'node_modules/firebase-admin(/|$)' },
+      // Match BOTH forms: a bare `firebase-admin` resolves to node_modules/firebase-admin/…, but a
+      // modular subpath `firebase-admin/auth` (the form the adapter actually uses) is left by
+      // dependency-cruiser as the bare string `firebase-admin/auth` — the `^` branch catches it.
+      to: { path: '(^|node_modules/)firebase-admin(/|$)' },
     },
   ],
   options: {
