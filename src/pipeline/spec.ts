@@ -1,35 +1,38 @@
-import { PageSpecSchema, type GatedNode, type PageSpec, type Source } from '../domain/stages';
+import { PageSpecSchema, type LessonBrief, type PageSpec } from '../domain/stages';
 import type { Settings } from '../domain/settings';
 import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 export interface SpecInput {
-  node: GatedNode;
+  /** The Analysis→Synthesis contract: "what to teach" (learningGoal + grounded findings). */
+  brief: LessonBrief;
   settings: Settings;
-  /** Grounded sources available to cite for this node (from the research). */
-  sources: Source[];
 }
 
 const SPEC_SYSTEM =
-  'You are an instructional designer. Plan ONE interactive learning page for a concept: its ' +
-  'single learning goal, the best interaction kind, an accessibility contract (text alternative ' +
-  '+ keyboard support stated up front, not retrofitted), and which sources it cites.';
+  'You are an instructional designer. Plan ONE interactive learning page for a lesson: the best ' +
+  'interaction kind, an accessibility contract (text alternative + keyboard support stated up ' +
+  'front, not retrofitted), and which sources it cites. The learning goal is given — design the ' +
+  'page that teaches it.';
 
 function specPrompt(input: SpecInput): string {
-  const { node, settings, sources } = input;
-  const list = sources.map((s, i) => `[${i}] ${s.title} — ${s.url}`).join('\n');
+  const { brief, settings } = input;
+  // Feed the grounded findings (claim + source) into the prompt, not just a url/title list,
+  // so interaction-kind selection is no longer fact-starved — this is the fact-starvation fix.
+  const findings = brief.findings
+    .map((f, i) => `[${i}] ${f.claim}  (${f.source.title} — ${f.source.url})`)
+    .join('\n');
   return [
-    `Concept: ${node.title} (slug: ${node.slug})`,
-    `Summary: ${node.summary}`,
-    `Audience: ${settings.audience} (level ${settings.level}, depth ${settings.depth}/5).`,
+    `Learning goal: ${brief.learningGoal}`,
+    `Key points: ${brief.keyPoints.join('; ') || '(none)'}`,
+    `Audience: ${brief.audience} (level ${settings.level}, depth ${settings.depth}/5).`,
     '',
-    'Available grounded sources to cite:',
-    list || '(none)',
+    'Grounded findings to teach from and cite:',
+    findings || '(none)',
     '',
-    'Plan the page: one learning goal, the interaction kind (canvas | svg | html), a concrete',
-    'accessibility contract, and the citations (choose from the sources above).',
-    `Set nodeSlug to "${node.slug}".`,
+    'Plan the page: the interaction kind (canvas | svg | html), a concrete accessibility',
+    'contract, and the citations (choose from the findings’ sources above).',
   ].join('\n');
 }
 
@@ -38,7 +41,7 @@ export interface SpecOutput {
   records: LlmCallRecord[];
 }
 
-/** Spec (Sonnet): a gated node → the plan for one accessible, interactive page. */
+/** Spec (Sonnet): a LessonBrief → the plan for one accessible, interactive page. */
 export async function spec(
   input: SpecInput,
   deps: StageDeps = defaultDeps,
@@ -51,8 +54,9 @@ export async function spec(
     schema: PageSpecSchema,
   });
   // Keep only citations pointing at a real offered source — the same anti-fabrication
-  // discipline the researcher applies, so the spec can't (re)introduce an invented citation.
-  const offered = new Set(input.sources.map((s) => s.url));
+  // discipline the researcher/brief apply. The offered set is the brief findings' sources,
+  // so the spec can't (re)introduce an invented citation.
+  const offered = new Set(input.brief.findings.map((f) => f.source.url));
   const citations = object.citations.filter((c) => offered.has(c.url));
   return { spec: { ...object, citations }, records: [record] };
 }

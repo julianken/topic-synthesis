@@ -46,7 +46,7 @@ function fakeDeps(): StageDeps {
     }
     if (opts.schema === PageSpecSchema) {
       return {
-        object: { nodeSlug: 'n1', learningGoal: 'g', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+        object: { nodeSlug: 'n1', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
         record: mkRec(),
       };
     }
@@ -126,7 +126,8 @@ describe('dumpPages', () => {
     const artifact: CritiquedArtifact = {
       nodeSlug: 'sine',
       html: '<!doctype html><h1>Sine</h1>',
-      spec: { nodeSlug: 'sine', learningGoal: 'g', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      learningGoal: 'g',
+      spec: { nodeSlug: 'sine', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
       passed: true,
       critique: 'ok',
     };
@@ -141,7 +142,8 @@ describe('dumpPages', () => {
     const artifact: CritiquedArtifact = {
       nodeSlug: '../escape',
       html: '<p>x</p>',
-      spec: { nodeSlug: '../escape', learningGoal: 'g', interactionKind: 'html', a11yContract: 'a', citations: [] },
+      learningGoal: 'g',
+      spec: { nodeSlug: '../escape', interactionKind: 'html', a11yContract: 'a', citations: [] },
       passed: true,
       critique: 'ok',
     };

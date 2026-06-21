@@ -55,7 +55,8 @@ const result: PipelineResult = {
     {
       nodeSlug: 'sine',
       html: '<!doctype html><h1>Sine</h1>',
-      spec: { nodeSlug: 'sine', learningGoal: 'g', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      learningGoal: 'g',
+      spec: { nodeSlug: 'sine', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
       passed: true,
       critique: 'ok',
     },

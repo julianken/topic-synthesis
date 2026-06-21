@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { Settings } from './settings';
 import type { PageStatus, SitemapHub } from './sitemap';
@@ -90,14 +91,61 @@ export interface GatedGraph {
   topoOrder: string[];
 }
 
+// ── the Analysis → Synthesis seam: the LessonBrief contract ──────────────────
+/**
+ * A finding denormalized for the brief: the grounded claim text PLUS its source
+ * inline (not an index into a separate array). The brief is the single object that
+ * crosses the Analysis→Synthesis seam, so it must be self-contained — Synthesis
+ * (spec) needs no parallel `sources` array to resolve a citation.
+ */
+export const BriefFindingSchema = z.object({
+  claim: z.string(),
+  source: SourceSchema,
+});
+export type BriefFinding = z.infer<typeof BriefFindingSchema>;
+
+/**
+ * The Analysis→Synthesis contract. The `brief` stage (Analysis) produces ONE
+ * LessonBrief from `plan + research[]`; the `spec` stage (Synthesis) consumes it.
+ * It is the single source of truth for "what to teach": `learningGoal` lives here
+ * (moved off `PageSpec`), and the grounded `findings` (claim + source) reach
+ * Synthesis through it — fixing the fact-starvation where findings were dropped at
+ * the graph stage and never reached the spec.
+ */
+export const LessonBriefSchema = z.object({
+  /** The single thing the lesson must teach (moved off PageSpec — owned by Analysis). */
+  learningGoal: z.string(),
+  /** The essential points a learner must come away with. */
+  keyPoints: z.array(z.string()),
+  /** Grounded claims with their sources inline, so the brief is self-contained. */
+  findings: z.array(BriefFindingSchema),
+  /** Audience framing so Synthesis gets the framing without re-reading Settings. */
+  audience: z.string(),
+});
+export type LessonBrief = z.infer<typeof LessonBriefSchema>;
+
+/**
+ * A stable schema-hash anchor for the LessonBrief contract. Derived from the
+ * schema's JSON-Schema projection (deterministic for a given shape) — NOT a
+ * hand-bumped const, so it tracks the contract automatically. This is the single
+ * import point for the contract-aware workflow_version (folds it into the persisted
+ * `workflow_version`) and validate-on-resume (the later issues of this refocus);
+ * neither has to re-derive a hash. The hash changes iff the brief's shape changes.
+ */
+export const LESSON_BRIEF_SCHEMA_HASH: string = createHash('sha256')
+  .update(JSON.stringify(z.toJSONSchema(LessonBriefSchema)), 'utf8')
+  .digest('hex')
+  .slice(0, 16);
+
 // ── SYNTHESIS ────────────────────────────────────────────────────────────────
 export const INTERACTION_KINDS = ['canvas', 'svg', 'html'] as const;
 export type InteractionKind = (typeof INTERACTION_KINDS)[number];
 
-/** Spec (Sonnet): the plan for one page, including its accessibility contract. */
+/** Spec (Sonnet): the plan for one page, including its accessibility contract.
+ *  `learningGoal` is NOT here — it moved to `LessonBrief` (Analysis owns "what to
+ *  teach"; the spec owns "how to present it"). */
 export const PageSpecSchema = z.object({
   nodeSlug: z.string(),
-  learningGoal: z.string(),
   interactionKind: z.enum(INTERACTION_KINDS),
   /** Text-alternative + keyboard requirements — a generation target, not a retrofit. */
   a11yContract: z.string(),
@@ -105,10 +153,14 @@ export const PageSpecSchema = z.object({
 });
 export type PageSpec = z.infer<typeof PageSpecSchema>;
 
-/** Code (Sonnet): the generated standalone page (HTML is free text, assembled here). */
+/** Code (Sonnet): the generated standalone page (HTML is free text, assembled here).
+ *  `learningGoal` is echoed here from the `LessonBrief` (it left `PageSpec`) so the code
+ *  and critic stages — which generate/judge against the goal — keep it without re-reading
+ *  the brief; the goal's sole declaration site stays `LessonBrief`. */
 export interface PageArtifact {
   nodeSlug: string;
   html: string;
+  learningGoal: string;
   spec: PageSpec;
 }
 

@@ -23,7 +23,6 @@ describe('stage schemas', () => {
     expect(() =>
       PageSpecSchema.parse({
         nodeSlug: 'a',
-        learningGoal: 'g',
         interactionKind: 'webgl',
         a11yContract: 'c',
         citations: [],

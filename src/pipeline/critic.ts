@@ -10,7 +10,7 @@ const CRITIC_SYSTEM =
 
 function criticPrompt(artifact: PageArtifact): string {
   return [
-    `Learning goal: ${artifact.spec.learningGoal}`,
+    `Learning goal: ${artifact.learningGoal}`,
     `Interaction kind: ${artifact.spec.interactionKind}`,
     `Accessibility contract: ${artifact.spec.a11yContract}`,
     '',

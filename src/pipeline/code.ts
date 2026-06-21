@@ -8,9 +8,9 @@ const CODE_SYSTEM =
   '(inline CSS + JS, no external dependencies or network requests) that teaches the concept ' +
   'interactively and satisfies the accessibility contract exactly. Output only the HTML document.';
 
-function codePrompt(spec: PageSpec): string {
+function codePrompt(spec: PageSpec, learningGoal: string): string {
   return [
-    `Learning goal: ${spec.learningGoal}`,
+    `Learning goal: ${learningGoal}`,
     `Interaction kind: ${spec.interactionKind}`,
     `Accessibility contract (MUST satisfy): ${spec.a11yContract}`,
     `Citations: ${spec.citations.map((c) => c.url).join(', ') || '(none)'}`,
@@ -41,15 +41,21 @@ export function stripCodeFence(text: string): string {
 
 export async function code(
   spec: PageSpec,
+  learningGoal: string,
   deps: StageDeps = defaultDeps,
   model: StageModel = STAGE_MODELS.code,
 ): Promise<CodeOutput> {
   const { text, record } = await deps.complete({
     model,
     system: CODE_SYSTEM,
-    prompt: codePrompt(spec),
+    prompt: codePrompt(spec, learningGoal),
     maxTokens: 16000,
   });
-  const artifact: PageArtifact = { nodeSlug: spec.nodeSlug, html: stripCodeFence(text), spec };
+  const artifact: PageArtifact = {
+    nodeSlug: spec.nodeSlug,
+    html: stripCodeFence(text),
+    learningGoal,
+    spec,
+  };
   return { artifact, records: [record] };
 }
