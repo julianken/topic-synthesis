@@ -55,4 +55,7 @@ describe('CSRF same-origin (isSameOrigin)', () => {
   it('trusts a same-origin Sec-Fetch-Site even without an Origin header', () => {
     expect(isSameOrigin(make({ 'sec-fetch-site': 'same-origin' }))).toBe(true);
   });
+  it('treats Sec-Fetch-Site: none (a user-initiated navigation) as same-origin', () => {
+    expect(isSameOrigin(make({ 'sec-fetch-site': 'none' }))).toBe(true);
+  });
 });

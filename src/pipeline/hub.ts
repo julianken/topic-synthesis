@@ -20,7 +20,10 @@ export function assembleHub(gated: GatedGraph, passedSlugs: ReadonlySet<string>)
       title: node.title,
       built: status === 'built',
       status,
-      href: `/artifact/${node.slug}`,
+      // Placeholder: the read path (rebuildHub in src/store/repo.ts) sets the real owner-scoped
+      // /curriculum/<id>/artifact/<slug> href; this pipeline-built href is never consumed (the hub is
+      // always rebuilt from the DB on read), so it must not point at a route.
+      href: '',
     };
     const level = depth.get(node.slug) ?? 0;
     const pages = byLevel.get(level) ?? [];

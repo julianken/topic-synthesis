@@ -146,7 +146,7 @@ interface PageJoinRow {
 }
 
 /** Rebuild the tiered hub from ordered join rows (the inverse of flattenHub). Pure. */
-export function rebuildHub(rows: PageJoinRow[]): SitemapHub {
+export function rebuildHub(rows: PageJoinRow[], curriculumId: string): SitemapHub {
   const tiers: SitemapHub['tiers'] = [];
   for (const row of rows) {
     let tier = tiers.find((t) => t.tier === row.tier);
@@ -164,22 +164,25 @@ export function rebuildHub(rows: PageJoinRow[]): SitemapHub {
       title: row.title,
       status: row.status,
       built: row.status === 'built',
-      // encodeURIComponent: the page_id is a content-identity key containing '#'/'@'/':' which
-      // would otherwise truncate the URL at the fragment. Route params are decoded by Next.
-      href: `/artifact/${encodeURIComponent(row.page_id)}`,
+      // Authorize the artifact THROUGH the owning curriculum (the cookie-borne, owner-checked route),
+      // NOT a per-pageId capability — pageId is a content hash SHARED across curricula (identity.ts), so
+      // it is no secret. Keyed by the URL-safe slug; the route re-resolves it owner-scoped.
+      href: `/curriculum/${encodeURIComponent(curriculumId)}/artifact/${encodeURIComponent(row.concept_slug)}`,
     });
   }
   return { tiers };
 }
 
-/** Read a curriculum + its tiered hub for the app's hub page; null if not found. */
+/** Read a curriculum + its tiered hub, OWNER-SCOPED: absent and not-owned both yield null (a uniform
+ *  404 upstream — no 403/404 existence oracle). ADR 0002 §5. */
 export async function getCurriculum(
   id: string,
+  ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
 ): Promise<CurriculumView | null> {
   const cur = await deps.pool.query<{ id: string; topic: string; settings_json: Settings }>(
-    `SELECT id, topic, settings_json FROM curriculum WHERE id = $1`,
-    [id],
+    `SELECT id, topic, settings_json FROM curriculum WHERE id = $1 AND owner_sub = $2`,
+    [id, ownerSub],
   );
   const row = cur.rows[0];
   if (!row) return null;
@@ -191,7 +194,7 @@ export async function getCurriculum(
       ORDER BY cp.ordinal`,
     [id],
   );
-  return { id: row.id, topic: row.topic, settings: row.settings_json, hub: rebuildHub(pages.rows) };
+  return { id: row.id, topic: row.topic, settings: row.settings_json, hub: rebuildHub(pages.rows, id) };
 }
 
 export interface StoredPage {
@@ -201,9 +204,13 @@ export interface StoredPage {
   html: string | null;
 }
 
-/** Read a single page's stored HTML (for the sandboxed artifact route); null if not found. */
-export async function getPage(
-  pageId: string,
+/** Read a page's stored HTML, authorized THROUGH the owning curriculum (ADR 0002 §5): a JOIN scoped to
+ *  (curriculumId owned by ownerSub, slug). null for absent / not-owned (uniform 404). The slug — not
+ *  the shared content-hash pageId — is the lookup key, so a per-pageId capability is never the gate. */
+export async function getOwnedPage(
+  curriculumId: string,
+  slug: string,
+  ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
 ): Promise<StoredPage | null> {
   const res = await deps.pool.query<{
@@ -211,8 +218,42 @@ export async function getPage(
     title: string;
     status: PageStatus;
     html: string | null;
-  }>(`SELECT concept_slug, title, status, html FROM concept_page WHERE id = $1`, [pageId]);
+  }>(
+    `SELECT p.concept_slug, p.title, p.status, p.html
+       FROM curriculum c
+       JOIN curriculum_page cp ON cp.curriculum_id = c.id
+       JOIN concept_page p ON p.id = cp.page_id
+      WHERE c.id = $1 AND c.owner_sub = $2 AND p.concept_slug = $3`,
+    [curriculumId, ownerSub, slug],
+  );
   const row = res.rows[0];
   if (!row) return null;
   return { slug: row.concept_slug, title: row.title, status: row.status, html: row.html };
+}
+
+/** Stamp run ownership at dispatch — before the curriculum persists — so the pre-persist poll window
+ *  can be owner-scoped without a DB existence oracle. Idempotent. */
+export async function recordRunOwner(
+  runId: string,
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<void> {
+  await deps.pool.query(
+    `INSERT INTO run_owner (run_id, owner_sub) VALUES ($1, $2) ON CONFLICT (run_id) DO NOTHING`,
+    [runId, ownerSub],
+  );
+}
+
+/** Does this caller own this runId? Lets the hub show "generating" for the caller's own not-yet-
+ *  persisted run while returning a uniform 404 for a foreign/absent id. */
+export async function ownsRun(
+  runId: string,
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<boolean> {
+  const res = await deps.pool.query(`SELECT 1 FROM run_owner WHERE run_id = $1 AND owner_sub = $2`, [
+    runId,
+    ownerSub,
+  ]);
+  return res.rows.length > 0;
 }

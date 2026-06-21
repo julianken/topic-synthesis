@@ -70,6 +70,7 @@ describe('assembleHub', () => {
     const pages = hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
     expect(pages).toHaveLength(2);
     expect(pages.every((p) => !p.built)).toBe(true);
-    expect(pages.find((p) => p.slug === 'a')?.href).toBe('/artifact/a');
+    // The pipeline-built href is an empty placeholder; rebuildHub sets the real owner-scoped href on read.
+    expect(pages.find((p) => p.slug === 'a')?.href).toBe('');
   });
 });
