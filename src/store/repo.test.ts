@@ -63,6 +63,28 @@ const result: PipelineResult = {
   ],
 };
 
+// A single-lesson run (issue #48): a one-tier / one-category / ONE-page hub + one page artifact.
+const lessonResult: PipelineResult = {
+  hub: {
+    tiers: [
+      {
+        tier: 'Tier 1',
+        categories: [{ name: 'Lesson', pages: [{ slug: 'fourier', title: 'Fourier', status: 'built', built: true, href: '' }] }],
+      },
+    ],
+  },
+  pages: [
+    {
+      nodeSlug: 'fourier',
+      html: '<!doctype html><h1>Fourier</h1>',
+      learningGoal: 'understand the transform',
+      spec: { nodeSlug: 'fourier', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      passed: true,
+      critique: 'ok',
+    },
+  ],
+};
+
 describe('rebuildHub', () => {
   it('groups ordered rows into tiers → categories → pages with href + built', () => {
     const hub = rebuildHub(
@@ -122,6 +144,47 @@ describe('persistRun (transaction shape, fake pool)', () => {
     ).rejects.toThrow('boom');
     expect(sqlsOf(client.query)).toContain('ROLLBACK');
     expect(client.release).toHaveBeenCalled();
+  });
+});
+
+describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
+  it('flattens a one-page hub to exactly ONE concept_page + curriculum_page (no schema change)', async () => {
+    const { deps, client } = fakePool();
+    const out = await persistRun(
+      { runId: 'lesson-1', request, result: lessonResult, costUsd: 0.05, modelSnapshots: STAGE_MODELS, ownerSub: 'owner-1' },
+      deps,
+    );
+    expect(out.curriculumId).toBe('lesson-1');
+    const sqls = sqlsOf(client.query);
+    // exactly one page row both sides of the join — flattenHub is total over a single page.
+    expect(sqls.filter((s) => s.includes('INTO concept_page'))).toHaveLength(1);
+    expect(sqls.filter((s) => s.includes('INTO curriculum_page'))).toHaveLength(1);
+    // the owner_sub is written onto the curriculum (ADR 0002, reused verbatim — no second store).
+    expect(sqls.find((s) => s.includes('INTO curriculum ('))).toContain('owner_sub');
+  });
+
+  it('round-trips owner-scoped: the owner reads the single page back, a different owner reads null', async () => {
+    // owner reads it back
+    const owned = fakePool([
+      { match: 'FROM curriculum WHERE', rows: [{ id: 'lesson-1', topic: 'Fourier', settings_json: request.settings }] },
+      {
+        match: 'FROM curriculum_page',
+        rows: [{ tier: 'Tier 1', category: 'Lesson', page_id: 'p1', concept_slug: 'fourier', title: 'Fourier', status: 'built' }],
+      },
+    ]);
+    const view = await getCurriculum('lesson-1', 'owner-1', owned.deps);
+    const pages = view?.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    expect(pages).toHaveLength(1);
+    expect(pages?.[0]?.slug).toBe('fourier');
+    expect(pages?.[0]?.href).toBe('/curriculum/lesson-1/artifact/fourier');
+    // a different owner → curriculum row absent → null (uniform 404, no cross-owner read)
+    expect(await getCurriculum('lesson-1', 'someone-else', fakePool().deps)).toBeNull();
+    // the owned page is reachable owner-scoped; a foreign owner gets null
+    const pageHit = fakePool([
+      { match: 'JOIN concept_page', rows: [{ concept_slug: 'fourier', title: 'Fourier', status: 'built', html: '<h1>x</h1>' }] },
+    ]);
+    expect((await getOwnedPage('lesson-1', 'fourier', 'owner-1', pageHit.deps))?.html).toBe('<h1>x</h1>');
+    expect(await getOwnedPage('lesson-1', 'fourier', 'someone-else', fakePool().deps)).toBeNull();
   });
 });
 

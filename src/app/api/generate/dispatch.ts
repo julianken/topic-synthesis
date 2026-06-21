@@ -1,7 +1,10 @@
 import { JobsClient } from '@google-cloud/run';
 import type { TopicRequest } from '../../../domain/stages';
 
-// Cheap + capped, matching the in-process fallback — a click stays ~pennies.
+// Cheap + capped, matching the in-process fallback — a click stays ~pennies. The Job runs the
+// single-lesson path (runLesson — one page), so `MAX_NODES` is INERT there; it stays in the env
+// contract (unchanged for the dormant curriculum path + stable for the safety-net issues) and needs
+// no Terraform change. `MAX_QUESTIONS` still caps the research fan-out (the run's main cost driver).
 const APP_RUN_ENV: ReadonlyArray<{ name: string; value: string }> = [
   { name: 'CHEAP', value: '1' },
   { name: 'MAX_NODES', value: '4' },

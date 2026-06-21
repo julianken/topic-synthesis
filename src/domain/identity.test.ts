@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentHash, contentIdentityKey } from './identity';
+import { contentHash, contentIdentityKey, slugify } from './identity';
 
 describe('contentHash', () => {
   it('is deterministic for the same parts', () => {
@@ -23,5 +23,26 @@ describe('contentIdentityKey', () => {
       contentHash: 'deadbeef'.repeat(8),
     });
     expect(key).toBe('la-matmul@intro:d2#deadbeefdeadbeef');
+  });
+});
+
+describe('slugify (the single-lesson path keys synthesis on this)', () => {
+  it('is deterministic and URL-safe (lowercase, hyphen-joined)', () => {
+    expect(slugify('The Fourier Transform')).toBe('the-fourier-transform');
+    expect(slugify('The Fourier Transform')).toBe(slugify('The Fourier Transform'));
+  });
+
+  it('collapses punctuation/whitespace runs and trims edge hyphens', () => {
+    expect(slugify('  C++  &  Rust!! ')).toBe('c-rust');
+    expect(slugify('a---b')).toBe('a-b');
+  });
+
+  it('strips diacritics so the slug stays ASCII', () => {
+    expect(slugify('Café Crème')).toBe('cafe-creme');
+  });
+
+  it('falls back to "lesson" when the input slugs to empty (never a blank key)', () => {
+    expect(slugify('!!!')).toBe('lesson');
+    expect(slugify('')).toBe('lesson');
   });
 });
