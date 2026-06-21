@@ -27,3 +27,9 @@ variable "job_image" {
   description = "Fully-qualified job image ref (used by the pipeline + migrate Jobs; push before apply)."
   default     = "us-central1-docker.pkg.dev/topic-synthesis-prod/topic-synthesis/job:latest"
 }
+
+variable "auth_allowlist" {
+  type        = string
+  default     = ""
+  description = "Comma-separated Google `sub`s allowed to use the app (the spend gate + private reads, ADR 0002 §5). Empty = no one (fail-closed); set to the owner's sub at delivery."
+}

@@ -62,6 +62,12 @@ resource "google_cloud_run_v2_service" "app" {
         name  = "GCP_PROJECT"
         value = var.project_id
       }
+      env {
+        # The spend gate + private reads check this allowlist of Google `sub`s (ADR 0002 §5). Not a
+        # secret (opaque ids); empty = no one allowed (fail-closed) until set to the owner's sub.
+        name  = "AUTH_ALLOWLIST"
+        value = var.auth_allowlist
+      }
       dynamic "env" {
         for_each = local.secret_env
         content {
