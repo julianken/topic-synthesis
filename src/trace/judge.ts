@@ -7,7 +7,8 @@ import { defaultDeps, type StageDeps } from '../pipeline/deps';
 /**
  * The LLM-judge over a `LessonBrief` — a post-pipeline QUALITY scorer for the Analysis phase,
  * NOT a pipeline stage (it scores the brief, it doesn't produce it; the `Stage` union stays the
- * closed 6-member set). It lives in `src/trace/` because it produces the analysis-row scores the
+ * closed 7-member set — planner/researcher/graph/brief/spec/code/critic). It lives in `src/trace/`
+ * because it produces the analysis-row scores the
  * trace records, and it imports only the LLM client / `StageDeps` — NEVER `@eleatic/eval` — so the
  * `eleatic-only-in-trace` import fence is unaffected and `reduce.ts` stays pure (it consumes the
  * judge's numbers via `TraceMeta`, it never calls the judge).
@@ -64,6 +65,10 @@ export interface JudgeResult {
  * stage's shape — `(input, deps, model)` over an injected `StageDeps` so a test injects a fake
  * `completeObject` and runs with no live model — but it is invoked from the CLI/eval path, never from
  * `runPipeline`/`runLesson`. Returns the numeric sub-scores plus the call's `LlmCallRecord`.
+ *
+ * `model` defaults to `STAGE_MODELS.critic` (opus), but the CLI now threads the run's RESOLVED judge
+ * model through `reduceRunTrace` (#57 SUGGESTION #2) — so a `--cheap` run judges on Haiku instead of
+ * always paying for opus while every other stage of that run is cheap.
  */
 export async function judgeBrief(
   brief: LessonBrief,

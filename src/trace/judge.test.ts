@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LessonBrief } from '../domain/stages';
 import type { LlmCallRecord, ObjectResult } from '../llm/client';
+import { STAGE_MODELS, type StageModel } from '../llm/models';
 import type { StageDeps } from '../pipeline/deps';
 import { judgeBrief, JUDGE_SYSTEM } from './judge';
 
@@ -65,5 +66,26 @@ describe('judgeBrief', () => {
     expect(captured?.system).toBe(JUDGE_SYSTEM);
     expect(captured?.prompt).toContain(brief.learningGoal);
     expect(captured?.prompt).toContain(brief.audience);
+  });
+
+  it('judges on the passed model (#57 SUGGESTION #2) and defaults to STAGE_MODELS.critic', async () => {
+    let captured: StageModel | undefined;
+    const deps: StageDeps = {
+      complete: () => {
+        throw new Error('unused');
+      },
+      completeObject: <T>(opts: { model: StageModel }): Promise<ObjectResult<T>> => {
+        captured = opts.model;
+        return Promise.resolve({ object: { groundedness: 1, goalClarity: 1, audienceFit: 1 } as T, record: rec(0.01) });
+      },
+      searchWeb: () => {
+        throw new Error('unused');
+      },
+    };
+    const haiku: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
+    await judgeBrief(brief, deps, haiku);
+    expect(captured).toEqual(haiku); // a cheap run judges on the threaded cheap model
+    await judgeBrief(brief, deps);
+    expect(captured).toEqual(STAGE_MODELS.critic); // default: opus
   });
 });

@@ -49,7 +49,10 @@ export async function code(
     model,
     system: CODE_SYSTEM,
     prompt: codePrompt(spec, learningGoal),
-    maxTokens: 16000,
+    // A full standalone interactive page can exceed a smaller cap; the cheap profile builds `code`
+    // on Sonnet (not Haiku) precisely so this budget is available. Truncation degrades a single
+    // lesson to 'soon', so give the page room to finish.
+    maxTokens: 32000,
   });
   const artifact: PageArtifact = {
     nodeSlug: spec.nodeSlug,
