@@ -68,7 +68,7 @@ sequenceDiagram
   APP->>JOB: dispatch (env: RUN_ID, TOPIC, …, RUN_OWNER)
   APP-->>U: redirect to /curriculum/{runId}
   loop poll until the row lands
-    U->>APP: GET /curriculum/{runId}/status
+    U->>APP: GET /api/curriculum/{runId}/status
     APP->>DB: getCurriculum(runId, sub)
     APP-->>U: { ready:false } — ownsRun → "generating"
   end
