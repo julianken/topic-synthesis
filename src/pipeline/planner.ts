@@ -4,9 +4,10 @@ import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 export const PLANNER_SYSTEM =
-  'You are a curriculum architect. Decompose a topic into a focused learning scope, the ' +
-  'key subtopics a learner must master, and the open research questions whose grounded ' +
-  'answers the curriculum must teach. Tailor everything to the level and audience.';
+  'You are an instructional architect scoping ONE lesson. From a topic, define the focused ' +
+  'learning scope of that single lesson, the key subtopics it must cover, and the open research ' +
+  'questions whose grounded answers that lesson must teach. Cast a wide net of subtopics and ' +
+  'questions so the lesson is well-supported. Tailor everything to the level and audience.';
 
 function plannerPrompt(req: TopicRequest): string {
   const { topic, settings } = req;
@@ -14,8 +15,8 @@ function plannerPrompt(req: TopicRequest): string {
     `Topic: ${topic}`,
     `Level: ${settings.level}   Depth: ${settings.depth}/5   Audience: ${settings.audience}`,
     '',
-    'Produce a one-sentence scope, the essential subtopics (about 5-12), and the research',
-    'questions (about 5-12) whose grounded answers the pages will teach.',
+    'Produce a one-sentence scope for one lesson, the essential subtopics it must cover (about',
+    '5-12), and the research questions (about 5-12) whose grounded answers that lesson must teach.',
   ].join('\n');
 }
 
