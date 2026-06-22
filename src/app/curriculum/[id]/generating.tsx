@@ -21,7 +21,6 @@ const STEP_LABEL: Record<string, string> = {
   plan: 'Planning',
   research: 'Researching',
   brief: 'Briefing',
-  graph: 'Mapping',
   spec: 'Designing',
   code: 'Building',
   critic: 'Reviewing',

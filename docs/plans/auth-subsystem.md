@@ -1,5 +1,12 @@
 # Plan — Authentication & user-ownership subsystem
 
+> ✅ **Shipped (2026-06).** The auth epic (#41–#45) has **merged**: managed GCP Identity Platform
+> (Google-only sign-in) + the `owner_sub` ownership column + the `AuthProvider` port are in place,
+> with the branded sign-in UI, the authenticated spend gate, and owner-scoped private reads all live.
+> This doc is now the historical **program record**; the living architecture source of truth is
+> [`docs/decisions/0002-auth-architecture.md`](../decisions/0002-auth-architecture.md). The body
+> below is preserved as the original plan/dependency view — read the ADR for the as-built decision.
+
 Program/tracking doc for the auth epic. The **architecture decision** is [`docs/decisions/0002-auth-architecture.md`](../decisions/0002-auth-architecture.md); the **per-PR specs** are GitHub issues #35–#38 (this doc is the program view + dependency graph, not a second copy of those specs).
 
 ## Goal
