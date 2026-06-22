@@ -137,6 +137,50 @@ describe('persistRun (transaction shape, fake pool)', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
+  it('prunes the run\'s transient per-run rows AFTER the inserts, all before COMMIT', async () => {
+    const { deps, client } = fakePool();
+    await persistRun(
+      { runId: 'run-prune', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
+      deps,
+    );
+    const sqls = sqlsOf(client.query);
+    // the three transient tables are each deleted, scoped to this run
+    const stepResultDel = sqls.findIndex((s) => s.includes('DELETE FROM step_result'));
+    const runOwnerDel = sqls.findIndex((s) => s.includes('DELETE FROM run_owner'));
+    const stepEventDel = sqls.findIndex((s) => s.includes('DELETE FROM step_event'));
+    expect(stepResultDel).toBeGreaterThan(-1);
+    expect(runOwnerDel).toBeGreaterThan(-1);
+    expect(stepEventDel).toBeGreaterThan(-1);
+    // each delete is run-scoped (WHERE run_id = $1) and carries this runId as its only param
+    for (const del of ['DELETE FROM step_result', 'DELETE FROM run_owner', 'DELETE FROM step_event']) {
+      expect(sqls.find((s) => s.includes(del))).toContain('WHERE run_id = $1');
+      expect(paramsOf(client.query, del)).toEqual(['run-prune']);
+    }
+    // ORDER: the deletes come AFTER the last insert (so the writes are committed-to before pruning)…
+    const lastInsert = Math.max(...sqls.map((s, i) => (s.includes('INSERT INTO') ? i : -1)));
+    expect(Math.min(stepResultDel, runOwnerDel, stepEventDel)).toBeGreaterThan(lastInsert);
+    // …and all BEFORE the COMMIT, so they share the run's atomic transaction.
+    const commit = sqls.indexOf('COMMIT');
+    expect(Math.max(stepResultDel, runOwnerDel, stepEventDel)).toBeLessThan(commit);
+  });
+
+  it('keeps the deletes INSIDE the tx — a persist failure ROLLBACKs them too (run stays resumable)', async () => {
+    const { deps, client } = fakePool();
+    // Fail the final write before COMMIT can run; the deletes never reach the DB and any that did are
+    // rolled back — so the transient rows survive a failed persist and the run remains resumable.
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('INTO curriculum_page')) throw new Error('persist failed');
+      return { rows: [] };
+    });
+    await expect(
+      persistRun({ runId: 'run-fail', request, result, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps),
+    ).rejects.toThrow('persist failed');
+    const sqls = sqlsOf(client.query);
+    expect(sqls).toContain('ROLLBACK');
+    expect(sqls).not.toContain('COMMIT'); // never committed → the (un)issued deletes are rolled back
+    expect(client.release).toHaveBeenCalled();
+  });
+
   it('ROLLBACKs and rethrows on an insert error', async () => {
     const { deps, client } = fakePool();
     client.query.mockImplementation(async (sql: string) => {

@@ -121,6 +121,18 @@ export async function persistRun(
         [runId, pageId, tier, category, ordinal],
       );
     }
+    // Prune this run's transient per-run rows now that the curriculum has persisted. All three are
+    // useful only during the run and have NO post-persist consumer: step_result is the engine's
+    // crash-resume memoization (only read mid-run, on retry); run_owner is the dispatch-time
+    // ownership stamp for the pre-persist poll window (redundant once curriculum.owner_sub exists);
+    // step_event is the live generating-UI timeline (read only while the run is in flight — the
+    // finished lesson page shows the artifact, not the timeline, and step_event is intentionally NOT
+    // kept for cross-run analysis: no such view exists). Deleting them here bounds these tables at
+    // exactly their useful lifetime. The deletes run AFTER the inserts and inside the SAME
+    // transaction, so a persist failure rolls them back too — leaving the run fully resumable.
+    await client.query('DELETE FROM step_result WHERE run_id = $1', [runId]);
+    await client.query('DELETE FROM run_owner WHERE run_id = $1', [runId]);
+    await client.query('DELETE FROM step_event WHERE run_id = $1', [runId]);
     await client.query('COMMIT');
     client.release();
     return { curriculumId: runId };
@@ -278,7 +290,8 @@ export interface StepEvent {
 
 /** Read a run's per-step timeline, oldest-first (issue #61). NOT owner-scoped here — the caller
  *  (the status route) gates on `ownsRun` first, then reads this; a non-owner never reaches it. The
- *  step_event rows are the KEPT observability data (never pruned), so they survive after persist. */
+ *  step_event rows live only while the run is in flight: `persistRun` PRUNES them (with step_result +
+ *  run_owner) once the curriculum lands, so this read only ever serves the pre-persist poll window. */
 export async function getStepEvents(
   runId: string,
   deps: StoreDeps = { pool: getPool() },
