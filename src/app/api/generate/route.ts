@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Level } from '../../../domain/settings';
 import type { TopicRequest } from '../../../domain/stages';
 import { InlineEngine } from '../../../engine/inline-engine';
-import { STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
+import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
 import { defaultDeps } from '../../../pipeline/deps';
 import { runLesson } from '../../../pipeline/run-pipeline';
 import { persistRun, recordRunOwner } from '../../../store/repo';
@@ -14,19 +14,15 @@ import { dispatchJob, isJobDispatchEnabled } from './dispatch';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// App-triggered runs are cheap + capped by default: every stage on Haiku, synthesis + research
-// fan-out bounded — a click stays ~pennies. (Production would run default models behind the
-// Cloud Run Job; the lean local path runs the pipeline in-process here — see ADR 0001.)
-const HAIKU: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
-const CHEAP_MODELS: Record<Stage, StageModel> = {
-  planner: HAIKU,
-  researcher: HAIKU,
-  graph: HAIKU,
-  brief: HAIKU,
-  spec: HAIKU,
-  code: HAIKU,
-  critic: HAIKU,
-};
+// App-triggered runs are cheap + capped by default: the shared `cheapModels()` profile (Haiku
+// analysis, Sonnet synthesis — the SINGLE source of truth, also used by the deployed Job's CHEAP
+// env), synthesis + research fan-out bounded — a click stays ~pennies. This makes the local-dev
+// in-process fallback build on the same tier as the deployed Cloud Run Job (synthesis on Sonnet),
+// so `npm run dev` doesn't truncate the page → degrade to 'soon'. `cheapModels` is a pure
+// StageModel-map function (no heavy deps; lives in src/llm/models.ts), so importing it from `src/app`
+// neither bloats the app bundle nor crosses the core→frontend import fence. (Production runs the
+// pipeline behind the Cloud Run Job; the lean local path runs it in-process here — see ADR 0001.)
+const CHEAP_MODELS: Record<Stage, StageModel> = cheapModels();
 const APP_RUN = { models: CHEAP_MODELS, maxNodes: 4, maxQuestions: 4 } as const;
 
 const LEVELS: readonly string[] = ['intro', 'intermediate', 'advanced'];

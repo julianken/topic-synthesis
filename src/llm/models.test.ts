@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { registryId, STAGE_MODELS } from './models';
+import { cheapModels, registryId, STAGE_MODELS, type Stage } from './models';
 import { MODEL_PRICING } from './pricing';
 
 describe('stage models', () => {
@@ -19,6 +19,33 @@ describe('stage models', () => {
   it('every default stage model has pricing configured', () => {
     for (const m of Object.values(STAGE_MODELS)) {
       const id = registryId(m);
+      expect(MODEL_PRICING[id], `missing pricing for ${id}`).toBeDefined();
+    }
+  });
+});
+
+describe('cheapModels (the single source of truth for the cheap profile)', () => {
+  it('runs ANALYSIS on Haiku and SYNTHESIS on Sonnet (so a single lesson actually builds)', () => {
+    const m = cheapModels();
+    expect(m.planner.model).toBe('claude-haiku-4-5'); // analysis → Haiku
+    expect(m.researcher.model).toBe('claude-haiku-4-5');
+    expect(m.graph.model).toBe('claude-haiku-4-5');
+    expect(m.brief.model).toBe('claude-haiku-4-5');
+    expect(m.spec.model).toBe('claude-sonnet-4-6'); // synthesis → Sonnet
+    expect(m.code.model).toBe('claude-sonnet-4-6');
+    expect(m.critic.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('covers every stage in STAGE_MODELS (a full, total map — no missing stage)', () => {
+    const m = cheapModels();
+    for (const stage of Object.keys(STAGE_MODELS) as Stage[]) {
+      expect(m[stage], `cheapModels() missing ${stage}`).toBeDefined();
+    }
+  });
+
+  it('every cheap stage model has pricing configured', () => {
+    for (const model of Object.values(cheapModels())) {
+      const id = registryId(model);
       expect(MODEL_PRICING[id], `missing pricing for ${id}`).toBeDefined();
     }
   });

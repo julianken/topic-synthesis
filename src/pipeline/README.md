@@ -42,7 +42,7 @@ The edges are the **data contracts** — the part most likely to drift from the 
 | `code` | Synthesis | [`code.ts`](code.ts) | `PageSpec` → `PageArtifact` (standalone HTML, ≤32000 tokens) | Sonnet | **Sonnet** |
 | `critic` | Synthesis | [`critic.ts`](critic.ts) | `PageArtifact` → `CritiquedArtifact` (pass / fail) | Opus | **Sonnet** |
 
-> **Why synthesis stays on Sonnet even when cheap.** A single lesson *is* its one page. If `code` (the page builder) ran on Haiku, its smaller output budget truncates a rich interactive page → the lesson degrades to `soon` → nothing usable. The cheap profile ([`cheapModels()`](../eval/run-skeleton.ts)) therefore puts ANALYSIS on Haiku for cost but SYNTHESIS on Sonnet so the lesson reliably builds.
+> **Why synthesis stays on Sonnet even when cheap.** A single lesson *is* its one page. If `code` (the page builder) ran on Haiku, its smaller output budget truncates a rich interactive page → the lesson degrades to `soon` → nothing usable. The cheap profile ([`cheapModels()`](../llm/models.ts)) therefore puts ANALYSIS on Haiku for cost but SYNTHESIS on Sonnet so the lesson reliably builds.
 
 `brief` is the **only** producer of the "what to teach" payload on this path — it replaces `graph` (the curriculum-era producer). `learningGoal` lives *only* on the `LessonBrief`; routing the grounded `findings` through the brief is why `spec` chooses its interaction on real material rather than a bibliography.
 

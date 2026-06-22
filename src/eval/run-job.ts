@@ -2,12 +2,13 @@ import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
 import type { TopicRequest } from '../domain/stages';
 import { GcpEngine } from '../engine/gcp-engine';
+import { cheapModels } from '../llm/models';
 import { defaultDeps } from '../pipeline/deps';
 import { defaultStages, noopSink } from '../pipeline/ports';
 import { runLesson, type RunOptions } from '../pipeline/run-pipeline';
 import { closePool } from '../store/db';
 import { persistRun } from '../store/repo';
-import { cheapModels, persistInput } from './run-skeleton';
+import { persistInput } from './run-skeleton';
 
 /**
  * The durable, headless sibling of `run-skeleton` — the Cloud Run **Job** entrypoint. A Job
