@@ -85,7 +85,9 @@ CREATE INDEX IF NOT EXISTS idx_run_workflow ON run (workflow_ver);
 
 -- Durable step memoization for the GcpEngine (Cloud Run Job resume). A completed (run, step name,
 -- content-identity key) is read back, never re-run, on retry/resume — so a crash never repeats
--- (or re-pays for) finished LLM work. This is the durable-execution ledger, not curriculum data.
+-- (or re-pays for) finished LLM work. This is the durable-execution ledger, not curriculum data —
+-- so `persistRun` PRUNES this run's rows in its transaction once the curriculum lands (no consumer
+-- after the run completes); the table stays bounded at exactly its in-run lifetime.
 CREATE TABLE IF NOT EXISTS step_result (
   run_id      TEXT NOT NULL,
   name        TEXT NOT NULL,
@@ -98,9 +100,10 @@ CREATE TABLE IF NOT EXISTS step_result (
 -- Per-step TIMING for the live generating timeline (issue #61). The GcpEngine stamps started_at
 -- when a step REALLY runs (cache miss) and finished_at on completion — a cache HIT (a crash-resume of
 -- an already-done step) writes nothing, so the original row stands and the timeline stays complete +
--- non-duplicated across a resume. Same (run, name, key) shape as step_result. Unlike step_result/
--- run_owner (durable-execution bookkeeping that a later PR may prune at persist), step_event is the
--- KEPT observability data this feature adds — it is NOT pruned.
+-- non-duplicated across a resume. Same (run, name, key) shape as step_result. Read ONLY by the live
+-- generating UI while the run is in flight; the finished lesson page shows the artifact, not the
+-- timeline. Like step_result + run_owner, `persistRun` PRUNES this run's rows in its transaction once
+-- the curriculum lands — step_event is intentionally NOT kept for cross-run analysis (no such view).
 CREATE TABLE IF NOT EXISTS step_event (
   run_id      TEXT NOT NULL,
   name        TEXT NOT NULL,
