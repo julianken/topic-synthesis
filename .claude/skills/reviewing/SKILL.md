@@ -11,7 +11,7 @@ This skill owns the **generic, bot-agnostic review method**: how to write a PR r
 
 ## No-drift relationship
 
-This rubric mirrors the user-level `reviewing-as-julianken-bot` skill. This repo-local copy is the canonical **generic method** for `julianken/topic-synthesis`; the user-level skill is the portable overlay that adds the bot identity, credentials, and the bot-specific shadow-mode rules (R13–R16). Per `AGENTS.md` → **Skill ownership** "No-drift rule": a change to either copy must update the other in the **same PR**, and the PR Summary must say so. On conflict, the repo-local copy wins for anything instance-specific; the user-level skill wins for the portable method and the bot mechanics.
+This rubric mirrors the user-level `reviewing-as-julianken-bot` skill. This repo-local copy is the canonical **generic method** for `julianken/topic-synthesis`; the user-level skill is the portable overlay that adds the bot identity, credentials, and the bot-specific shadow-mode rules (R13–R16). Per `AGENTS.md` → **Skill ownership** "No-drift rule": a change to either copy must update the other in the **same PR**, and the PR Summary must say so. On conflict, the repo-local copy wins for anything instance-specific; the user-level skill wins for the portable method and the bot mechanics. (The "Concept-drift pass" below is a `julianken/topic-synthesis` instance convention — it references this repo's `INSTANCE.md` concept block + `scripts/check-concept-drift.sh`; whether to add a generic form to the portable overlay is a separate decision the mirror copy carries.)
 
 ## The core rules
 
@@ -47,6 +47,14 @@ More than one BLOCKER in a single review → audit them; at least one is probabl
 ## Doc-currency check (repo convention)
 
 Per `AGENTS.md` → "Keeping docs and drift-prone files current", verify the PR updated every drift-prone file its diff implies (per the Update Triggers table), **or** that the author wrote `No doc updates needed` / justified leaving a specific doc stale. If the diff touched `AGENTS.md` or `CLAUDE.md`, confirm `scripts/check-claude-shim.sh` passes. A change that alters behavior, a convention, or the design surface but leaves the matching file untouched is a finding — **but this is never a merge blocker**: raise it as an IMPORTANT finding with an escape hatch (a one-line note, and a `drift:docs` follow-up issue if it should be tracked). A spec can be wrong while the PR is right.
+
+## Concept-drift pass (repo convention)
+
+Run `bash scripts/check-concept-drift.sh` this turn. It gates the product's canonical noun ("one interactive lesson") off the LIVE surfaces (user copy, LLM stage prompts, public product descriptors, route copy), allowlist-scoped, with a per-line escape hatch (`DORMANT:`/`RETAINED:` tags or a `concept-drift-ok: <reason>` comment). The canonical noun + retired-terms list live in `INSTANCE.md` → "Product concept (canonical noun)"; the process trigger is in `AGENTS.md` → "Keeping docs and drift-prone files current".
+
+- For each LIVE hit the script reports, require **either** a fix to the canonical noun in this PR **or** an explicit retained-scaffolding citation on the line (the `DORMANT:`/`RETAINED:` tag + ADR-0003, or a `concept-drift-ok: <reason>`). A retired product descriptor on a live surface with no escape is drift.
+- **R7 EXCEPTION (stated explicitly):** R7 ("pre-existing issues are out of scope") does **not** excuse concept drift that **this PR's own change contradicts**. If a PR ships a single-lesson change while a stale "curriculum"/"tiered" line sits on a surface the diff touches, that line is **in scope** even though it predates the PR — the change made it wrong. Flag it; do not wave it through as pre-existing.
+- Raise as an **IMPORTANT** finding with the existing escape hatch — a one-line note, and a `drift:docs` follow-up issue if it should be tracked. **Never a merge blocker** (a stale concept line is a doc-currency miss, not observable harm). If `check-concept-drift.sh` itself is RED in CI, that *is* a blocker (a hard gate failed), but the reviewer's own concept-drift judgment about scope-but-unfixed prose stays a non-blocking IMPORTANT.
 
 ## Review shape
 

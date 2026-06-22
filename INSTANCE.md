@@ -7,7 +7,23 @@ repo, which merge setup). DESIGN.md remains the source of truth for design. Keep
 rules out of this file — they belong in AGENTS.md so the process shape stays portable. -->
 
 ## What this is
-Topic Synthesis — Generate an interactive, scaffolded lesson from a topic. A user enters a topic + settings; a multi-agent ANALYSIS→SYNTHESIS workflow researches it and synthesizes one standalone, interactive HTML/Canvas/SVG/JS lesson end-to-end. (Assembling many lessons into a tiered, prerequisite-scaffolded curriculum is roadmap — see `README.md`.) Built largely by AI coding agents through reviewed, squash-merged PRs.
+Topic Synthesis — Generate an interactive, scaffolded lesson from a topic. A user enters a topic + settings; a multi-agent ANALYSIS→SYNTHESIS workflow researches it and synthesizes one standalone, interactive HTML/Canvas/SVG/JS lesson end-to-end. (Assembling many lessons into a tiered, prerequisite-scaffolded curriculum is roadmap — see `README.md`.) <!-- concept-drift-ok: roadmap north-star (the curriculum WRAPPER), not a present-tense product claim — see "Product concept" below + ADR-0003 --> Built largely by AI coding agents through reviewed, squash-merged PRs.
+
+## Product concept (canonical noun)
+The product's **canonical noun is "one interactive lesson"** — a single, standalone, interactive page synthesized from a topic. Every LIVE surface (user copy, LLM stage prompts, public product descriptors, route copy) describes the product in those terms. This is the single source `scripts/check-concept-drift.sh` enforces.
+
+**RETIRED TERMS** (as *present-tense product descriptors*) — the product refocused from a tiered curriculum to one lesson (epic #52; ADR-0003), so these must not describe the shipped product on a live surface: <!-- concept-drift-ok: meta-prose naming the retired terms it governs -->
+
+- `curriculum` / `curricula` <!-- concept-drift-ok: the retired-terms catalogue itself -->
+- `tiered` <!-- concept-drift-ok: the retired-terms catalogue itself -->
+- `prerequisite knowledge graph` <!-- concept-drift-ok: the retired-terms catalogue itself -->
+
+Each retired term remains LEGITIMATE — and passes the gate — in exactly three places:
+1. **History:** `docs/decisions/**` + `docs/research/**` (+ `docs/plans/**`) — never retro-edit the record; these trees are fenced out of the gate. <!-- concept-drift-ok: names the fenced history trees -->
+2. **Roadmap north-star:** the curriculum *wrapper* over the single-lesson workflow is the next sub-project (see `README.md` Status). A live-surface line that references the roadmap carries an inline `concept-drift-ok: roadmap north-star` comment. <!-- concept-drift-ok: describes the roadmap carve-out -->
+3. **Retained dormant code / schema / route identifiers:** the curriculum machinery is RETAINED (not deleted) for the wrapper milestone and carries an inline `DORMANT:` / `RETAINED:` tag citing ADR-0003; code identifiers and route topology (`/curriculum/{id}`, `getCurriculum`, the `curriculum`/`curriculum_page` tables) are a DEFERRED rename, also per ADR-0003. <!-- concept-drift-ok: describes the retained-machinery + deferred-rename carve-out -->
+
+The gate's escape hatch is per-line: a matched line passes if it is absent, carries a `DORMANT:`/`RETAINED:` tag, or carries a `concept-drift-ok: <reason>` comment. The process trigger (when a concept change or a new dormancy fires the rename sweep) lives in `AGENTS.md` → "Keeping docs and drift-prone files current".
 
 ## Status
 **Status: DEPLOYED on GCP Cloud Run; auth subsystem SHIPPED.** The full e2e ships and runs in the cloud — a topic produces one browsable, interactive lesson (multi-agent pipeline → Postgres → sandboxed artifact iframe), observable via the published `@eleatic/eval` trace seam. **Deployed** via Terraform (`infra/`): the `topic-synthesis-prod` project (Cloud SQL Postgres 16, Artifact Registry, Secret Manager, the runtime SA) + the Cloud Run **Service** (scale-to-zero app) + the pipeline + one-shot migrate **Jobs** + the durable `GcpEngine` (Postgres step-memoization) — see `docs/decisions/0001-deployment-orchestration-and-swappability.md`. The **auth subsystem** is **in place** (the #41–#45 epic merged): managed GCP Identity Platform + an `owner_sub`-on-Postgres ownership column + an `AuthProvider` port, with a branded Google sign-in, the authenticated spend gate, and owner-scoped private reads all live — per `docs/decisions/0002-auth-architecture.md` + `docs/plans/auth-subsystem.md`; the Google OAuth web client + the auth env (`NEXT_PUBLIC_FIREBASE_*` build args + `AUTH_ALLOWLIST`, see `SECURITY.md` → "Authentication & access") are the one-time deploy seams. Build/test commands: `AGENTS.md` → "Working in the tree".

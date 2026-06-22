@@ -2,11 +2,11 @@
 
 Generate an interactive, scaffolded lesson from a topic.
 
-You enter a topic + settings; a two-component **ANALYSIS → SYNTHESIS** workflow researches the topic and synthesizes a standalone, interactive HTML/Canvas/SVG/JS **lesson** — modeled on hand-built explorable explanations. Today the workflow produces one excellent lesson end-to-end (the de-risking milestone); assembling many into a tiered, prerequisite-scaffolded curriculum is the roadmap.
+You enter a topic + settings; a two-component **ANALYSIS → SYNTHESIS** workflow researches the topic and synthesizes a standalone, interactive HTML/Canvas/SVG/JS **lesson** — modeled on hand-built explorable explanations. Today the workflow produces one excellent lesson end-to-end (the de-risking milestone); assembling many into a tiered, prerequisite-scaffolded curriculum is the roadmap. <!-- concept-drift-ok: roadmap north-star (the curriculum WRAPPER), not a present-tense product claim — INSTANCE.md "Product concept" + ADR-0003 -->
 
 ## Status
 
-**The single-lesson pipeline is built and deployed.** Bootstrapped from the [`agentic-seed`](https://github.com/julianken/agentic-seed) template; the full ANALYSIS → SYNTHESIS workflow runs auth-gated on GCP (Cloud Run Service + Job, Cloud SQL, Identity Platform) and generates one interactive lesson from a topic. The tiered-curriculum *wrapper* over this workflow is the next sub-project. See [`docs/plans/`](./docs/plans/), [`docs/decisions/`](./docs/decisions/), and [`docs/research/`](./docs/research/).
+**The single-lesson pipeline is built and deployed.** Bootstrapped from the [`agentic-seed`](https://github.com/julianken/agentic-seed) template; the full ANALYSIS → SYNTHESIS workflow runs auth-gated on GCP (Cloud Run Service + Job, Cloud SQL, Identity Platform) and generates one interactive lesson from a topic. The tiered-curriculum *wrapper* over this workflow is the next sub-project. <!-- concept-drift-ok: roadmap north-star (the curriculum WRAPPER), not a present-tense product claim — ADR-0003 --> See [`docs/plans/`](./docs/plans/), [`docs/decisions/`](./docs/decisions/), and [`docs/research/`](./docs/research/).
 
 ## How a lesson is generated
 
@@ -33,7 +33,7 @@ A run is dispatched to a scale-to-zero Cloud Run Job behind a sign-in + allowlis
 flowchart LR
   F["intake form"] --> G["/api/generate<br/>sign-in + allowlist gate"]
   G --> J["Cloud Run Job<br/>(runLesson)"]
-  G -.->|redirect| PG["/curriculum/{id}<br/>polls for the lesson"]
+  G -.->|redirect| PG["lesson page<br/>polls for the lesson"]
   J --> DB[("Postgres")]
   PG -.->|poll| DB
   DB --> L["rendered lesson<br/>(sandboxed iframe)"]

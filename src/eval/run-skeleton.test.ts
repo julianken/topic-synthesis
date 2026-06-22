@@ -117,7 +117,7 @@ describe('runSkeleton + formatSummary', () => {
     expect(run.result.pages[0]?.nodeSlug).toBe('t');
     expect(run.brief).toBeDefined(); // the lesson path exposes the brief (so --trace fires the judge)
     const summary = formatSummary(run);
-    expect(summary).toContain('Curriculum —');
+    expect(summary).toContain('Lesson — 1 page(s):');
     expect(summary).toMatch(/\[built\].*\(t\)/); // the single lesson, built (critic passed)
     expect(summary).toContain('1/1 passed the critic');
     expect(summary).toContain('Total: $');

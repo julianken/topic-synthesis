@@ -48,6 +48,11 @@ export interface RunOptions {
 }
 
 /**
+ * DORMANT(curriculum-wrapper — ADR-0003 / epic #52): the curriculum path. NO entrypoint
+ * drives it today (`npm run skeleton`, the local-dev fallback, and the deployed Job all run
+ * `runLesson`); RETAINED for the future curriculum-wrapper milestone (decompose → N lessons,
+ * each via `runLesson`) and still covered by its own unit tests. See ADR-0003.
+ *
  * Run the whole pipeline over an injected Engine:
  *   plan → researchers (fan-out) → graph → coverage-gate → per built node
  *   (spec → code → critic) → hub.
@@ -142,8 +147,9 @@ async function synthesizeNode(
   const key = contentHash(node.slug, bucket);
   // The single-lesson path (runLesson, below) is the real `brief → spec → code → critic` wiring:
   // it runs the `brief` Analysis stage so the synthesized lesson teaches a synthesized learning
-  // goal off grounded findings. This curriculum path is now DORMANT (no entrypoint drives it yet —
-  // run-job runs the lesson path) and keeps a TRANSITIONAL per-node brief: each gated node becomes
+  // goal off grounded findings. DORMANT(curriculum-wrapper — ADR-0003 / epic #52): this curriculum
+  // path has no entrypoint driving it yet (run-job runs the lesson path) and keeps a TRANSITIONAL
+  // per-node brief — RETAINED until the wrapper milestone. Each gated node becomes
   // a lesson keyed by node.slug, with findings relabeled from the node's sources. Wiring the real
   // `brief` stage into the curriculum path is deferred to the curriculum-wrapper milestone (it
   // decomposes the topic → N lessons, each via runLesson) — see epic #52.

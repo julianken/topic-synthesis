@@ -39,7 +39,7 @@ export default function SignIn() {
       <h1>Sign in</h1>
       <p className="lead">
         This is a private, invite-only preview. Sign in with the Google account on the allowlist to
-        generate and view curricula.
+        generate and view lessons.
       </p>
       <button className="btn" onClick={() => void go()} disabled={busy}>
         {busy ? 'Signing in…' : 'Continue with Google'}

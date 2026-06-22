@@ -1,3 +1,6 @@
+// DORMANT(curriculum-wrapper — ADR-0003 / epic #52): the coverage-gate routes/topo-sorts the
+// prerequisite graph for the curriculum path (`runPipeline`) ONLY. The live single-lesson path
+// (`runLesson`) never calls it. RETAINED for the wrapper milestone; still unit-tested. See ADR-0003.
 import type { GatedGraph, GatedNode, PrereqGraph } from '../domain/stages';
 import type { PageStatus } from '../domain/sitemap';
 

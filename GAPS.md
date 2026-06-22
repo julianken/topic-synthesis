@@ -30,6 +30,12 @@ Deferrals from the deployment/orchestration architecture ([`docs/decisions/0001`
 | `src/app` → pipeline import boundary (the Service triggers the Job, doesn't run the pipeline) | The deployed Cloud Run Job model replaces in-process generation | The lean e2e runs the pipeline IN-PROCESS inside `src/app` (the Service) + reads the store from server components/route handlers, so a blanket `src/app`→pipeline/store ban would be wrong today. The fence ships with `core-no-frontend` only (ADR 0001 §4). |
 | Full CI app-gates (run typecheck/test/build in CI) | The `core` workspace split lands, or flakiness slips past the bot review | PARTIAL: `.github/workflows/import-fence.yml` now does `npm ci` + `npm run lint:boundaries` in CI (the first code-level gate + the npm-ci-in-CI pattern). Extending it to typecheck/test/build is the remaining step; the `@julianken-bot` per-PR review (throwaway-clone gates) still covers those today. |
 
+Deferral from the single-lesson refocus ([`docs/decisions/0003`](docs/decisions/0003-single-lesson-refocus-and-retained-curriculum-machinery.md)):
+
+| Item | Trigger that should wake it | Why deferred |
+| --- | --- | --- |
+| `/curriculum` route + `curriculum`/`curriculum_page` table rename (leading topology: `/lesson` = the atom, `/curriculum` = the wrapper hub) with a `page.href` redirect shim | The curriculum-wrapper milestone lands (decompose → N lessons → tiered hub), un-dormant-ing `runPipeline` — at which point the atom-vs-wrapper topology becomes real | The single-lesson run reuses the v1 `curriculum` row/route as code identifiers (ADR-0003 §3); a bare rename now would 404 every persisted `page.href = /curriculum/{id}/artifact/{slug}` and buys nothing until the wrapper exists. The retained machinery is tagged `DORMANT:`/`RETAINED:` and fenced out of `scripts/check-concept-drift.sh`. |
+
 Deferral from the repo-description consistency mechanism:
 
 | Item | Trigger that should wake it | Why deferred |
