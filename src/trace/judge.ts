@@ -67,8 +67,9 @@ export interface JudgeResult {
  * `runPipeline`/`runLesson`. Returns the numeric sub-scores plus the call's `LlmCallRecord`.
  *
  * `model` defaults to `STAGE_MODELS.critic` (opus), but the CLI now threads the run's RESOLVED judge
- * model through `reduceRunTrace` (#57 SUGGESTION #2) — so a `--cheap` run judges on Haiku instead of
- * always paying for opus while every other stage of that run is cheap.
+ * model through `reduceRunTrace` (#57 SUGGESTION #2) — so a `--cheap` run judges on the cheap CRITIC
+ * model (Sonnet, per `cheapModels()`) instead of always paying for opus while the rest of that run is
+ * on its cheap tier.
  */
 export async function judgeBrief(
   brief: LessonBrief,

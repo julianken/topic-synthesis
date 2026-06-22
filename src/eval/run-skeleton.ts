@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
 import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
-import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
+import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
 import { defaultStages, noopSink, type TraceSink } from '../pipeline/ports';
 import { runLesson, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
@@ -34,25 +34,6 @@ function readPositiveInt(args: string[], name: string): number | undefined {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) throw new Error(`${name} must be a positive integer`);
   return n;
-}
-
-const HAIKU: StageModel = { provider: 'anthropic', model: 'claude-haiku-4-5' };
-const SONNET: StageModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' };
-
-/** SYNTHESIS stages run on Sonnet even in the cheap profile: Haiku's output cap truncated the
- *  interactive page, and for a SINGLE lesson a truncated `code` stage degrades the whole lesson to
- *  'soon'. Sonnet's larger output budget reliably builds a full page. */
-const CHEAP_SYNTHESIS: ReadonlySet<Stage> = new Set(['spec', 'code', 'critic']);
-
-/** Cheap profile: Haiku for the ANALYSIS stages (planner/researcher/graph/brief) to stay low-cost,
- *  Sonnet for SYNTHESIS (spec/code/critic) so a single lesson actually builds (`--cheap`; reused by
- *  the Job's CHEAP). */
-export function cheapModels(): Partial<Record<Stage, StageModel>> {
-  const models: Partial<Record<Stage, StageModel>> = {};
-  for (const stage of Object.keys(STAGE_MODELS) as Stage[]) {
-    models[stage] = CHEAP_SYNTHESIS.has(stage) ? SONNET : HAIKU;
-  }
-  return models;
 }
 
 /** Parse `--topic "x" [--level …] [--depth N] [--audience "…"]` into a TopicRequest. */
@@ -242,9 +223,10 @@ async function main(): Promise<void> {
     const tracePath = readFlag(args, '--trace');
     const baseline = readFlag(args, '--baseline');
     // The judge runs on the run's RESOLVED judge model (#57 SUGGESTION #2): the run's `critic`
-    // override merged over STAGE_MODELS — so a `--cheap` run judges on Haiku instead of always opus,
-    // matching the rest of that run's tier. With no override this is STAGE_MODELS.critic (opus), the
-    // judge's own default. Resolved once here off the same merge `config.models` uses.
+    // override merged over STAGE_MODELS — so a `--cheap` run judges on the cheap CRITIC model (Sonnet,
+    // per `cheapModels()`) instead of always opus, matching the rest of that run's synthesis tier. With
+    // no override this is STAGE_MODELS.critic (opus), the judge's own default. Resolved once here off
+    // the same merge `config.models` uses.
     const judgeModel: StageModel = { ...STAGE_MODELS, ...(options.models ?? {}) }.critic;
     // buildAndReduceTrace threads the QUALITY signals (critic verdicts + the LLM-judge over the
     // brief + the analysis output) and the optional baseline onto the trace, EMITS the judge span
