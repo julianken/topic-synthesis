@@ -88,21 +88,33 @@ export class GcpEngine implements Engine {
    * left showing the abandoned attempt's clock.
    */
   private async markStepStarted(name: string, key: string): Promise<void> {
-    await this.deps.pool.query(
-      `INSERT INTO step_event (run_id, name, step_key, started_at, status)
-       VALUES ($1, $2, $3, now(), 'running')
-       ON CONFLICT (run_id, name, step_key)
-       DO UPDATE SET started_at = now(), finished_at = NULL, status = 'running'`,
-      [this.runId, name, key],
-    );
+    // Best-effort: step_event is KEPT observability data, not load-bearing. A timing-write failure
+    // (the table not yet migrated during a deploy window, or a transient DB error) must NEVER abort
+    // the paid pipeline step or mask its real error — log and continue.
+    try {
+      await this.deps.pool.query(
+        `INSERT INTO step_event (run_id, name, step_key, started_at, status)
+         VALUES ($1, $2, $3, now(), 'running')
+         ON CONFLICT (run_id, name, step_key)
+         DO UPDATE SET started_at = now(), finished_at = NULL, status = 'running'`,
+        [this.runId, name, key],
+      );
+    } catch (err) {
+      console.warn('[timing] step_event start write failed (ignored)', this.runId, name, err);
+    }
   }
 
-  /** Stamp a step's END (issue #61): 'done' on success, 'error' on a thrown fn — the timeline shows it. */
+  /** Stamp a step's END (issue #61): 'done' on success, 'error' on a thrown fn — the timeline shows it.
+   *  Best-effort, like markStepStarted: a timing-write failure never breaks the run. */
   private async markStepFinished(name: string, key: string, status: 'done' | 'error'): Promise<void> {
-    await this.deps.pool.query(
-      `UPDATE step_event SET finished_at = now(), status = $4
-       WHERE run_id = $1 AND name = $2 AND step_key = $3`,
-      [this.runId, name, key, status],
-    );
+    try {
+      await this.deps.pool.query(
+        `UPDATE step_event SET finished_at = now(), status = $4
+         WHERE run_id = $1 AND name = $2 AND step_key = $3`,
+        [this.runId, name, key, status],
+      );
+    } catch (err) {
+      console.warn('[timing] step_event finish write failed (ignored)', this.runId, name, err);
+    }
   }
 }

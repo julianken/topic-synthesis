@@ -122,6 +122,20 @@ describe('GcpEngine', () => {
       expect(events).toHaveLength(2); // still just the original start + done — no duplicate
     });
 
+    it('a validate-on-resume cache HIT (valid-shape cached step) ALSO writes NO step_event', async () => {
+      const { pool, events } = timingPool();
+      const Schema = z.object({ v: z.number() }); // the current contract (cf. LessonBriefSchema)
+      const fn = vi.fn(async () => ({ v: 7 }));
+      // First run: real step → start + done.
+      await new GcpEngine('run1', { pool }).step('brief', 'k', fn, Schema);
+      expect(events).toHaveLength(2);
+      // Resume WITH the validator: the cached row parses → cache HIT, fn NOT re-run, and — the crux
+      // the plan turned on — NO step_event from the *validated*-hit path (not just the un-validated one).
+      await new GcpEngine('run1', { pool }).step('brief', 'k', fn, Schema);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(events).toHaveLength(2); // validated cache-hit wrote nothing
+    });
+
     it('an interrupted step re-times via ON CONFLICT on re-run (start again, then done)', async () => {
       const { pool, events } = timingPool();
       const fn = vi
