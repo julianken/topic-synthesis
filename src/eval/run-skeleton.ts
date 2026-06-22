@@ -70,10 +70,12 @@ export function buildOptions(args: string[]): RunOptions {
   return options;
 }
 
-/** Human-readable run summary: the tiered curriculum + the per-model cost breakdown. */
+/** Human-readable run summary: the synthesized lesson page(s) + the per-model cost breakdown.
+ *  `runLesson` produces a trivial one-tier/one-page hub, so this iterates `hub.tiers` and prints a
+ *  single lesson; the loop generalizes to the dormant curriculum path's multi-tier hub unchanged. */
 export function formatSummary(run: PipelineRunResult): string {
   const allPages = run.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
-  const lines: string[] = [`Curriculum — ${run.result.hub.tiers.length} tier(s), ${allPages.length} node(s):`];
+  const lines: string[] = [`Lesson — ${allPages.length} page(s):`];
   for (const tier of run.result.hub.tiers) {
     lines.push(`  ${tier.tier}`);
     for (const category of tier.categories) {

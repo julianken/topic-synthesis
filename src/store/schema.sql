@@ -45,6 +45,10 @@ ALTER TABLE concept_page ADD COLUMN IF NOT EXISTS title TEXT;
 UPDATE concept_page SET title = concept_slug WHERE title IS NULL;
 ALTER TABLE concept_page ALTER COLUMN title SET NOT NULL;
 
+-- RETAINED(v1-persistence — ADR-0003): the `curriculum` table NAME is a code identifier, not a live
+-- product descriptor. The single-lesson run persists as a one-page `curriculum` row (persistRun/
+-- getCurriculum reuse). The table/route rename (`/lesson` atom vs `/curriculum` wrapper hub) is a
+-- DEFERRED refactor needing a `page.href` redirect shim for existing rows — see ADR-0003 + GAPS.md.
 -- One curriculum (a single topic request).
 CREATE TABLE IF NOT EXISTS curriculum (
   id            TEXT PRIMARY KEY,
@@ -68,8 +72,9 @@ CREATE TABLE IF NOT EXISTS run_owner (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- The curriculum<->page JOIN: the seam that lets one page belong to many
--- curricula once sharing is enabled.
+-- RETAINED(v1-persistence — ADR-0003): the `curriculum_page` table NAME is a code identifier (the
+-- curriculum<->page JOIN) — the seam that lets one page belong to many curricula once sharing/the
+-- wrapper milestone is enabled. Rename is DEFERRED with the `curriculum` table — see ADR-0003.
 CREATE TABLE IF NOT EXISTS curriculum_page (
   curriculum_id TEXT NOT NULL REFERENCES curriculum(id) ON DELETE CASCADE,
   page_id       TEXT NOT NULL REFERENCES concept_page(id),

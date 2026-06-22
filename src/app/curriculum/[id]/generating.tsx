@@ -33,11 +33,11 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * Polls the curriculum status while a run is in flight, and renders the live per-step timeline from
+ * Polls the lesson's status while a run is in flight, and renders the live per-step timeline from
  * the poll's `steps` (issue #61). Finished steps show their final `finished_at − started_at`; the
  * one in-progress step (`finishedAt` null, status 'running') shows a LIVE elapsed timer that ticks
  * client-side (now − startedAt) and freezes into a duration once the next poll reports it finished;
- * an 'error' step is labeled. When the curriculum row lands (`ready`) it calls router.refresh(),
+ * an 'error' step is labeled. When the lesson row lands (`ready`) it calls router.refresh(),
  * re-running the lesson server component so the lesson renders. After MAX_ATTEMPTS it stops and shows
  * a "still working" hint (covers a slow run and a bad id, without polling forever).
  */
@@ -57,7 +57,7 @@ export function GeneratingPoller({ id }: { id: string }) {
         return;
       }
       try {
-        const res = await fetch(`/api/curriculum/${encodeURIComponent(id)}/status`, {
+        const res = await fetch(`/api/curriculum/${encodeURIComponent(id)}/status`, { // concept-drift-ok: route identifier, deferred rename (ADR-0003)
           cache: 'no-store',
         });
         if (!res.ok) return;

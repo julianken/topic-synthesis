@@ -71,7 +71,10 @@ export const PrereqEdgeSchema = z.object({
 });
 export type PrereqEdge = z.infer<typeof PrereqEdgeSchema>;
 
-/** Graph-builder (Opus): a prerequisite DAG over concept nodes + coverage. */
+/** Graph-builder (Opus): a prerequisite DAG over concept nodes + coverage.
+ *  DORMANT(curriculum-wrapper — ADR-0003 / epic #52): consumed ONLY by the dormant curriculum path
+ *  (`graph` → `coverage-gate` → `runPipeline`); the live single-lesson path never produces one.
+ *  RETAINED for the wrapper milestone. See ADR-0003. */
 export const PrereqGraphSchema = z.object({
   nodes: z.array(GraphNodeSchema),
   edges: z.array(PrereqEdgeSchema),
@@ -84,6 +87,9 @@ export interface GatedNode extends GraphNode {
   route: PageStatus; // 'built' | 'text' | 'soon'
 }
 
+/** DORMANT(curriculum-wrapper — ADR-0003 / epic #52): the gated prerequisite graph the
+ *  coverage-gate emits for the dormant curriculum path (`runPipeline`) ONLY. RETAINED for the
+ *  wrapper milestone. See ADR-0003. */
 export interface GatedGraph {
   nodes: GatedNode[];
   edges: PrereqEdge[];

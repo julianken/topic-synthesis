@@ -33,6 +33,15 @@ else
   fail "check-claude-shim.sh failed — run it directly to see why"
 fi
 
+# --- 1b. The product's canonical noun is off the live surfaces ----------------
+# Reuse the dedicated guard (single source of truth: scripts/check-concept-drift.sh).
+# A retired product descriptor on a live surface without an escape fails the gate.
+if bash "$root/scripts/check-concept-drift.sh" >/dev/null 2>&1; then
+  ok "check-concept-drift.sh passes (no retired product noun on a live surface)"
+else
+  fail "check-concept-drift.sh failed — run it directly to see the file:line hits"
+fi
+
 # --- 2. Required scaffolding paths exist -------------------------------------
 # These are the load-bearing process files a cold-start agent reads, plus the
 # template machinery itself. Every entry here exists in the seed today; a
@@ -53,6 +62,7 @@ required_paths=(
   ".mergify.yml"
   ".seed/placeholders.json"
   "scripts/check-claude-shim.sh"
+  "scripts/check-concept-drift.sh"
   "scripts/validate-scaffolding.sh"
   "scripts/fill-template.sh"
   "docs/optional/README.md"

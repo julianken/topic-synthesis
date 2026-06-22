@@ -24,7 +24,7 @@ export default function Home() {
       });
       if (!res.ok) throw new Error(`Generation request failed (${res.status}).`);
       const { id } = (await res.json()) as { id: string };
-      router.push(`/curriculum/${encodeURIComponent(id)}`);
+      router.push(`/curriculum/${encodeURIComponent(id)}`); // concept-drift-ok: route identifier, deferred rename (ADR-0003)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
       setSubmitting(false);

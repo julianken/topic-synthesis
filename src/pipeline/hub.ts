@@ -1,3 +1,6 @@
+// DORMANT(curriculum-wrapper — ADR-0003 / epic #52): `assembleHub` builds the tiered sitemap for the
+// curriculum path (`runPipeline`) ONLY — the live single-lesson path (`runLesson`) assembles a trivial
+// one-page hub inline and never calls this. RETAINED for the wrapper milestone; unit-tested. See ADR-0003.
 import type { GatedGraph, GatedNode } from '../domain/stages';
 import type { PageStatus, SitemapHub, SitemapPage, SitemapTier } from '../domain/sitemap';
 

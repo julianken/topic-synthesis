@@ -111,11 +111,11 @@ Google-only + authorized-domains policy. The deploy must set the auth env (the
 `NEXT_PUBLIC_FIREBASE_*` build args + `AUTH_ALLOWLIST`); wiring those into the image
 build + Cloud Run is the operational deploy step.
 
-Reads are **owner-scoped**: a curriculum, its generation status, and its pages are
+Reads are **owner-scoped**: a curriculum, its generation status, and its pages are <!-- concept-drift-ok: persisted-entity / route identifier (owner-scoping mechanism), deferred rename — ADR-0003 -->
 visible only to the Google account that generated it — a non-owner gets a **uniform
 404** (no 403/404 existence oracle; absent and not-owned are the same response). The
-sandboxed artifact route authorizes **through the owning curriculum, not the page
-id**: a `pageId` is a content hash *shared across curricula* by design, so it is not
+sandboxed artifact route authorizes **through the owning curriculum, not the page <!-- concept-drift-ok: persisted-entity identifier (owner-scoping mechanism), deferred rename — ADR-0003 -->
+id**: a `pageId` is a content hash *shared across curricula* by design, so it is not <!-- concept-drift-ok: persisted-entity identifier (owner-scoping mechanism), deferred rename — ADR-0003 -->
 a capability. The page HTML is served only on a same-origin request carrying the
 owner's session cookie (the iframe `sandbox` opaques the framed DOM, not the load
 request), never via a bearer token in the URL.

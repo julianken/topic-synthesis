@@ -1,3 +1,6 @@
+// DORMANT(curriculum-wrapper — ADR-0003 / epic #52): the `graph` stage builds the prerequisite DAG
+// used ONLY by the curriculum path (`runPipeline`). The live single-lesson path (`runLesson`) never
+// calls it. RETAINED for the future curriculum-wrapper milestone; still unit-tested. See ADR-0003.
 import { PrereqGraphSchema, type PrereqGraph, type Research } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
