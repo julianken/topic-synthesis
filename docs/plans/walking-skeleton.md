@@ -36,7 +36,7 @@ against. Two prior research workflows (`docs/research/`) ground every decision.
 - **Engine:** Trigger.dev v4, **self-hosted via Docker**, with **Postgres** as the
   app's system-of-record from day one.
 - **Eval substrate:** `@eleatic/eval` (co-developed sibling `julianken/eleatic`),
-  consumed as a git/local-path dependency (it is NOT on npm — verified 404).
+  published to npm `@0.1.0` and consumed as a normal npm dependency (`package.json`).
 
 ## Step 0 — Bootstrap from agentic-seed (the public-repo init)
 
@@ -169,7 +169,7 @@ DOMPurify sanitizes the HTML before store/serve. Hub output matches ai-concept-v
 
 ## Trace seam (eleatic)
 
-Per the verified `@eleatic/eval` API (no `@eleatic/trace` package exists):
+Per the `@eleatic/eval` API (published to npm `@0.1.0`; no `@eleatic/trace` package exists):
 `openStore('eval.sqlite')` → `recordRun({id, label, baseline, config:{version,
 modelSnapshots}, startedAt})` (run = workflow VERSION) → per page `recordRow({runId,
 rowKey: contentIdentityKey, output, expected:null, scores, metadata, trace})` where

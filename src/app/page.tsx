@@ -34,10 +34,10 @@ export default function Home() {
   return (
     <main className="wrap">
       <p className="eyebrow">Topic Synthesis</p>
-      <h1>Generate a curriculum</h1>
+      <h1>Generate a lesson</h1>
       <p className="lead">
-        Enter a STEM topic. A multi-agent pipeline researches it, maps prerequisites, and
-        synthesizes interactive, scaffolded pages into a tiered curriculum.
+        Enter a STEM topic. A multi-agent pipeline researches it and synthesizes one interactive,
+        scaffolded lesson end-to-end.
       </p>
 
       <form

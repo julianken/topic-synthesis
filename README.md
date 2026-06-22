@@ -1,6 +1,6 @@
 # Topic Synthesis
 
-Generate interactive, scaffolded learning curricula from a topic.
+Generate an interactive, scaffolded lesson from a topic.
 
 You enter a topic + settings; a two-component **ANALYSIS → SYNTHESIS** workflow researches the topic and synthesizes a standalone, interactive HTML/Canvas/SVG/JS **lesson** — modeled on hand-built explorable explanations. Today the workflow produces one excellent lesson end-to-end (the de-risking milestone); assembling many into a tiered, prerequisite-scaffolded curriculum is the roadmap.
 

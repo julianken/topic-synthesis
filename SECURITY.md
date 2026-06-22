@@ -1,9 +1,12 @@
 # Security Policy
 
 Topic Synthesis is a personal, non-commercial, solo-maintained open-source
-project — Generate interactive, scaffolded learning curricula from a topic. There is no backend, no accounts, no personal data
-collected, and no analytics today. This file tells you how to report a security
-problem and what to honestly expect in return.
+project — Generate an interactive, scaffolded lesson from a topic. The deployed
+app is private and invite-only: it gates access behind managed Google sign-in
+plus an explicit allowlist, and stores a per-user owner id (`owner_sub`) so a
+user's lessons are readable only by their owner (see "Authentication & access"
+below). No passwords are stored and there is no analytics today. This file tells
+you how to report a security problem and what to honestly expect in return.
 
 ## Reporting a vulnerability
 
