@@ -3,10 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { GcpEngine } from './gcp-engine';
 
-/** In-memory fake pool: SELECT reads the store; INSERT writes it (ON CONFLICT DO NOTHING). */
+/** In-memory fake pool: SELECT reads the step_result store; INSERT writes it (ON CONFLICT DO NOTHING).
+ *  step_event writes (issue #61) are accepted + ignored here — the dedicated timingPool() block below
+ *  asserts the timeline; these tests only care about memoization. */
 function fakePool() {
   const store = new Map<string, unknown>();
   const query = vi.fn(async (sql: string, params: unknown[]) => {
+    if (sql.includes('step_event')) return { rows: [] }; // timing is exercised in timingPool() below
     const k = `${String(params[0])}:${String(params[1])}:${String(params[2])}`;
     if (sql.startsWith('SELECT')) {
       return store.has(k) ? { rows: [{ result_json: store.get(k) }] } : { rows: [] };
@@ -62,6 +65,97 @@ describe('GcpEngine', () => {
     await new GcpEngine('runA', { pool }).step('plan', 'k', () => fn('A'));
     await new GcpEngine('runB', { pool }).step('plan', 'k', () => fn('B')); // same name+key, other run
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  // ── per-step TIMING (issue #61): step_event written on a real run, NOT on a cache-hit resume ──
+  describe('step_event timing', () => {
+    /**
+     * A fake pool that models BOTH tables: step_result (the memoization store, by SELECT/INSERT) and
+     * step_event (the timeline). It records every step_event write so a test can assert how a step
+     * was timed (started → done/error) and that a resume wrote NONE.
+     */
+    function timingPool() {
+      const results = new Map<string, unknown>(); // step_result store
+      const events: { op: string; key: string; status?: string }[] = []; // step_event write log
+      const query = vi.fn(async (sql: string, params: unknown[]) => {
+        const key = `${String(params[0])}:${String(params[1])}:${String(params[2])}`;
+        if (sql.includes('FROM step_result')) {
+          return results.has(key) ? { rows: [{ result_json: results.get(key) }] } : { rows: [] };
+        }
+        if (sql.includes('INTO step_result')) {
+          if (!results.has(key)) results.set(key, JSON.parse(params[3] as string));
+          return { rows: [] };
+        }
+        if (sql.includes('INTO step_event')) {
+          events.push({ op: 'start', key, status: 'running' });
+          return { rows: [] };
+        }
+        if (sql.includes('UPDATE step_event')) {
+          events.push({ op: 'finish', key, status: String(params[3]) });
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+      return { pool: { query } as unknown as Pool, results, events };
+    }
+
+    it('writes a start then a done event on a real (cache-miss) step', async () => {
+      const { pool, events } = timingPool();
+      const engine = new GcpEngine('run1', { pool });
+      await engine.step('plan', 'k', async () => ({ v: 1 }));
+      expect(events).toEqual([
+        { op: 'start', key: 'run1:plan:k', status: 'running' },
+        { op: 'finish', key: 'run1:plan:k', status: 'done' },
+      ]);
+    });
+
+    it('a cache-hit resume of a completed step writes NO new step_event (timeline stays complete + non-duplicated)', async () => {
+      const { pool, events } = timingPool();
+      const fn = vi.fn(async () => ({ v: 42 }));
+      // First run: the step really runs → start + done.
+      await new GcpEngine('run1', { pool }).step('plan', 'k', fn);
+      expect(events).toHaveLength(2);
+      // A resumed process replays the completed step from step_result → cache HIT, fn NOT re-run,
+      // and crucially NO additional step_event write (the original start/done rows still stand).
+      await new GcpEngine('run1', { pool }).step('plan', 'k', fn);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(events).toHaveLength(2); // still just the original start + done — no duplicate
+    });
+
+    it('a validate-on-resume cache HIT (valid-shape cached step) ALSO writes NO step_event', async () => {
+      const { pool, events } = timingPool();
+      const Schema = z.object({ v: z.number() }); // the current contract (cf. LessonBriefSchema)
+      const fn = vi.fn(async () => ({ v: 7 }));
+      // First run: real step → start + done.
+      await new GcpEngine('run1', { pool }).step('brief', 'k', fn, Schema);
+      expect(events).toHaveLength(2);
+      // Resume WITH the validator: the cached row parses → cache HIT, fn NOT re-run, and — the crux
+      // the plan turned on — NO step_event from the *validated*-hit path (not just the un-validated one).
+      await new GcpEngine('run1', { pool }).step('brief', 'k', fn, Schema);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(events).toHaveLength(2); // validated cache-hit wrote nothing
+    });
+
+    it('an interrupted step re-times via ON CONFLICT on re-run (start again, then done)', async () => {
+      const { pool, events } = timingPool();
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('crash mid-step'))
+        .mockResolvedValueOnce({ v: 1 });
+      const engine = new GcpEngine('run1', { pool });
+      await expect(engine.step('code', 'k', fn)).rejects.toThrow('crash mid-step');
+      // The failed attempt is timed start → error (the timeline shows which step failed).
+      expect(events).toEqual([
+        { op: 'start', key: 'run1:code:k', status: 'running' },
+        { op: 'finish', key: 'run1:code:k', status: 'error' },
+      ]);
+      // The retry re-times: a fresh start (ON CONFLICT overwrites the dangling row) then done.
+      await engine.step('code', 'k', fn);
+      expect(events.slice(2)).toEqual([
+        { op: 'start', key: 'run1:code:k', status: 'running' },
+        { op: 'finish', key: 'run1:code:k', status: 'done' },
+      ]);
+    });
   });
 
   // ── validate-on-resume (issue #50): a cached row whose shape no longer parses is a cache MISS ──

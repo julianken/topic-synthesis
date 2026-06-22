@@ -46,13 +46,29 @@ export class GcpEngine implements Engine {
       // a mid-run deploy changed the contract) is treated as a cache MISS — fall through to re-run +
       // re-persist below — so a stale shape can never feed a later stage. With no validator, the row
       // is returned as-is (legacy behavior). A successful parse returns the parsed (current-shape) value.
+      //
+      // TIMING (issue #61): a cache HIT writes NO step_event — the row written when the step first
+      // ran (in this run, before the crash) already stands, so the resumed timeline is complete AND
+      // non-duplicated. Only a real run (the miss below) touches step_event.
       if (validate === undefined) return row.result_json; // already done; never re-run
       const parsed = validate.safeParse(row.result_json);
       if (parsed.success) return parsed.data;
       // else: stale shape → drop through to re-run (cache miss), do NOT return the stale row.
     }
 
-    const result = await fn();
+    // Cache MISS → this step REALLY runs. Stamp its start (issue #61). ON CONFLICT overwrites a
+    // dangling row left by a crash mid-step that is now re-running (and re-times a stale-shape re-run).
+    await this.markStepStarted(name, key);
+    let result: O;
+    try {
+      result = await fn();
+    } catch (err) {
+      // The step threw — record it as failed so the timeline shows WHICH step failed (e.g. a
+      // truncating `code` stage), then re-throw so the engine's existing failure handling stands.
+      await this.markStepFinished(name, key, 'error');
+      throw err;
+    }
+    await this.markStepFinished(name, key, 'done');
     // ON CONFLICT DO NOTHING: if a concurrent process persisted this step first it wins; our
     // (identical, deterministic) result is returned either way. A rejected fn never reaches here.
     // On a validate-on-resume miss the OLD stale row remains (DO NOTHING won't overwrite it), so a
@@ -64,5 +80,41 @@ export class GcpEngine implements Engine {
       [this.runId, name, key, JSON.stringify(result)],
     );
     return result;
+  }
+
+  /**
+   * Stamp a real step's START (issue #61). ON CONFLICT resets started_at + clears finished_at so a
+   * crash-mid-step's dangling 'running' row (or a stale-shape re-run) is re-timed from now, not
+   * left showing the abandoned attempt's clock.
+   */
+  private async markStepStarted(name: string, key: string): Promise<void> {
+    // Best-effort: step_event is KEPT observability data, not load-bearing. A timing-write failure
+    // (the table not yet migrated during a deploy window, or a transient DB error) must NEVER abort
+    // the paid pipeline step or mask its real error — log and continue.
+    try {
+      await this.deps.pool.query(
+        `INSERT INTO step_event (run_id, name, step_key, started_at, status)
+         VALUES ($1, $2, $3, now(), 'running')
+         ON CONFLICT (run_id, name, step_key)
+         DO UPDATE SET started_at = now(), finished_at = NULL, status = 'running'`,
+        [this.runId, name, key],
+      );
+    } catch (err) {
+      console.warn('[timing] step_event start write failed (ignored)', this.runId, name, err);
+    }
+  }
+
+  /** Stamp a step's END (issue #61): 'done' on success, 'error' on a thrown fn — the timeline shows it.
+   *  Best-effort, like markStepStarted: a timing-write failure never breaks the run. */
+  private async markStepFinished(name: string, key: string, status: 'done' | 'error'): Promise<void> {
+    try {
+      await this.deps.pool.query(
+        `UPDATE step_event SET finished_at = now(), status = $4
+         WHERE run_id = $1 AND name = $2 AND step_key = $3`,
+        [this.runId, name, key, status],
+      );
+    } catch (err) {
+      console.warn('[timing] step_event finish write failed (ignored)', this.runId, name, err);
+    }
   }
 }

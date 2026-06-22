@@ -324,6 +324,54 @@ h1 {
   }
 }
 
+/* ── Generating timeline (issue #61): per-step durations + a live timer for the running step ── */
+.timeline {
+  list-style: none;
+  margin: var(--sp-5) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.timeline__step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-small);
+}
+
+.timeline__step--done {
+  color: var(--text-muted);
+}
+
+.timeline__step--running {
+  color: var(--text);
+  border-color: var(--interactive);
+}
+
+.timeline__step--error {
+  color: var(--status-error);
+  border-color: var(--status-error);
+}
+
+.timeline__tag {
+  font-weight: 600;
+}
+
+/* Monospace + tabular figures so the live timer doesn't jitter as the digits tick (DESIGN.md §Typography). */
+.timeline__time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Status badge: a glyph + the text label (DESIGN.md — status by label + icon, never color alone). */
 .badge__icon {
   font-weight: 700;

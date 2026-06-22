@@ -6,6 +6,7 @@ import { STAGE_MODELS } from '../llm/models';
 import {
   getCurriculum,
   getOwnedPage,
+  getStepEvents,
   ownsRun,
   persistRun,
   rebuildHub,
@@ -278,6 +279,43 @@ describe('getCurriculum / getOwnedPage (fake pool, owner-scoped)', () => {
     const owns = fakePool([{ match: 'FROM run_owner', rows: [{ ok: 1 }] }]);
     expect(await ownsRun('run-1', 'owner-1', owns.deps)).toBe(true);
     expect(await ownsRun('run-1', 'owner-9', fakePool().deps)).toBe(false);
+  });
+});
+
+describe('getStepEvents (issue #61 — the live timeline read)', () => {
+  it('maps rows to camelCase + ISO timestamps, oldest-first; null finished_at → still running', async () => {
+    const { deps, client } = fakePool([
+      {
+        match: 'FROM step_event',
+        rows: [
+          {
+            name: 'plan',
+            step_key: 'k1',
+            started_at: new Date('2026-06-21T00:00:00.000Z'),
+            finished_at: new Date('2026-06-21T00:00:03.200Z'),
+            status: 'done',
+          },
+          {
+            name: 'code',
+            step_key: 'k2',
+            started_at: new Date('2026-06-21T00:00:03.200Z'),
+            finished_at: null, // still in flight → a live timer client-side
+            status: 'running',
+          },
+        ],
+      },
+    ]);
+    const events = await getStepEvents('run-1', deps);
+    expect(events).toEqual([
+      { name: 'plan', stepKey: 'k1', startedAt: '2026-06-21T00:00:00.000Z', finishedAt: '2026-06-21T00:00:03.200Z', status: 'done' },
+      { name: 'code', stepKey: 'k2', startedAt: '2026-06-21T00:00:03.200Z', finishedAt: null, status: 'running' },
+    ]);
+    // ordered by started_at — the read query carries the ORDER BY (the client renders in run order).
+    expect(sqlsOf(client.query).some((s) => s.includes('ORDER BY started_at'))).toBe(true);
+  });
+
+  it('returns [] for a run with no recorded steps', async () => {
+    expect(await getStepEvents('absent', fakePool().deps)).toEqual([]);
   });
 });
 

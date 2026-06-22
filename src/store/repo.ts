@@ -265,3 +265,41 @@ export async function ownsRun(
   ]);
   return res.rows.length > 0;
 }
+
+/** One step's timing as the status poll surfaces it (issue #61): timestamps are ISO strings (the
+ *  client computes elapsed/duration from them); `finishedAt` null ⇔ still running. */
+export interface StepEvent {
+  name: string;
+  stepKey: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: string;
+}
+
+/** Read a run's per-step timeline, oldest-first (issue #61). NOT owner-scoped here — the caller
+ *  (the status route) gates on `ownsRun` first, then reads this; a non-owner never reaches it. The
+ *  step_event rows are the KEPT observability data (never pruned), so they survive after persist. */
+export async function getStepEvents(
+  runId: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<StepEvent[]> {
+  const res = await deps.pool.query<{
+    name: string;
+    step_key: string;
+    started_at: string | Date;
+    finished_at: string | Date | null;
+    status: string;
+  }>(
+    `SELECT name, step_key, started_at, finished_at, status
+       FROM step_event WHERE run_id = $1 ORDER BY started_at`,
+    [runId],
+  );
+  return res.rows.map((r) => ({
+    name: r.name,
+    stepKey: r.step_key,
+    // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string for the JSON poll response.
+    startedAt: new Date(r.started_at).toISOString(),
+    finishedAt: r.finished_at === null ? null : new Date(r.finished_at).toISOString(),
+    status: r.status,
+  }));
+}
