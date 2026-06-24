@@ -46,5 +46,25 @@ Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no ru
 - **Sign in** (`(auth)/sign-in`) — a `.wrap` card: eyebrow → h1 → `.lead` → a single "Continue with Google" `.btn`, with branded `.intake__error` states for a rejected / non-allowlisted account. The Google consent popup is the one external surface; no values beyond the §0 tokens.
 - **Session top bar** (`.topbar`) — right-aligned; the signed-in email in `--text-muted` + a `.topbar__signout` text button in `--interactive` (focus-visible ring, reduced-motion-safe). Shown only when signed in, so the sign-in page stays chromeless.
 
+## Lesson layout (design direction — not yet implemented)
+
+The locked spec the generated single-lesson page is built and critiqued against. **Design direction:** the reference implementation is the scratch mockup `.superpowers/topic-synthesis-lesson-workspace-v11.html`; the Next.js app does not render it yet. This section wins on any lesson-layout conflict and is the spec future work diffs against — including regression vs. the best prior version.
+
+**The workspace.** A lesson is a two-column **workspace**, never a page-container/void: a frozen reading column (measure ~62ch) plus an always-full **apparatus panel** docked beside it. The whole reading+panel assembly is capped (~1500–1640px) and centered with equal gutters; "use the area" is satisfied by the full apparatus column, not by stretching prose to the viewport edge. Surfaces use the dark §0 instrument tokens; the card↔reader morph lives on a single `#readerPanel.morph-box` wrapper.
+
+**Four locked decisions:**
+1. **Densify every section.** Each section carries a curated apparatus stack — key-term glosses (term dotted in prose, definition in the panel), a where-am-I/progress cue, a teaching mini-figure where it helps, live readouts when a component runs, sources where they exist. Apparatus must *add* what the prose doesn't already state — never filler — capped at ≤3 glosses + ≤1 mini-figure per section to avoid a dashboard.
+2. **Lone element centers its text.** A genuinely standalone element with no apparatus beside it sets its text `text-align:center`, applied at the block/section level — never per-paragraph alternation inside a paired section.
+3. **Cap + center the assembly.** Capped width, equal gutters, **nothing pinned to the true viewport edge** — scrubbers and controls live inside the capped frame, not against the screen edge.
+4. **Stable spine (HARD rule — wins all conflicts).** The reading column holds the *exact* same horizontal position and width for every paragraph and across section boundaries. A lone element center-aligns its text *within* the fixed column; it never moves the column. Zero left-right jitter.
+
+**Per-section composition** (decided per section, not one global pick):
+- **With apparatus** (≈all sections post-densify): a 2-column unit — frozen prose spine on the left (text left-aligned), apparatus docked in the right panel track beside it.
+- **Without apparatus** (rare): prose stays on the same fixed spine, text center-aligned, panel track absent — the spine does not move.
+
+**Invariants:** two columns max — never one, never three. Interactive components (the Play interactive) get a full-width bounded plate, fully visible, with no prose overlap. Citations render beside their text in the panel, never a lone card in a void. Responsive: collapse to one column ≤~900px (apparatus reflows directly under the prose it annotates); no horizontal overflow at 390 (topbar fits, wordmark hidden ≤640). Reduced-motion + a11y are correctness, not polish (§Motion, §Accessibility).
+
+**Anti-patterns (rejected — must not recur):** reserved/empty margin · single column · prose-over-component occlusion · per-paragraph horizontal jitter · lopsided/left-pinned prose with dead right · an edge-pinned lone element at wide viewports · clipped figures or labels.
+
 ## Accessibility
 Target WCAG 2.2 AA. Visible `:focus-visible` ring (2px `--interactive`). Full keyboard operability of the form + hub. Status by label+icon, not color alone. Reduced motion honored (§Motion). Generated artifacts carry their **own** a11y contract (a generation target — see `docs/plans/`); the chrome never depends on an iframe's internals for its own accessibility.
