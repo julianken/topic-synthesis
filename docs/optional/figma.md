@@ -14,7 +14,7 @@ The file ID, the page/screen node map, and the MCP quirks specific to *this* fil
 
 ## Plan limits (this file, today)
 
-On the current Figma plan, **live Variable reads and Code Connect are unavailable** (`get_variable_defs` returns `{}`). Treat Figma as **visual reference, not a token feed** — the tokens come from `DESIGN.md`, not an MCP variable read. The `get_metadata`-with-no-node-id quirk (it lists only the Cover) means you always pass an explicit node-id from the `INSTANCE.md` node map.
+Live **Variable reads do resolve** on this file (`get_variable_defs` returns the §0 tokens on nodes that bind them — the captured-screenshot frames bind none and return `{}`). Code Connect is unused. Per the authority ranking, still treat Figma as **visual reference, not a token feed**: the tokens are canonical in `DESIGN.md`, and a disagreeing Figma value is reconciled into §0, never built from. The `get_metadata`-with-no-node-id quirk (it lists only the **first page**, not all pages) means you always pass an explicit node-id from the `INSTANCE.md` node map.
 
 ## Adopt
 
