@@ -43,5 +43,20 @@ Generate an interactive, scaffolded lesson from a topic.
 - **Head branches auto-delete on merge** (`delete_branch_on_merge=true`, set repo-wide). GitHub removes the **remote** head branch when a PR merges; **local worktrees** (the worktree-only policy creates one per change) are cleaned up operator-side, never by GitHub or Mergify.
 - **`@julianken-bot` is the sole non-author reviewer.** Direct push to `main` is blocked by a GitHub ruleset requiring 1 fresh approving review per HEAD from a non-author collaborator; the owner (`@julianken`, the lone code owner in `.github/CODEOWNERS`) authors PRs and can't self-approve, so `@julianken-bot` — the only other collaborator — is what unblocks merge.
 
-<!-- Figma module disabled (FIGMA_FILE_ID left blank at bootstrap). To adopt later: add the
-Figma file id + a node map section here, per docs/optional/figma.md. -->
+## Design / Figma (read-only)
+`FIGMA_FILE_ID` is configured, so the Figma module (`docs/optional/figma.md`) is **on**: agents read this file over the Figma MCP **read tools only** — a human edits the design, agents never call a write tool. Authority ranking is **shipped build > `DESIGN.md` > Figma**; a live Figma value that disagrees with `DESIGN.md` is drift to reconcile into `DESIGN.md` §0, not a binding source. The file is a *design-direction reference* (it captures the lesson-workspace redesign + flows), ahead of the shipped chrome — so the build, then `DESIGN.md`, still win.
+
+- **File:** `upjG7gfzlkdojb8LLOwu6T` — <https://www.figma.com/design/upjG7gfzlkdojb8LLOwu6T> ("Topic Synthesis — Design System & Screens", in *Julian's team*).
+- **MCP quirk (load-bearing):** `get_metadata` with **no** `nodeId` lists only the **first** page (`Feature Screens`) — always pass an explicit page node-id from the map below. Live variable reads **do** resolve here (`get_variable_defs` returns the §0 tokens on nodes that bind them; the four captured screen frames bind none and return `{}`).
+
+### Page / node map
+
+| Page | Page node | Key nodes |
+| --- | --- | --- |
+| **Overview** | `9:2` | Product header + File map; Foundation/§0 token block `9:15` |
+| **Feature Screens** | `0:1` | Sign-in `5:2` · Library `6:2` · Generating `1:2` · Lesson workspace `3:2` |
+| **User Journey** | `9:3` | 5-stage learner map `12:5` |
+| **User Flows** | `9:4` | App navigation `19:5` · Generation pipeline (ANALYSIS→SYNTHESIS) `19:6` |
+| **Storyboards** | `9:5` | Card→reader morph `30:6` · Predict-then-reveal `30:7` · Generating→reveal `30:8` |
+| **Journeys, Stories & Motion** | `9:6` | Motion system `35:2` |
+| **App Flow (End-to-End)** | `9:7` | Click-through prototype; flow start `42:6` |
