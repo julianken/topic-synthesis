@@ -35,10 +35,13 @@ CREATE TABLE IF NOT EXISTS concept_page (
   html            TEXT,
   coverage_conf   REAL,
   -- The graded critic's named sub-scores (CriticVerdict v2 — learningEfficacy + ledgerConformance),
-  -- written ONLY by the v11 graded-critic arm (TS-8). Nullable: the live blob arm and degraded
-  -- soon/text rows carry NULL (a single JSONB blob, not typed columns, so the arm's sub-score schema
-  -- can evolve without a per-axis DDL change — open-question 4). Write-mostly for in-run gating; the
-  -- queryable A/B substrate is the eleatic _analysis trace row (TS-9), not this column.
+  -- written ONLY by the v11 graded-critic arm (TS-8). Nullable: NULL for blob-arm rows and for
+  -- degraded soon/text rows that have NO artifact (a synthesis failure → null artifact → no scores);
+  -- a graded-arm critic FAIL still carries its sub-scores on a 'soon' row (a non-null artifact with
+  -- passed=false routes to 'soon' but keeps its sub-scores — the failing axes are recorded for A/B).
+  -- A single JSONB blob, not typed columns, so the arm's sub-score schema can evolve without a
+  -- per-axis DDL change (open-question 4). Write-mostly for in-run gating; the queryable A/B
+  -- substrate is the eleatic _analysis trace row (TS-9), not this column.
   critic_scores   JSONB,
   workflow_ver    TEXT NOT NULL REFERENCES workflow_version(id),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),

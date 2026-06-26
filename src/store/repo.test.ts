@@ -321,6 +321,22 @@ const gradedResult: PipelineResult = {
   hub: lessonResult.hub,
   pages: [gradedArtifact],
 };
+// A v11-arm FAIL: the critic derived passed=false, so the gate routes the page to 'soon'
+// (run-pipeline.ts: `built = synth.artifact?.passed ?? false`), but the artifact is NON-NULL and
+// still carries its sub-scores (the failing axes are recorded for A/B) — so this 'soon' row writes
+// non-null critic_scores, unlike a synthesis-failure 'soon' row that has no artifact at all.
+const gradedFailArtifact: CritiquedArtifact = { ...gradedArtifact, passed: false, critique: 'graded fail' };
+const gradedFailResult: PipelineResult = {
+  hub: {
+    tiers: [
+      {
+        tier: 'Tier 1',
+        categories: [{ name: 'Lesson', pages: [{ slug: 'fourier', title: 'Fourier', status: 'soon', built: false, href: '' }] }],
+      },
+    ],
+  },
+  pages: [gradedFailArtifact],
+};
 // The column-ordered param index of critic_scores in the concept_page INSERT
 // (id, concept_slug, title, settings_bucket, content_hash, status, spec_json, html, critic_scores, …).
 const CRITIC_SCORES_PARAM_IDX = 8;
@@ -361,6 +377,18 @@ describe('persistRun — graded critic sub-scores write-path (TS-8)', () => {
     );
     const soonParams = calls.find(([, params]) => params[1] === 'cosine')?.[1];
     expect(soonParams?.[CRITIC_SCORES_PARAM_IDX]).toBeNull(); // no artifact → NULL scores
+  });
+
+  it('writes NON-NULL critic_scores on a graded-arm FAIL routed to a soon row (the artifact is non-null)', async () => {
+    const { deps, client } = fakePool();
+    // gradedFailResult: status 'soon' (passed=false) but a NON-NULL artifact carrying its sub-scores.
+    await persistRun({ runId: 'graded-fail-1', request, result: gradedFailResult, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+    const calls = (client.query.mock.calls as unknown as [string, unknown[]][]).filter(([sql]) =>
+      sql.includes('INTO concept_page'),
+    );
+    const soonParams = calls.find(([, params]) => params[5] === 'soon')?.[1]; // status is the 6th param ($6)
+    expect(soonParams?.[CRITIC_SCORES_PARAM_IDX]).toBe(JSON.stringify(gradedScores)); // soon, but scores persisted
+    expect(JSON.parse(soonParams?.[CRITIC_SCORES_PARAM_IDX] as string)).toEqual(gradedScores);
   });
 
   it('writes critic_scores BEFORE the prune DELETEs and inside BEGIN/COMMIT (shares the rollback)', async () => {
