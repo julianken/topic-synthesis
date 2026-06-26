@@ -170,16 +170,123 @@ export interface PageArtifact {
   spec: PageSpec;
 }
 
-/** Critic (Opus, one pass): a binary rubric verdict over an artifact. */
+/** Critic (Opus, one pass): a binary rubric verdict over an artifact.
+ *  RETAINED as the blob arm's verdict shape (`defaultStages.critic` = `critique`); the
+ *  graded v11 arm uses `GradedCriticVerdictSchema` below (program decision 7 — the v11
+ *  graded critic is a `StageBundle.critic` swap, the binary fn stays the live default). */
 export const CriticVerdictSchema = z.object({
   passed: z.boolean(),
   critique: z.string(),
 });
 export type CriticVerdict = z.infer<typeof CriticVerdictSchema>;
 
+// ── CriticVerdict v2 (GRADED) — named learning-efficacy + ledger-conformance ──
+/**
+ * A single graded sub-score: a bounded 0..1 number the threshold can reduce, plus a
+ * short per-criterion note the prompt (TS-7) writes. 0 = absent/fails, 1 = fully met.
+ * The number is graded by the LLM (TS-7's ledger-aware prompt); `passed` is NOT — it is
+ * DERIVED from these sub-scores by `derivePassed` (program decision 3 — `passed` is the
+ * single gate, computed not LLM-asserted). No sub-score asserts rendered geometry: the
+ * layout group below grades only source-static proxies (the repo has no headless renderer,
+ * so `getBoundingClientRect`/overflow can't be measured — program decision 5 / R-anti-invention).
+ */
+export const CriticSubScoreSchema = z.object({
+  score: z.number().min(0).max(1),
+  note: z.string(),
+});
+export type CriticSubScore = z.infer<typeof CriticSubScoreSchema>;
+
+/**
+ * The named learning-efficacy sub-criteria (program decision 5). A scalar
+ * `teachingQuality` hides vapidity, so the teaching score is DECOMPOSED into named axes a
+ * vapid lesson fails individually instead of squeaking past one opaque number. The
+ * ledger-aware grading prompt is TS-7's deliverable; this is the schema only.
+ */
+export const LearningEfficacySchema = z.object({
+  /** Engages a real misconception / live question, not a flat definition dump. */
+  misconceptionHook: CriticSubScoreSchema,
+  /** ≥1 genuine predict-then-reveal / retrieval check with ANSWER-SPECIFIC feedback. */
+  retrievalCheck: CriticSubScoreSchema,
+  /** Claims are grounded in the brief's findings, not invented. */
+  findingsGrounded: CriticSubScoreSchema,
+  /** Apparatus adds what the prose doesn't state — never filler. */
+  apparatusAddsBeyondProse: CriticSubScoreSchema,
+});
+export type LearningEfficacy = z.infer<typeof LearningEfficacySchema>;
+
+/**
+ * The statically-checkable ledger-conformance sub-criteria (program decision 5). These
+ * grade the lesson-layout acceptance bar (DESIGN.md → `## Lesson layout`, which wins on any
+ * conflict — cited, NOT restated here) using only proxies checkable from the HTML SOURCE.
+ * Pixel-exact spine verification is deferred (a TS-4 GAPS row) and is deliberately NOT here.
+ */
+export const LedgerConformanceSchema = z.object({
+  /** The named grid-line set `[screen-start] [read] [gap] [panel] [scrub]` is present (incl. `[scrub]`). */
+  namedGridPresent: CriticSubScoreSchema,
+  /** Each `<section>` declares its own subgrid (the stable spine, source-checkable). */
+  perSectionSubgrid: CriticSubScoreSchema,
+  /** The `≤900px` single-column collapse media query is present. */
+  collapseQueryPresent: CriticSubScoreSchema,
+  /** No hardcoded `:root` color/geometry literal override of the §0 tokens. */
+  noRootLiteralOverride: CriticSubScoreSchema,
+  /** Interactivity is predict-gate-only structure (predict → reveal), not a free reveal. */
+  predictGateStructure: CriticSubScoreSchema,
+});
+export type LedgerConformance = z.infer<typeof LedgerConformanceSchema>;
+
+/**
+ * CriticVerdict v2 (GRADED). Two named sub-score groups (learning-efficacy + ledger-
+ * conformance) plus `passed` (DERIVED — see `derivePassed`) and a free-text `critique`. It
+ * carries NO `regressionVsBestPrior` (or any best-prior-comparison) field: that comparison
+ * is the OFFLINE eleatic `--baseline` bench, never an in-run gate (program decision 3 / R3).
+ * `passed` is included so the gate (`synth.artifact?.passed`) and the binary blob arm read
+ * the same field whichever critic fn ran — but the graded arm OVERWRITES the LLM's `passed`
+ * with the derived value, so it is computed, not taken verbatim from the model.
+ */
+export const GradedCriticVerdictSchema = z.object({
+  passed: z.boolean(),
+  critique: z.string(),
+  learningEfficacy: LearningEfficacySchema,
+  ledgerConformance: LedgerConformanceSchema,
+});
+export type GradedCriticVerdict = z.infer<typeof GradedCriticVerdictSchema>;
+
+/**
+ * The single documented `passed` threshold (program decision 3 / open-question 4 — the one
+ * documented threshold). A verdict passes iff EVERY sub-score (both groups) is ≥ this value.
+ * An all-axes floor (not a mean) is chosen so a single failing named axis — e.g. a vapid
+ * lesson with no real retrieval check — sinks the verdict instead of being averaged away
+ * (that all-axes-floor is the whole point of decomposing the teaching score). The literal
+ * 0.6 is a documented starting value; its REAL-RUN calibration is TS-15b's job, not this
+ * schema's. Change the const, not scattered comparisons.
+ */
+export const CRITIC_PASS_THRESHOLD = 0.6 as const;
+
+/**
+ * Derive `passed` from a graded verdict's sub-scores: true iff every sub-score in both the
+ * learning-efficacy and ledger-conformance groups is ≥ `CRITIC_PASS_THRESHOLD`. Pure — no
+ * I/O, no LLM — so the graded-critic fn computes `passed` rather than trusting the model's
+ * self-asserted boolean (program decision 3 — `passed` is the single derived gate).
+ */
+export function derivePassed(verdict: {
+  learningEfficacy: LearningEfficacy;
+  ledgerConformance: LedgerConformance;
+}): boolean {
+  const subScores: CriticSubScore[] = [
+    ...Object.values(verdict.learningEfficacy),
+    ...Object.values(verdict.ledgerConformance),
+  ];
+  return subScores.every((s) => s.score >= CRITIC_PASS_THRESHOLD);
+}
+
 export interface CritiquedArtifact extends PageArtifact {
   passed: boolean;
   critique: string;
+  /** The graded sub-scores, present only when the graded critic arm ran (binary arm omits them). */
+  scores?: {
+    learningEfficacy: LearningEfficacy;
+    ledgerConformance: LedgerConformance;
+  };
 }
 
 /** Hub assembler: the final tiered SITEMAP plus the pages it references. */

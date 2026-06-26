@@ -55,6 +55,12 @@ export interface StageBundle {
   brief: typeof brief;
   spec: typeof spec;
   code: typeof code;
+  /**
+   * The critic arm (program decision 7). `defaultStages.critic` is the binary `critique`
+   * (the blob arm — the live default / kill-switch); the v11 GRADED arm swaps in
+   * `gradedCritique` (src/pipeline/critic.ts), which shares this `typeof critique` signature
+   * and derives `passed` from named sub-scores. The gate reads `passed` unchanged either way.
+   */
   critic: typeof critique;
 }
 
