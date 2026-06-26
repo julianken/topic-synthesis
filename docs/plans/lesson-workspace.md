@@ -1,9 +1,9 @@
 # Plan — The v11 lesson-workspace epic
 
-> **Status: DRAFT / proposed (2026-06-25).** Goal-state below; nothing here is built. This doc is
+> **Status: Phase 0 (Foundation) + Phase 1 (MEASURE) IMPLEMENTED + MERGED (TS-1…TS-9, incl. TS-5b); Phases 2–4 (PRODUCE / FRAME / MOTION) pending.** This doc is
 > **self-contained**: the binding architecture decisions (the *why* + the as-built calls) live inline
 > in **Key decisions** below — the direction is adopted; spike-gated/owner-confirmable items are
-> flagged provisional inline. This program doc stays DRAFT until these PRs land. It is the **program
+> flagged provisional inline. This program doc is updated as each phase lands (the status above tracks which). It is the **program
 > view + dependency graph + the locked decisions**, not a second copy of the per-issue specs — each
 > GitHub issue body (TS-1…TS-26) is the spec, authored to the five-section `issue-authoring` shape.
 > Read **Key decisions** for the architecture; read the issues for per-PR detail.
@@ -178,10 +178,10 @@ TS-22 + TS-23 ──┴─▶ TS-24 └─▶ TS-25(HIL — terminal)
 | TS-4 | GAPS.md reconcile: defer rows with wake triggers | 0 | TS-1 | the deferred-with-trigger ledger entries |
 | TS-5 | Generation feasibility **GO/NO-GO** (BLOCKING GATE for Phase 2) — **VERDICT RECORDED: ONE-PASS** | 0 | TS-2, TS-3 | verdict ONE-PASS: real generated emission ~18.8k/19.2k output tokens (~59–60% of the 32000 cap, under the documented 64K), teaching density survived + critic PASSED; keep `maxTokens: 32000`, two-pass NOT needed (fed to TS-10 before it codes) |
 | TS-5b | **Morph-feasibility spike** (gates TS-17 — parallel to TS-5) — **VERDICT RECORDED: box-only FLIP** | 0 | TS-1 | verdict box-only: the container box morphs, the opaque iframe can't be snapshotted so its content "jumps in" at the final frame; re-scoped decision 2, TS-21, and TS-25 down |
-| TS-6 | `CriticVerdict` v2: **named learning-efficacy** sub-criteria + ledger-conformance schema (graded-critic fn for the arm) | 1 | TS-2 | the decomposed graded critic schema + derived `passed` threshold + the `StageBundle.critic` arm fn |
-| TS-7 | Rewrite the critic stage to grade against the ledger (statically-anchored) + seed the good/vapid fixture corpus | 1 | TS-6 | the ledger-aware critic prompt + verdict; a threshold-arithmetic unit test + the named offline-calibration step |
-| TS-8 | Gate `built` via the `StageBundle.critic` swap (arm-scoped, kill-switch) + the **full sub-score write-path** (migration) | 1 | TS-7 | the arm-native gate + the `synth.artifact`→INSERT write (inside the atomic txn, before the prune) + `critic_scores JSONB` migration |
-| TS-9 | Run the graded critic on the live/Job path; produce the A/B trace record **offline via the CLI bench** | 1 | TS-8 | gating on the live path; the A/B `_analysis` row produced by `npm run skeleton --trace --baseline` (NOT live telemetry) |
+| TS-6 | `CriticVerdict` v2: **named learning-efficacy** sub-criteria + ledger-conformance schema (graded-critic fn for the arm) — **DONE (#98)** | 1 | TS-2 | the decomposed graded critic schema + derived `passed` threshold + the `StageBundle.critic` arm fn |
+| TS-7 | Rewrite the critic stage to grade against the ledger (statically-anchored) + seed the good/vapid fixture corpus — **DONE (#99)** | 1 | TS-6 | the ledger-aware critic prompt + verdict; a threshold-arithmetic unit test + the named offline-calibration step |
+| TS-8 | Gate `built` via the `StageBundle.critic` swap (arm-scoped, kill-switch) + the **full sub-score write-path** (migration) — **DONE (#100)** | 1 | TS-7 | the arm-native gate + the `synth.artifact`→INSERT write (inside the atomic txn, before the prune) + `critic_scores JSONB` migration |
+| TS-9 | Run the graded critic on the live/Job path; produce the A/B trace record **offline via the CLI bench** — **DONE (#101)** | 1 | TS-8 | gating on the live path; the A/B `_analysis` row produced by `npm run skeleton --trace --baseline` (NOT live telemetry) |
 | TS-10 | Typed sectioned `LessonSpec` + per-section apparatus on the seam (pedagogy primitives **non-optional**) | 2 | TS-5, TS-9 | the sectioned spec + typed apparatus contract; ≥1 predict-gate + ≥1 self-check with an answerable item required (or a documented reason) |
 | TS-11 | `spec` stage emits sectioned apparatus from the brief (within caps) | 2 | TS-10 | the v11 `spec` prompt emitting typed sections |
 | TS-12 | `code` stage emits the named-grid two-column workspace (`var()`-referencing) | 2 | TS-11 | the v11 `code` prompt + the inline-only `var()` contract |
