@@ -267,28 +267,51 @@ export type Section = z.infer<typeof SectionSchema>;
  * replacing the flat `interactionKind` descriptor with an ORDERED array of typed sections.
  * `learningGoal` stays OFF the spec (it lives only on `LessonBrief` — Analysis owns "what to
  * teach"); `a11yContract` + `citations` carry forward from `PageSpec` (still generation
- * targets). The LOAD-BEARING pedagogy primitives are NON-OPTIONAL: a valid spec has BOTH
- *   (≥1 section with a `predict-gate` component) AND (≥1 `self-check` carrying an answerable item)
- * OR a non-empty `documentedReasonAbsent` — enforced by the `.superRefine` below. So a generic
- * five-`concept`-section lesson with no retrieval check and no documented reason cannot parse
- * (making "teaches nothing" UNPARSEABLE while leaving one deliberate, reviewable exit).
+ * targets). The LOAD-BEARING pedagogy primitives are NON-OPTIONAL, and the escape hatch is
+ * NARROW. A valid spec is one of exactly two shapes (enforced by the `.superRefine` below):
+ *   • a FULL lesson: BOTH primitives present — (≥1 `predict-gate` component) AND (≥1 `self-check`
+ *     carrying an answerable item) — and NO `documentedReasonAbsent`; or
+ *   • a genuine APPARATUS-FREE reference page: NEITHER primitive present AND a non-empty
+ *     `documentedReasonAbsent` explaining why.
+ * A HALF-apparatus spec (one primitive present, the other missing) is INVALID even WITH a
+ * `documentedReasonAbsent` — that string excuses ONLY a true no-apparatus page, never a partial
+ * lesson. This closes the TS-12b hole where a non-empty `documentedReasonAbsent` was rescuing a
+ * predict-gate-only 1-section lesson (a string lie bypassing the both-primitives requirement). A
+ * section-count FLOOR (`MIN_LESSON_SECTIONS`) backs this: even a pure-reference page is multi-
+ * section, so a degenerate 1-section spec cannot parse on either shape — "teaches nothing" stays
+ * UNPARSEABLE while one deliberate, reviewable exit remains.
  */
+/**
+ * The minimum section count a valid `LessonSpec` must carry. A real lesson is multi-section by
+ * construction: a hook + ≥1 content section + a self-check + takeaways is already four, and even a
+ * pure-reference page (the documented-reason exit) is still a multi-section document, never a single
+ * blob. The floor is therefore 4 — it makes the degenerate 1-section spec observed in TS-12b (a lone
+ * `hook` with a predict-gate, no self-check, rescued by a `documentedReasonAbsent` string)
+ * UNPARSEABLE on either valid shape. It is a STRUCTURAL floor, not a richness target: the prompt
+ * asks for one section per key point (typically more), and the critic grades depth; this only stops
+ * the obviously-degenerate case the schema is the last guard against.
+ */
+export const MIN_LESSON_SECTIONS = 4 as const;
+
 export const LessonSpecSchema = z
   .object({
     nodeSlug: z.string(),
-    /** The ordered typed sections — the pedagogy descriptor (replaces the flat interactionKind). */
-    sections: z.array(SectionSchema),
+    /** The ordered typed sections — the pedagogy descriptor (replaces the flat interactionKind).
+     *  Floored at `MIN_LESSON_SECTIONS`: a 1-section spec cannot parse (the TS-12b degenerate case). */
+    sections: z.array(SectionSchema).min(MIN_LESSON_SECTIONS),
     /** Text-alternative + keyboard requirements — a generation target, not a retrofit. */
     a11yContract: z.string(),
     citations: z.array(SourceSchema),
     /**
-     * The single typed ESCAPE HATCH (program decision 5): a non-empty reason a lesson omits the
-     * load-bearing primitives (e.g. a pure-definition reference page where a predict-gate is
-     * pedagogically wrong). Absent/empty WITH the primitives absent → an invalid spec; non-empty →
-     * the honest "this lesson does not need a predict-gate because …". Omit it when the primitives
-     * are present. `.trim()` runs before `.min(1)` so a whitespace-only "   " reason cannot
-     * silently rescue a primitive-less spec — this field has no downstream critic backstop, so
-     * the schema is the only guard.
+     * The single typed ESCAPE HATCH (program decision 5), NARROWED in TS-12b: a non-empty reason a
+     * lesson carries NEITHER load-bearing primitive — a genuinely apparatus-free page (e.g. a
+     * pure-definition / glossary / reference page where both a predict-gate and a self-check are
+     * pedagogically wrong). It excuses ONLY a true no-apparatus page: it is INVALID when EITHER
+     * primitive is present (a half-apparatus lesson + an escape string is the abuse TS-12b found —
+     * a predict-gate-only spec set this to a lie to bypass the both-primitives requirement). Omit it
+     * whenever any primitive is present. `.trim()` runs before `.min(1)` so a whitespace-only "   "
+     * reason cannot silently rescue a primitive-less spec — this field has no downstream critic
+     * backstop, so the schema is the only guard.
      */
     documentedReasonAbsent: z.string().trim().min(1).optional(),
   })
@@ -301,14 +324,26 @@ export const LessonSpecSchema = z
     const hasSelfCheck = specObj.sections.some(
       (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
     );
-    const primitivesPresent = hasPredictGate && hasSelfCheck;
     const documented = !!specObj.documentedReasonAbsent; // .trim().min(1) rejects empty AND whitespace-only
-    if (!primitivesPresent && !documented) {
+
+    // TS-12b — the escape hatch may ONLY excuse a GENUINE no-apparatus page. A spec is valid iff it
+    // is one of exactly two shapes:
+    //   • a FULL lesson — BOTH primitives present (predict-gate AND self-check); or
+    //   • a true APPARATUS-FREE reference page — NEITHER primitive present AND a documentedReasonAbsent.
+    // A HALF-apparatus spec (one primitive present, the other missing) is INVALID even with a
+    // documentedReasonAbsent — closing the hole where a non-empty string rescued a predict-gate-only
+    // lesson by bypassing the both-primitives requirement.
+    const fullLesson = hasPredictGate && hasSelfCheck;
+    const apparatusFreeReference = !hasPredictGate && !hasSelfCheck && documented;
+    if (!fullLesson && !apparatusFreeReference) {
       ctx.addIssue({
         code: 'custom',
         message:
-          'a LessonSpec must carry ≥1 predict-gate component AND ≥1 self-check with an answerable ' +
-          'item, OR a non-empty documentedReasonAbsent explaining why the primitives are absent',
+          'a LessonSpec must EITHER carry BOTH primitives — ≥1 predict-gate component AND ≥1 ' +
+          'self-check with an answerable item — OR be a genuine apparatus-free reference page: ' +
+          'NEITHER primitive present AND a non-empty documentedReasonAbsent. A half-apparatus spec ' +
+          '(one primitive present, the other missing) is invalid; documentedReasonAbsent excuses ' +
+          'only a page with NO predict-gate and NO self-check.',
         path: ['documentedReasonAbsent'],
       });
     }

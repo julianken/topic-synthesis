@@ -79,6 +79,15 @@ function v11Brief(): LessonBrief {
   };
 }
 
+// Prose-only content sections (NO apparatus component) used to pad a fixture up to the TS-12b section
+// floor (MIN_LESSON_SECTIONS) so `specV11`'s re-validation against `LessonSpecSchema` passes for the
+// reason the test cares about — they never carry a primitive, so they don't perturb the apparatus logic.
+const contentFiller = [
+  { kind: 'concept' as const, prose: 'content prose A' },
+  { kind: 'concept' as const, prose: 'content prose B' },
+  { kind: 'takeaways' as const, prose: 'content prose C' },
+];
+
 describe('specV11 (the v11 sectioned arm)', () => {
   it('requests the sectioned LessonSpec schema (not PageSpecSchema) on the spec model', async () => {
     const lessonSpec: LessonSpec = {
@@ -102,6 +111,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'name the case that does not recurse', answer: 'the base case' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'keyboard + text alt',
       citations: [{ url: 'https://a.example', title: 'A' }],
@@ -192,6 +202,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'q', answer: 'a' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [],
@@ -236,6 +247,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'q', answer: 'a' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [
@@ -276,6 +288,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'name the non-recursing case', answer: 'base case' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [],
@@ -311,13 +324,19 @@ describe('specV11 (the v11 sectioned arm)', () => {
     expect(SPEC_V11_SYSTEM).toMatch(/section for each key point|one section per key point/i);
     expect(SPEC_V11_SYSTEM).toMatch(/densify every section/i);
     expect(SPEC_V11_SYSTEM).toMatch(/never collapse the lesson to one section/i);
+    // TS-12b — the system prompt states the explicit section floor (>= 4) the schema now enforces
+    expect(SPEC_V11_SYSTEM).toMatch(/at\s+least 4 sections/i);
   });
 
   it('TS-12b — SPEC_V11_SYSTEM re-scopes documentedReasonAbsent to pure-reference pages only', () => {
     // it must FORBID the escape on an ordinary explanatory lesson (the Photosynthesis bug)
     expect(SPEC_V11_SYSTEM).toMatch(/documentedReasonAbsent/);
-    expect(SPEC_V11_SYSTEM).toMatch(/ordinary explanatory lesson.*always needs a real self-check/is);
-    expect(SPEC_V11_SYSTEM).toMatch(/MUST NOT use documentedReasonAbsent/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/ordinary explanatory lesson.*always needs both real primitives/is);
+    expect(SPEC_V11_SYSTEM).toMatch(/never use documentedReasonAbsent to skip them/i);
+    // the escape is valid ONLY on a genuinely apparatus-free page (NEITHER primitive present) — the
+    // closed half-apparatus hole
+    expect(SPEC_V11_SYSTEM).toMatch(/NO predict-gate AND NO self-check/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/does NOT excuse\s+a half-apparatus lesson/i);
   });
 
   it('TS-12b — the v11 prompt asks for one section per brief key point (N key-points → N sections)', async () => {
@@ -364,6 +383,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'name the non-recursing case', answer: 'base case' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [],

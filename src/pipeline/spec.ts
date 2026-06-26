@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   type LessonBrief,
   LessonSpecSchema,
+  MIN_LESSON_SECTIONS,
   type PageSpec,
   PageSpecSchema,
   SECTION_KINDS,
@@ -86,7 +87,9 @@ export const SPEC_V11_SYSTEM =
   'warrants: hook → concrete-case → concept → worked-example → intuition → self-check → takeaways. ' +
   'Produce a SECTION FOR EACH key point given (one section per key point, in order), plus the hook ' +
   'and self-check the arc needs — never collapse the lesson to one section. Use the kinds that fit ' +
-  'the material (not every kind every time), but keep them in this order.\n' +
+  'the material (not every kind every time), but keep them in this order. A valid lesson has AT ' +
+  `LEAST ${MIN_LESSON_SECTIONS} sections (hook + content + self-check + takeaways is already that ` +
+  'many) — even a pure-reference page is multi-section, never one blob.\n' +
   '- DENSIFY EVERY SECTION: each section earns its place with prose that teaches, and the lesson as ' +
   'a whole is richer and longer than a single explanatory blob — not thinner. Do NOT trim sections ' +
   'or detail to make the schema easier to satisfy.\n' +
@@ -101,12 +104,14 @@ export const SPEC_V11_SYSTEM =
   'answerable retrieval check). Each primitive component MUST carry a non-empty answerable ' +
   '{ prompt, answer } pair — a real question with a real answer, not a placeholder. These are two ' +
   'SEPARATE sections; a normal explanatory lesson always has room for both.\n' +
-  '- documentedReasonAbsent is a NARROW escape, NOT a shortcut: use it ONLY when a retrieval check is ' +
-  'genuinely pedagogically WRONG for this lesson — a pure-definition / glossary / reference page with ' +
-  'nothing to predict or recall. An ordinary explanatory lesson (e.g. how a process works, why a ' +
-  'phenomenon happens) ALWAYS needs a real self-check — for such a lesson you MUST include the real ' +
-  'primitives and MUST NOT use documentedReasonAbsent to skip them. Prefer adding a real self-check ' +
-  'over reaching for the escape hatch.\n' +
+  '- documentedReasonAbsent is a NARROW escape for a genuinely APPARATUS-FREE page ONLY, NOT a ' +
+  'shortcut. Use it ONLY when BOTH a predict-gate AND a self-check are pedagogically WRONG for this ' +
+  'lesson — a pure-definition / glossary / reference page with nothing to predict and nothing to ' +
+  'recall. When you use it there must be NO predict-gate AND NO self-check at all: it does NOT excuse ' +
+  'a half-apparatus lesson. If you include EITHER primitive you MUST include BOTH and MUST NOT set ' +
+  'documentedReasonAbsent. An ordinary explanatory lesson (e.g. how a process works, why a phenomenon ' +
+  'happens) ALWAYS needs both real primitives — never use documentedReasonAbsent to skip them. Prefer ' +
+  'adding the real self-check over reaching for the escape hatch.\n' +
   '- State an accessibility contract (text alternative + keyboard support, up front not retrofitted) ' +
   'and cite only the offered sources.';
 
@@ -128,12 +133,14 @@ function specV11Prompt(input: SpecInput): string {
     `Section kinds, in order: ${SECTION_KINDS.join(' → ')}.`,
     'Plan the lesson as a RICH, ordered list of MULTIPLE typed sections — a section for EACH key point',
     `above (${keyPointCount}), plus the hook and self-check the arc needs. Do NOT collapse to one`,
-    'section. Each section has a kind, its reading-spine prose, and AT MOST ONE optional apparatus',
-    'component with a stated teachingPurpose. Include BOTH real primitives as separate sections: ≥1',
-    'predict-gate AND ≥1 self-check, each carrying a non-empty answerable { prompt, answer }. This is',
-    'an explanatory lesson — include a real self-check; use documentedReasonAbsent ONLY for a',
-    'pure-definition/reference page where a retrieval check is genuinely wrong, never to skip an',
-    'ordinary self-check. Cite only the findings’ sources above; state the accessibility contract.',
+    `section: a valid lesson has at least ${MIN_LESSON_SECTIONS} sections. Each section has a kind, its`,
+    'reading-spine prose, and AT MOST ONE optional apparatus component with a stated teachingPurpose.',
+    'Include BOTH real primitives as separate sections: ≥1 predict-gate AND ≥1 self-check, each',
+    'carrying a non-empty answerable { prompt, answer }. This is an explanatory lesson — include both',
+    'real primitives. Use documentedReasonAbsent ONLY for a genuinely apparatus-free pure-definition/',
+    'reference page that has NEITHER a predict-gate NOR a self-check; never to skip an ordinary',
+    'self-check and never on a lesson that has one primitive but not the other. Cite only the findings’',
+    'sources above; state the accessibility contract.',
   ].join('\n');
 }
 
@@ -208,11 +215,14 @@ function repairFeedback(error: string): string {
     '  { prompt: <a real question>, answer: <its real answer> } }, and likewise a predict-gate',
     '  section. Every predict-gate AND every self-check component MUST carry a non-empty answerable',
     '  { prompt, answer }.',
-    '- KEEP all the sections you already wrote — append the missing primitive section(s), do NOT',
-    '  collapse the lesson to fewer sections or strip detail. A richer multi-section lesson is the bar.',
-    '- Do NOT reach for documentedReasonAbsent to make this pass. It is ONLY for a pure-definition /',
-    '  reference page where a retrieval check is genuinely pedagogically wrong; an ordinary explanatory',
-    '  lesson MUST include the real predict-gate + self-check primitives instead.',
+    `- KEEP all the sections you already wrote — append the missing primitive section(s), do NOT`,
+    `  collapse the lesson to fewer sections or strip detail. A valid lesson has at least`,
+    `  ${MIN_LESSON_SECTIONS} sections; a richer multi-section lesson is the bar.`,
+    '- Do NOT reach for documentedReasonAbsent to make this pass. It excuses ONLY a genuinely',
+    '  apparatus-free pure-definition / reference page that has NEITHER a predict-gate NOR a',
+    '  self-check — it is INVALID on a lesson that already has one primitive but is missing the other.',
+    '  An ordinary explanatory lesson MUST include the real predict-gate + self-check primitives',
+    '  instead; add the missing one, do not document its absence.',
   ].join('\n');
 }
 
