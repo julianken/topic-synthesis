@@ -109,6 +109,16 @@ describe('LessonSpecSchema (TS-10 — typed sectioned spec + non-optional pedago
     expect(result.success).toBe(false);
   });
 
+  // (b″) — a WHITESPACE-ONLY documentedReasonAbsent does not rescue it either. This field has no
+  // downstream critic backstop, so the schema is the only guard: `.trim().min(1)` must reject "   "
+  // so a single space can't silently disable the "teaches nothing is UNPARSEABLE" guarantee.
+  it('rejects a spec with neither primitive and a whitespace-only documentedReasonAbsent', () => {
+    const result = LessonSpecSchema.safeParse(
+      base({ sections: [section({})], documentedReasonAbsent: '   ' }),
+    );
+    expect(result.success).toBe(false);
+  });
+
   // (c) — neither primitive but a non-empty documentedReasonAbsent → parses.
   it('parses a spec with neither primitive but a non-empty documentedReasonAbsent', () => {
     const result = LessonSpecSchema.safeParse(
@@ -132,6 +142,27 @@ describe('LessonSpecSchema (TS-10 — typed sectioned spec + non-optional pedago
             component: {
               kind: 'self-check',
               teachingPurpose: '',
+              answerable: { prompt: 'Define the period.', answer: '1 / frequency' },
+            },
+          }),
+        ],
+      }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  // (d′) — a WHITESPACE-ONLY teachingPurpose fails too: `.trim().min(1)` rejects "   " so a single
+  // space can't pass as a stated purpose (the empty-string guard at (d) extended to whitespace).
+  it('rejects a component with a whitespace-only teachingPurpose', () => {
+    const result = LessonSpecSchema.safeParse(
+      base({
+        sections: [
+          predictGateSection,
+          section({
+            kind: 'self-check',
+            component: {
+              kind: 'self-check',
+              teachingPurpose: '   ',
               answerable: { prompt: 'Define the period.', answer: '1 / frequency' },
             },
           }),

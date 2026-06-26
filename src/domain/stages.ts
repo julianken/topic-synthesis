@@ -211,18 +211,23 @@ export type ApparatusKind = (typeof APPARATUS_KINDS)[number];
  */
 export const ComponentSchema = z.object({
   kind: z.enum(APPARATUS_KINDS),
-  /** A non-empty stated teaching purpose. Empty → parse error; GENERIC → a TS-7 critic finding. */
-  teachingPurpose: z.string().min(1),
+  /**
+   * A non-empty stated teaching purpose. Empty OR whitespace-only → parse error; GENERIC → a
+   * TS-7 critic finding. `.trim()` runs before `.min(1)` so a "   " purpose can't sneak past the
+   * guard as a non-empty primitive (Zod trims, then length-checks).
+   */
+  teachingPurpose: z.string().trim().min(1),
   /**
    * An answerable item, REQUIRED on `self-check`/`predict-gate` components and optional
    * elsewhere. It carries a non-empty `prompt` + `answer` pair (typed, not free prose) so the
-   * "answerable item" requirement is checkable — a self-check with an empty prompt or answer is
-   * not a real retrieval check. A `.superRefine` below requires it on the primitive kinds.
+   * "answerable item" requirement is checkable — a self-check with an empty/whitespace-only
+   * prompt or answer is not a real retrieval check (`.trim().min(1)` rejects both). A
+   * `.superRefine` below requires it on the primitive kinds.
    */
   answerable: z
     .object({
-      prompt: z.string().min(1),
-      answer: z.string().min(1),
+      prompt: z.string().trim().min(1),
+      answer: z.string().trim().min(1),
     })
     .optional(),
 });
@@ -281,9 +286,11 @@ export const LessonSpecSchema = z
      * load-bearing primitives (e.g. a pure-definition reference page where a predict-gate is
      * pedagogically wrong). Absent/empty WITH the primitives absent → an invalid spec; non-empty →
      * the honest "this lesson does not need a predict-gate because …". Omit it when the primitives
-     * are present.
+     * are present. `.trim()` runs before `.min(1)` so a whitespace-only "   " reason cannot
+     * silently rescue a primitive-less spec — this field has no downstream critic backstop, so
+     * the schema is the only guard.
      */
-    documentedReasonAbsent: z.string().min(1).optional(),
+    documentedReasonAbsent: z.string().trim().min(1).optional(),
   })
   .superRefine((specObj, ctx) => {
     const hasPredictGate = specObj.sections.some((s) => s.component?.kind === 'predict-gate');
@@ -295,7 +302,7 @@ export const LessonSpecSchema = z
       (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
     );
     const primitivesPresent = hasPredictGate && hasSelfCheck;
-    const documented = !!specObj.documentedReasonAbsent; // .min(1) already rejects empty string
+    const documented = !!specObj.documentedReasonAbsent; // .trim().min(1) rejects empty AND whitespace-only
     if (!primitivesPresent && !documented) {
       ctx.addIssue({
         code: 'custom',
