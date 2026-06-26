@@ -271,10 +271,13 @@ async function main(): Promise<void> {
         ...(tracePath !== undefined ? { tracePath } : {}),
       },
     );
+    // Always surface the run id: it IS the eleatic run id, and the offline A/B bench needs it to pair
+    // the blob run into step 2's `--baseline` (the documented step-1 command traces WITHOUT --persist,
+    // so this is the only place the id is printed — TS-9 AC4 reproduction).
     console.log(
       path === ':memory:'
-        ? `\nTraced ${rowCount} row(s) (ephemeral :memory: — pass \`--trace <path>\` to persist).`
-        : `\nTraced ${rowCount} row(s) to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
+        ? `\nTraced ${rowCount} row(s) (run id ${runId}; ephemeral :memory: — pass \`--trace <path>\` to persist).`
+        : `\nTraced ${rowCount} row(s) (run id ${runId}) to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
     );
   }
   if (args.includes('--persist')) {

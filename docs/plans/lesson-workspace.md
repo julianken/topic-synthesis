@@ -209,7 +209,7 @@ Phase 1's last issue. The graded critic now **gates `built` on the live/Job path
 **The A/B record is a CLI-offline artifact, never live telemetry** (Key-decisions §4 / revision 7). The bench wiring TS-9 adds is the `--graded` arm selector in `run-skeleton` (`selectArm` — a `StageBundle.critic` swap, the ONLY CLI path that runs the v11 graded arm; the deployed Job always runs `defaultStages`). Reproduce the paired `_analysis` rows by running BOTH arms over one eleatic store — a **NAMED operational step: live spend, run by hand on owner go-ahead, NEVER in CI** (same posture as `npm run critic:calibrate`). Keep it cheap (`--cheap` + `--max-questions`):
 
 ```sh
-# 1) blob arm (binary critic) — note the printed run id (the eleatic run id == --persist run id)
+# 1) blob arm (binary critic) — note the "(run id <id>)" the --trace line prints (it IS the eleatic run id)
 npm run skeleton -- --topic "Fourier transforms" --cheap --max-questions 3 --trace ab.sqlite
 # 2) v11 graded arm, baselined against the blob run id for arm pairing
 npm run skeleton -- --topic "Fourier transforms" --cheap --max-questions 3 --graded --trace ab.sqlite --baseline <blobRunId>
