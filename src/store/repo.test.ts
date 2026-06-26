@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import type { PipelineResult, TopicRequest } from '../domain/stages';
+import type {
+  CritiquedArtifact,
+  LearningEfficacy,
+  LedgerConformance,
+  PipelineResult,
+  TopicRequest,
+} from '../domain/stages';
 import { STAGE_MODELS } from '../llm/models';
 import {
   getCurriculum,
@@ -277,6 +283,146 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
     ]);
     expect((await getOwnedPage('lesson-1', 'fourier', 'owner-1', pageHit.deps))?.html).toBe('<h1>x</h1>');
     expect(await getOwnedPage('lesson-1', 'fourier', 'someone-else', fakePool().deps)).toBeNull();
+  });
+});
+
+// ── the graded sub-score write-path (TS-8) ───────────────────────────────────
+// The graded v11 critic arm sets `artifact.scores`; persistRun writes them into the new
+// concept_page.critic_scores JSONB column, inside the same BEGIN/COMMIT as the prune, BEFORE the
+// DELETEs — so the score write rolls back with them. The live blob arm carries NO `scores`, so it
+// (and any degraded soon/text row with no artifact) writes NULL.
+const sub = (score: number): { score: number; note: string } => ({ score, note: 'n' });
+const gradedScores: { learningEfficacy: LearningEfficacy; ledgerConformance: LedgerConformance } = {
+  learningEfficacy: {
+    misconceptionHook: sub(0.9),
+    retrievalCheck: sub(0.8),
+    findingsGrounded: sub(0.7),
+    apparatusAddsBeyondProse: sub(0.9),
+  },
+  ledgerConformance: {
+    namedGridPresent: sub(0.9),
+    perSectionSubgrid: sub(0.9),
+    collapseQueryPresent: sub(0.9),
+    noRootLiteralOverride: sub(0.9),
+    predictGateStructure: sub(0.9),
+  },
+};
+const gradedArtifact: CritiquedArtifact = {
+  nodeSlug: 'fourier',
+  html: '<!doctype html><h1>Fourier</h1>',
+  learningGoal: 'understand the transform',
+  spec: { nodeSlug: 'fourier', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+  passed: true,
+  critique: 'graded',
+  scores: gradedScores,
+};
+// A v11-arm result: the one page's artifact carries the graded sub-scores.
+const gradedResult: PipelineResult = {
+  hub: lessonResult.hub,
+  pages: [gradedArtifact],
+};
+// A v11-arm FAIL: the critic derived passed=false, so the gate routes the page to 'soon'
+// (run-pipeline.ts: `built = synth.artifact?.passed ?? false`), but the artifact is NON-NULL and
+// still carries its sub-scores (the failing axes are recorded for A/B) — so this 'soon' row writes
+// non-null critic_scores, unlike a synthesis-failure 'soon' row that has no artifact at all.
+const gradedFailArtifact: CritiquedArtifact = { ...gradedArtifact, passed: false, critique: 'graded fail' };
+const gradedFailResult: PipelineResult = {
+  hub: {
+    tiers: [
+      {
+        tier: 'Tier 1',
+        categories: [{ name: 'Lesson', pages: [{ slug: 'fourier', title: 'Fourier', status: 'soon', built: false, href: '' }] }],
+      },
+    ],
+  },
+  pages: [gradedFailArtifact],
+};
+// The column-ordered param index of critic_scores in the concept_page INSERT
+// (id, concept_slug, title, settings_bucket, content_hash, status, spec_json, html, critic_scores, …).
+const CRITIC_SCORES_PARAM_IDX = 8;
+
+describe('persistRun — graded critic sub-scores write-path (TS-8)', () => {
+  it('writes critic_scores (the v11 sub-scores) into the concept_page INSERT for a graded-arm artifact', async () => {
+    const { deps, client } = fakePool();
+    await persistRun(
+      { runId: 'graded-1', request, result: gradedResult, costUsd: 0.05, modelSnapshots: STAGE_MODELS, ownerSub: 'o' },
+      deps,
+    );
+    const insert = sqlsOf(client.query).find((s) => s.includes('INTO concept_page'));
+    expect(insert).toContain('critic_scores'); // the column is in the INSERT list
+    const params = paramsOf(client.query, 'INTO concept_page');
+    // the param is the JSON.stringify of the artifact's scores — the graded sub-scores round-trip
+    expect(params?.[CRITIC_SCORES_PARAM_IDX]).toBe(JSON.stringify(gradedScores));
+    expect(JSON.parse(params?.[CRITIC_SCORES_PARAM_IDX] as string)).toEqual(gradedScores);
+  });
+
+  it('writes NULL critic_scores for a blob-arm artifact (no scores) — the live default never persists scores', async () => {
+    const { deps, client } = fakePool();
+    // `lessonResult`'s artifact is the binary-arm shape: passed/critique only, no `scores`.
+    await persistRun(
+      { runId: 'blob-1', request, result: lessonResult, costUsd: 0.05, modelSnapshots: STAGE_MODELS },
+      deps,
+    );
+    const params = paramsOf(client.query, 'INTO concept_page');
+    expect(params?.[CRITIC_SCORES_PARAM_IDX]).toBeNull();
+  });
+
+  it('writes NULL critic_scores for a soon row (no artifact) — only built/graded rows carry scores', async () => {
+    const { deps, client } = fakePool();
+    // `result` (top-of-file) has a 'soon' page (cosine) with no matching artifact in `pages`.
+    await persistRun({ runId: 'soon-1', request, result, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+    // both concept_page INSERTs, with their params; concept_slug is the 2nd param ($2).
+    const calls = (client.query.mock.calls as unknown as [string, unknown[]][]).filter(([sql]) =>
+      sql.includes('INTO concept_page'),
+    );
+    const soonParams = calls.find(([, params]) => params[1] === 'cosine')?.[1];
+    expect(soonParams?.[CRITIC_SCORES_PARAM_IDX]).toBeNull(); // no artifact → NULL scores
+  });
+
+  it('writes NON-NULL critic_scores on a graded-arm FAIL routed to a soon row (the artifact is non-null)', async () => {
+    const { deps, client } = fakePool();
+    // gradedFailResult: status 'soon' (passed=false) but a NON-NULL artifact carrying its sub-scores.
+    await persistRun({ runId: 'graded-fail-1', request, result: gradedFailResult, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+    const calls = (client.query.mock.calls as unknown as [string, unknown[]][]).filter(([sql]) =>
+      sql.includes('INTO concept_page'),
+    );
+    const soonParams = calls.find(([, params]) => params[5] === 'soon')?.[1]; // status is the 6th param ($6)
+    expect(soonParams?.[CRITIC_SCORES_PARAM_IDX]).toBe(JSON.stringify(gradedScores)); // soon, but scores persisted
+    expect(JSON.parse(soonParams?.[CRITIC_SCORES_PARAM_IDX] as string)).toEqual(gradedScores);
+  });
+
+  it('writes critic_scores BEFORE the prune DELETEs and inside BEGIN/COMMIT (shares the rollback)', async () => {
+    const { deps, client } = fakePool();
+    await persistRun(
+      { runId: 'order-1', request, result: gradedResult, costUsd: 0, modelSnapshots: STAGE_MODELS },
+      deps,
+    );
+    const sqls = sqlsOf(client.query);
+    const scoreInsert = sqls.findIndex((s) => s.includes('INTO concept_page') && s.includes('critic_scores'));
+    const firstDelete = Math.min(
+      ...['step_result', 'run_owner', 'step_event'].map((t) => sqls.findIndex((s) => s.includes(`DELETE FROM ${t}`))),
+    );
+    const begin = sqls.indexOf('BEGIN');
+    const commit = sqls.indexOf('COMMIT');
+    expect(scoreInsert).toBeGreaterThan(begin); // inside the transaction
+    expect(scoreInsert).toBeLessThan(firstDelete); // BEFORE the prune
+    expect(firstDelete).toBeLessThan(commit); // the whole lot before COMMIT
+  });
+
+  it('a persist failure rolls the critic_scores write back with the prune (no orphaned graded row)', async () => {
+    const { deps, client } = fakePool();
+    // Fail after the concept_page INSERT (which carries critic_scores) but before COMMIT; the write
+    // never commits, so no row — let alone its scores — survives the failed persist.
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('DELETE FROM step_event')) throw new Error('prune failed');
+      return { rows: [] };
+    });
+    await expect(
+      persistRun({ runId: 'rb-1', request, result: gradedResult, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps),
+    ).rejects.toThrow('prune failed');
+    const sqls = sqlsOf(client.query);
+    expect(sqls).toContain('ROLLBACK'); // the score write + the deletes all roll back together
+    expect(sqls).not.toContain('COMMIT');
   });
 });
 

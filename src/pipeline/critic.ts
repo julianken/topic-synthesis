@@ -70,10 +70,12 @@ export async function critique(
  * the critic input — `PageArtifact` carries no findings (they live on `LessonBrief`), and
  * `gradedCriticPrompt` shows only the goal + a11y contract + HTML. So `findingsGrounded` currently
  * grades source-INTERNAL claim plausibility (does the prose read as invented?), not actual grounding
- * against a supplied evidence list. Threading the brief findings into the critic input is a contract
- * extension owned by TS-8 (the `CriticVerdict`/`CritiquedArtifact` write-path / critic-input work) —
- * see `docs/plans/lesson-workspace.md`; until then the offline calibration step (`npm run
- * critic:calibrate`) is what surfaces whether this axis carries real signal.
+ * against a supplied evidence list. Threading the brief findings into the critic input is a future
+ * critic-input contract extension (NOT TS-8 — TS-8 is only the write-path / `critic_scores` JSONB
+ * migration and does NOT touch the critic prompt); it belongs to a later issue under the
+ * graded-critic epic #80 — see `docs/plans/lesson-workspace.md` (the `findingsGrounded` /
+ * "claims grounded in brief findings" sub-criterion). Until then the offline calibration step
+ * (`npm run critic:calibrate`) is what surfaces whether this axis carries real signal.
  *
  * It is one of the system prompts folded into `PROMPTS_VERSION` (`src/pipeline/prompts.ts`), so
  * editing the graded rubric makes the graded arm a distinct `workflow_version` eval arm.
@@ -126,7 +128,8 @@ export const GRADED_CRITIC_SYSTEM = [
  * decision 3) — the critic grades the CURRENT artifact against the ledger only.
  *
  * NOTE: it threads NO brief findings (`PageArtifact` carries none), so `findingsGrounded` is graded
- * source-internally here — see the `GRADED_CRITIC_SYSTEM` doc-comment's KNOWN LIMITATION (TS-8).
+ * source-internally here — see the `GRADED_CRITIC_SYSTEM` doc-comment's KNOWN LIMITATION (the
+ * findings-threading contract extension is future work under epic #80, NOT TS-8).
  */
 function gradedCriticPrompt(artifact: PageArtifact): string {
   return [
