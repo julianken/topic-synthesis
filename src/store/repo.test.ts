@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import type {
-  CritiquedArtifact,
-  LearningEfficacy,
-  LedgerConformance,
-  PipelineResult,
-  TopicRequest,
+import { contentHash } from '../domain/identity';
+import {
+  LESSON_BRIEF_SCHEMA_HASH,
+  type CritiquedArtifact,
+  type LearningEfficacy,
+  type LedgerConformance,
+  type PipelineResult,
+  type TopicRequest,
 } from '../domain/stages';
 import { STAGE_MODELS } from '../llm/models';
+import { PROMPTS_VERSION } from '../pipeline/prompts';
+import { PRE_V11_LESSON_BRIEF_SCHEMA_HASH, PRE_V11_PROMPTS_VERSION } from './prev11-hash-fixture';
 import {
   getCurriculum,
   getOwnedPage,
@@ -242,6 +246,46 @@ describe('persistRun — contract-aware workflow_version (issue #50)', () => {
     const v1 = await versionWithSchemaHash('schema-hash-AAAA');
     const v2 = await versionWithSchemaHash('schema-hash-BBBB');
     expect(v1).not.toBe(v2); // a contract change → a distinct eval arm, models unchanged
+  });
+});
+
+describe('persistRun — the v11 emission is a distinct eval arm vs the pre-v11 fixture (TS-14 AC2)', () => {
+  // What this adds BEYOND the #50 mock-flip test above: that test proves "changing the schema hash
+  // flips the version" with TWO ARBITRARY MOCKED strings. This pins the REAL, committed values — the
+  // LIVE (post-v11) constants `persistRun` actually computes from, against the REAL pre-v11 snapshot
+  // captured from commit 45a8073 (`prev11-hash-fixture.ts`). It is the honest "prior arm" reference:
+  // TS-10/11/12 replaced the brief schema + prompts IN PLACE, so there is no live pre-v11 side left to
+  // recompute — the committed fixture is the only non-tautological way to assert the v11 emission's
+  // workflow_version differs from what the pipeline produced before v11. (Program decision 7: the v11
+  // emission auto-distinguishes by the bumped PROMPTS_VERSION, never a hand-bumped version literal.)
+
+  /** Recompute the pre-v11 workflow_version the SAME way persistRun does (repo.ts:68-69), from the
+   *  committed fixture constants + the constant STAGE_MODELS snapshot. */
+  const preV11WorkflowVersion = (): string => {
+    const snapshotsJson = JSON.stringify(STAGE_MODELS); // models held constant, exactly like persistRun
+    const promptHash = contentHash(PRE_V11_PROMPTS_VERSION, PRE_V11_LESSON_BRIEF_SCHEMA_HASH);
+    return contentHash(snapshotsJson, promptHash);
+  };
+
+  it('the live v11 workflow_version is stable, non-"v1", and DISTINCT from the pre-v11 fixture', async () => {
+    const idOf = async (): Promise<string> => {
+      const { deps, client } = fakePool();
+      await persistRun({ runId: 'r', request, result, costUsd: 0, modelSnapshots: STAGE_MODELS }, deps);
+      return paramsOf(client.query, 'INTO workflow_version')?.[0] as string;
+    };
+    const v11a = await idOf();
+    const v11b = await idOf();
+    expect(v11a).toBe(v11b); // STABLE: same inputs → same id (a content hash, not a random)
+    expect(v11a).not.toBe('v1'); // never the old literal placeholder
+    expect(v11a).not.toBe(preV11WorkflowVersion()); // DISTINCT from the pre-v11 arm (the version bumped)
+  });
+
+  it('the distinctness is driven by the bumped PROMPTS_VERSION (the LessonBrief schema hash is unchanged)', () => {
+    // The fixture documents that LESSON_BRIEF_SCHEMA_HASH did NOT change across v11 (TS-10 added the
+    // NEW LessonSpec types ALONGSIDE the unchanged LessonBrief contract). Pin that fact so a future
+    // brief-schema change is caught (it would make this assertion fail, flagging the fixture is stale).
+    expect(LESSON_BRIEF_SCHEMA_HASH).toBe(PRE_V11_LESSON_BRIEF_SCHEMA_HASH); // brief contract unchanged
+    expect(PROMPTS_VERSION).not.toBe(PRE_V11_PROMPTS_VERSION); // the prompts DID bump (spec-v11 + code/critic)
   });
 });
 

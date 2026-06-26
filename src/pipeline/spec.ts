@@ -254,8 +254,9 @@ function errorToFeedback(err: unknown): string {
 /**
  * Spec v11 (Sonnet): a LessonBrief → the typed sectioned `LessonSpec` (TS-10's contract). The v11
  * ARM's spec stage — it is NOT `defaultStages.spec` (the blob `spec` above stays the live default);
- * it is wired as a `StageBundle.spec` arm override (the arm wiring TS-14 finalizes). It shares the
- * blob arm's anti-fabrication citation filter. The ≤1-component-per-section invariant is enforced
+ * it is wired as a `StageBundle.spec` arm override, selected from the CLI by `--v11` (the `selectArm`
+ * SYNTHESIS swap, TS-14, composing with the `--graded` critic arm). It shares the blob arm's
+ * anti-fabrication citation filter. The ≤1-component-per-section invariant is enforced
  * by `LessonSpecSchema` itself (path B: TS-10's `Section.component` is singular and `SectionSchema`
  * strips an off-schema over-fill on parse); the deterministic clamp below is belt-and-suspenders for
  * a non-validating injection point, NOT the primary enforcer (the literal ≤3-gloss/≤1-mini-figure
