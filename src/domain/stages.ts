@@ -149,7 +149,13 @@ export type InteractionKind = (typeof INTERACTION_KINDS)[number];
 
 /** Spec (Sonnet): the plan for one page, including its accessibility contract.
  *  `learningGoal` is NOT here — it moved to `LessonBrief` (Analysis owns "what to
- *  teach"; the spec owns "how to present it"). */
+ *  teach"; the spec owns "how to present it").
+ *
+ *  This is the FLAT spec shape — the BLOB arm's contract (`defaultStages.spec`, the
+ *  live default / kill-switch). It is RETAINED unchanged so the blob path is byte-for-
+ *  byte the same; the v11 arm's richer pedagogy descriptor is `LessonSpecSchema` below
+ *  (TS-10), a SECTIONED contract the v11 `spec` prompt (TS-11) fills. The two coexist as
+ *  the two arms of `PageArtifact.spec` — neither is the other's pedagogy descriptor. */
 export const PageSpecSchema = z.object({
   nodeSlug: z.string(),
   interactionKind: z.enum(INTERACTION_KINDS),
@@ -159,15 +165,172 @@ export const PageSpecSchema = z.object({
 });
 export type PageSpec = z.infer<typeof PageSpecSchema>;
 
+// ── the typed sectioned LessonSpec (TS-10 — the v11 Synthesis pedagogy contract) ──
+/**
+ * The ordered pedagogical section kinds, mirroring the locked DESIGN.md `## Lesson layout`
+ * per-section composition (DESIGN.md wins on any design conflict — cited here, NOT restated).
+ * A lesson is a DOCUMENT of these typed sections, so the pedagogy a critic grades is the
+ * pedagogy the spec is required to PLAN — no longer invisible behind one `interactionKind`
+ * enum + a prose `a11yContract`. Exactly these seven, in this canonical order.
+ */
+export const SECTION_KINDS = [
+  'hook',
+  'concrete-case',
+  'concept',
+  'worked-example',
+  'intuition',
+  'self-check',
+  'takeaways',
+] as const;
+export type SectionKind = (typeof SECTION_KINDS)[number];
+
+/**
+ * The apparatus-component kinds a section may carry. The two LOAD-BEARING pedagogy
+ * primitives — `predict-gate` (a predict-then-reveal interactive) and `self-check` (an
+ * answerable retrieval check) — sit alongside the visual kinds reframed from
+ * `INTERACTION_KINDS` (`canvas`/`svg`/`html`). The literal per-section apparatus CAP
+ * (≤3 glosses + ≤1 mini-figure, DESIGN.md `## Lesson layout` decision 1 — the SoT) is
+ * deliberately NOT modeled here: PATH B — glosses + mini-figures are rendered apparatus the
+ * TS-12 `code` stage emits FROM THE BRIEF, so that cap is enforced at the TS-12 code PROMPT,
+ * not as a `LessonSpec` field. A future typed-gloss refactor (first-class `LessonSpec` gloss
+ * fields with a schema `.max(3)`/`.max(1)`) is deferred + GAPS-tracked. This contract models
+ * STRUCTURE only: the section taxonomy + the ≤1-apparatus-component-per-section invariant.
+ */
+export const APPARATUS_KINDS = ['predict-gate', 'self-check', 'canvas', 'svg', 'html'] as const;
+export type ApparatusKind = (typeof APPARATUS_KINDS)[number];
+
+/**
+ * One apparatus component on a section: its kind plus a STATED teaching purpose. The
+ * `teachingPurpose` is schema-constrained `z.string().min(1)` — a non-empty stated purpose,
+ * so a parse error catches an apparatus carrying NO stated reason to exist. This is the
+ * schema-level encoding of the ledger's apparatus rule ("apparatus must ADD what the prose
+ * doesn't already state — never filler", DESIGN.md `## Lesson layout`). NOTE: whether a
+ * non-empty purpose is GENERIC ("an interactive widget") rather than specific is a CRITIC
+ * judgement (the TS-7 graded arm — `apparatusAddsBeyondProse`), NOT a schema regex — the
+ * schema only proves a purpose was stated; TS-7 owns the empty/generic-purpose finding.
+ */
+export const ComponentSchema = z.object({
+  kind: z.enum(APPARATUS_KINDS),
+  /** A non-empty stated teaching purpose. Empty → parse error; GENERIC → a TS-7 critic finding. */
+  teachingPurpose: z.string().min(1),
+  /**
+   * An answerable item, REQUIRED on `self-check`/`predict-gate` components and optional
+   * elsewhere. It carries a non-empty `prompt` + `answer` pair (typed, not free prose) so the
+   * "answerable item" requirement is checkable — a self-check with an empty prompt or answer is
+   * not a real retrieval check. A `.superRefine` below requires it on the primitive kinds.
+   */
+  answerable: z
+    .object({
+      prompt: z.string().min(1),
+      answer: z.string().min(1),
+    })
+    .optional(),
+});
+export type Component = z.infer<typeof ComponentSchema>;
+
+/**
+ * One section of the lesson: its kind, its prose, and AT MOST ONE optional apparatus
+ * component (the ≤1-apparatus-component-per-section invariant this contract defines; TS-11
+ * enforces it at emission). `prose` is the section's reading-spine text — the SYNTHESIS
+ * material the `code` stage renders into the frozen reading column.
+ */
+export const SectionSchema = z
+  .object({
+    kind: z.enum(SECTION_KINDS),
+    prose: z.string(),
+    component: ComponentSchema.optional(),
+  })
+  .superRefine((section, ctx) => {
+    // A primitive component (predict-gate / self-check) MUST carry an answerable item with a
+    // non-empty prompt + answer — that is what makes it a real retrieval check rather than a
+    // free reveal. Encoded as a typed field, not free prose, so it is checkable (plan step 5).
+    const c = section.component;
+    if (!c) return;
+    const isPrimitive = c.kind === 'predict-gate' || c.kind === 'self-check';
+    if (isPrimitive && !c.answerable) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `a ${c.kind} component must carry an answerable { prompt, answer } item`,
+        path: ['component', 'answerable'],
+      });
+    }
+  });
+export type Section = z.infer<typeof SectionSchema>;
+
+/**
+ * The typed sectioned LessonSpec (TS-10) — the v11 arm's Synthesis pedagogy contract,
+ * replacing the flat `interactionKind` descriptor with an ORDERED array of typed sections.
+ * `learningGoal` stays OFF the spec (it lives only on `LessonBrief` — Analysis owns "what to
+ * teach"); `a11yContract` + `citations` carry forward from `PageSpec` (still generation
+ * targets). The LOAD-BEARING pedagogy primitives are NON-OPTIONAL: a valid spec has BOTH
+ *   (≥1 section with a `predict-gate` component) AND (≥1 `self-check` carrying an answerable item)
+ * OR a non-empty `documentedReasonAbsent` — enforced by the `.superRefine` below. So a generic
+ * five-`concept`-section lesson with no retrieval check and no documented reason cannot parse
+ * (making "teaches nothing" UNPARSEABLE while leaving one deliberate, reviewable exit).
+ */
+export const LessonSpecSchema = z
+  .object({
+    nodeSlug: z.string(),
+    /** The ordered typed sections — the pedagogy descriptor (replaces the flat interactionKind). */
+    sections: z.array(SectionSchema),
+    /** Text-alternative + keyboard requirements — a generation target, not a retrofit. */
+    a11yContract: z.string(),
+    citations: z.array(SourceSchema),
+    /**
+     * The single typed ESCAPE HATCH (program decision 5): a non-empty reason a lesson omits the
+     * load-bearing primitives (e.g. a pure-definition reference page where a predict-gate is
+     * pedagogically wrong). Absent/empty WITH the primitives absent → an invalid spec; non-empty →
+     * the honest "this lesson does not need a predict-gate because …". Omit it when the primitives
+     * are present.
+     */
+    documentedReasonAbsent: z.string().min(1).optional(),
+  })
+  .superRefine((specObj, ctx) => {
+    const hasPredictGate = specObj.sections.some((s) => s.component?.kind === 'predict-gate');
+    // A self-check primitive: a `self-check` component carrying an answerable item. (A bare
+    // `self-check` SECTION with no answerable component does not satisfy the primitive — the
+    // answerable item is what makes it a real check; the SectionSchema refine guarantees a
+    // `self-check` component always has one, so testing the component kind is sufficient here.)
+    const hasSelfCheck = specObj.sections.some(
+      (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
+    );
+    const primitivesPresent = hasPredictGate && hasSelfCheck;
+    const documented = !!specObj.documentedReasonAbsent; // .min(1) already rejects empty string
+    if (!primitivesPresent && !documented) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'a LessonSpec must carry ≥1 predict-gate component AND ≥1 self-check with an answerable ' +
+          'item, OR a non-empty documentedReasonAbsent explaining why the primitives are absent',
+        path: ['documentedReasonAbsent'],
+      });
+    }
+  });
+export type LessonSpec = z.infer<typeof LessonSpecSchema>;
+
 /** Code (Sonnet): the generated standalone page (HTML is free text, assembled here).
  *  `learningGoal` is echoed here from the `LessonBrief` (it left `PageSpec`) so the code
  *  and critic stages — which generate/judge against the goal — keep it without re-reading
- *  the brief; the goal's sole declaration site stays `LessonBrief`. */
+ *  the brief; the goal's sole declaration site stays `LessonBrief`.
+ *
+ *  `spec` is the ARM-SCOPED union: the live blob arm carries the flat `PageSpec`, the v11
+ *  arm (TS-11+) carries the sectioned `LessonSpec`. `a11yContract` is on BOTH arms; the
+ *  flat `interactionKind` is blob-only and the `sections` array is v11-only — `isLessonSpec`
+ *  narrows between them. (TS-10 is contract-only: no entrypoint emits a `LessonSpec` yet,
+ *  so the live artifact is still always a `PageSpec` — the union just lets the new arm slot
+ *  in without re-breaking the blob path.) */
 export interface PageArtifact {
   nodeSlug: string;
   html: string;
   learningGoal: string;
-  spec: PageSpec;
+  spec: PageSpec | LessonSpec;
+}
+
+/** Narrow the arm-scoped `PageArtifact.spec` union: a sectioned v11 `LessonSpec` (which has a
+ *  `sections` array) vs the flat blob `PageSpec` (which has `interactionKind`). The blob path
+ *  reads `interactionKind` only after this guard says it is a `PageSpec`. */
+export function isLessonSpec(spec: PageSpec | LessonSpec): spec is LessonSpec {
+  return 'sections' in spec;
 }
 
 /** Critic (Opus, one pass): a binary rubric verdict over an artifact.
