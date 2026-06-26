@@ -170,6 +170,55 @@ describe('code — the v11 workspace contract surface', () => {
   });
 });
 
+// ── TS-13: the predict-gate + decision-12 postMessage emission contract (path a) ──────────────────
+// Static-structure assertions over the emitted system prompt (per R7: gate on static structure + the
+// validator's node unit tests, NOT a flaky LLM critic score). None calls a live model. The receive-
+// side validator's own trust tests live in src/app/curriculum/[id]/lesson-message.test.ts.
+describe('code — the TS-13 predict-gate + postMessage emission contract', () => {
+  it('requires ≥1 predict-then-reveal gate with answer-specific feedback (AC1, AC2)', async () => {
+    const { system } = await promptFor(pageSpec);
+    // AC1: a prediction is committed BEFORE the reveal; AC2: no terminally-locked gate.
+    expect(system).toContain('predict-then-');
+    expect(system).toMatch(/AT LEAST ONE predict-then-\s*\n?\s*reveal gate/);
+    expect(system).toContain('ANSWER-SPECIFIC'); // not a generic correct/incorrect
+    expect(system).toMatch(/COMMITS A PREDICTION/);
+    expect(system).toMatch(/reachable reveal path/); // AC2: every gate must be revealable
+  });
+
+  it('emits the coordinate-only postMessage sender to window.parent (AC3)', async () => {
+    const { system } = await promptFor(pageSpec);
+    expect(system).toContain('window.parent.postMessage');
+    // The exact coordinate-only payload shape: section list + a 0..1 scroll scalar.
+    expect(system).toContain("{ type: 'lesson:progress', sections, scrollProgress }");
+    expect(system).toContain('`{ id, title }`'); // sections are {id, title} only
+    expect(system).toContain('`scrollProgress` scalar in 0..1');
+  });
+
+  it('targets a KNOWN origin, never `"*"`, for the cross-iframe post (AC3)', async () => {
+    const { system } = await promptFor(pageSpec);
+    expect(system).toMatch(/target a KNOWN origin string, NEVER `"\*"`/);
+    expect(system).toContain('document.referrer'); // the origin is derived, not wildcarded
+  });
+
+  it('shares the discriminant with the receive-side validator (one contract source)', async () => {
+    const { system } = await promptFor(pageSpec);
+    // The literal the validator (lesson-message.ts LESSON_MESSAGE_TYPE) accepts is the literal the
+    // prompt instructs the sender to stamp — the two halves of the contract agree on one string.
+    expect(system).toContain("'lesson:progress'");
+  });
+
+  it('keeps the predict-gate + postMessage in the SHARED CODE_SYSTEM (both arms, one pass)', async () => {
+    // The TS-13 additions live in CODE_SYSTEM, so they apply to BOTH the blob and v11 arms and add
+    // to the single one-pass emission (no second model call — covered by the one-pass test above).
+    const blob = await promptFor(pageSpec);
+    const v11 = await promptFor(lessonSpec);
+    expect(blob.system).toBe(CODE_SYSTEM);
+    expect(v11.system).toBe(CODE_SYSTEM);
+    expect(CODE_SYSTEM).toContain('window.parent.postMessage');
+    expect(CODE_SYSTEM).toContain('predict-then-');
+  });
+});
+
 describe('stripCodeFence', () => {
   it('removes a ```html or ``` fence and passes plain HTML through unchanged', () => {
     expect(stripCodeFence('```html\n<p>x</p>\n```')).toBe('<p>x</p>');
