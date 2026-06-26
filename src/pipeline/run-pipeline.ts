@@ -2,7 +2,6 @@ import { contentHash, slugify } from '../domain/identity';
 import { bucketize } from '../domain/settings';
 import type { SitemapHub } from '../domain/sitemap';
 import {
-  isLessonSpec,
   type CritiquedArtifact,
   type GatedNode,
   type LessonBrief,
@@ -51,28 +50,16 @@ export interface RunOptions {
 }
 
 /**
- * Narrow the arm-scoped `spec` (TS-10's `PageSpec | LessonSpec` union) down to the flat `PageSpec`
- * that `code` consumes. The live default arm (`defaultStages.spec` = the blob `spec`) only ever
- * emits a `PageSpec`, so this is a runtime no-op on the deployed path. TS-12 gives `code` its v11
- * `LessonSpec` branch; until then a v11 spec reaching `code` is wiring not finished yet, so throw an
- * arm-scoped error rather than silently mis-rendering the sectioned plan as a blob.
- *
- * NOTE on blast radius: both call sites (`synthesizeNode` / `synthesizeLesson`) run this inside the
- * spec→code→critic `try`, whose `catch` is the walking-skeleton degrade contract — so this throw
- * does NOT crash the run or fail CI. It degrades THAT node/lesson to a 'soon' page with the
- * arm-scoped reason in the `degraded` string (logged via `console.warn`). The safety goal holds (a
- * LessonSpec can never be mis-rendered as a blob), but the failure mode is degrade-with-logged-reason,
- * not a hard crash — a future author wiring a v11 arm before TS-12 sees a 'soon' page + a log line,
- * not a process abort.
+ * Pin the arm-scoped `spec` (TS-10's `PageSpec | LessonSpec` union) to a `nodeSlug` without
+ * collapsing the arm: `code` now narrows the union internally (TS-12 — per the TS-10 review note,
+ * `code` renders BOTH arms into the v11 workspace rather than the caller pre-throwing a v11 spec),
+ * so the sectioned `LessonSpec` is no longer flattened to a blob here. The brief carries no slug
+ * (it is the single-lesson contract), so each call site overrides `nodeSlug` for its node/lesson;
+ * spreading the union preserves either arm's shape (`isLessonSpec` discriminates downstream in
+ * `code`). On the live deployed path `spec` is always a `PageSpec`, so this is identity there.
  */
-function specForCode(spec: PageSpec | LessonSpec): PageSpec {
-  if (isLessonSpec(spec)) {
-    throw new Error(
-      'a v11 LessonSpec reached `code`, but `code` has no LessonSpec branch yet (TS-12). The live ' +
-        'blob arm never produces a LessonSpec — this means a v11 `spec` arm was wired before TS-12.',
-    );
-  }
-  return spec;
+function specForCode(spec: PageSpec | LessonSpec, nodeSlug: string): PageSpec | LessonSpec {
+  return { ...spec, nodeSlug };
 }
 
 /**
@@ -194,10 +181,10 @@ async function synthesizeNode(
     // The brief carries no slug (it's the single-lesson contract); on this curriculum path each
     // lesson IS a gated node, so pin the artifact to node.slug here. (The single-lesson path pins
     // to the topic-derived slug instead — see synthesizeLesson.)
-    // `specced.spec` is the arm-scoped `PageSpec | LessonSpec` union (TS-10/TS-11); `code` takes the
-    // flat `PageSpec` until TS-12 gives it the v11 LessonSpec branch. The live default arm
-    // (`defaultStages.spec` = the blob `spec`) only ever emits a `PageSpec`, so narrow before `code`.
-    const nodeSpec = { ...specForCode(specced.spec), nodeSlug: node.slug };
+    // `specced.spec` is the arm-scoped `PageSpec | LessonSpec` union (TS-10/TS-11); `code` narrows
+    // it internally (TS-12) and renders either arm into the v11 workspace — `specForCode` just pins
+    // the slug, preserving the arm. The live default (`defaultStages.spec`) only emits a `PageSpec`.
+    const nodeSpec = specForCode(specced.spec, node.slug);
     const coded = await engine.step('code', key, () => stages.code(nodeSpec, lessonBrief.learningGoal, deps, models.code));
     records.push(...coded.records);
     emitNode('code', coded.records);
@@ -388,10 +375,11 @@ async function synthesizeLesson(
     const specced = await engine.step('spec', key, () => stages.spec({ brief, settings: req.settings }, deps, models.spec));
     records.push(...specced.records);
     emitNode('spec', specced.records);
-    // The brief carries no slug; pin the artifact to the topic-derived slug here. `code` takes the
-    // flat `PageSpec` until TS-12 — narrow the arm-scoped `PageSpec | LessonSpec` union first (the
-    // live blob arm only emits a `PageSpec`, so this is a no-op on the default path).
-    const nodeSpec = { ...specForCode(specced.spec), nodeSlug: slug };
+    // The brief carries no slug; pin the artifact to the topic-derived slug here. `code` narrows the
+    // arm-scoped `PageSpec | LessonSpec` union internally (TS-12) and renders either arm into the v11
+    // workspace; `specForCode` just pins the slug, preserving the arm (the live blob arm only emits
+    // a `PageSpec`, so this is identity on the default path).
+    const nodeSpec = specForCode(specced.spec, slug);
     const coded = await engine.step('code', key, () => stages.code(nodeSpec, brief.learningGoal, deps, models.code));
     records.push(...coded.records);
     emitNode('code', coded.records);
