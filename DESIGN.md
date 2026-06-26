@@ -10,31 +10,38 @@
 
 ## 0. Token Manifest
 
-**Color primitives**
-- `--c-ink-950 #0a0d12` · `--c-ink-900 #11151c` · `--c-ink-800 #1a212b` · `--c-ink-700 #2a333f`
-- `--c-fog-100 #e8edf3` · `--c-fog-300 #aab6c4` · `--c-fog-500 #6b7888`
-- `--c-accent-500 #5b9dff` · `--c-accent-400 #8bb8ff`
-- `--c-built-500 #3ecf8e` · `--c-soon-500 #c9a227` · `--c-danger-500 #ff6b6b`
+> **Reconciliation note (TS-3, epic #79).** Every delta below between the prior hex/sparse §0 and the locked v11 reference mock (`.superpowers/topic-synthesis-lesson-workspace-v11.html` `:root`, lines 47–80) is resolved **ADOPTED** (the mock is the locked direction per program decision 8 / open-question-5) or **KEPT-illustrative** with a one-line rationale. The exact per-step OKLCH/geometry values are transcribed from that mock; TS-18 materializes them in `globals.css` and the shipped build wins on any later tuning.
+
+**Color primitives** — OKLCH ramps (ADOPTED — perceptual-uniformity + the v11 locked direction; replaces the prior `#hex` `--c-*` ramps. The `-c-` prefix is dropped so token names match the mock 1:1; ADOPTED steps `--ink-850`, `--fog-50`, `--fog-450`, `--fog-550` extend the ramps the mock uses).
+- `--ink-950 oklch(0.165 0.018 250)` · `--ink-900 oklch(0.205 0.020 250)` · `--ink-850 oklch(0.245 0.020 250)` · `--ink-800 oklch(0.32 0.020 250)` · `--ink-700 oklch(0.40 0.020 250)`
+- `--fog-50 oklch(0.98 0.006 250)` · `--fog-100 oklch(0.95 0.008 250)` · `--fog-300 oklch(0.84 0.013 250)` · `--fog-450 oklch(0.74 0.015 250)` · `--fog-550 oklch(0.65 0.016 250)`
+- `--accent oklch(0.82 0.145 215)` · `--accent-dim oklch(0.70 0.11 215)` (ADOPTED — the `--accent`/`--accent-dim` pair replaces the prior `--c-accent-500/400`; `-dim` is the hover/secondary step the mock uses)
+- **Semantic status** `--ok oklch(0.78 0.15 152)` · `--warn oklch(0.82 0.13 80)` · `--err oklch(0.66 0.17 25)` (ADOPTED — the `--ok/--warn/--err` semantic names replace the prior `--c-built/soon/danger-500` primitives; status is still label+icon, never color alone — see §Color & contrast)
+- **Kind accents** `--kind-svg oklch(0.80 0.13 295)` · `--kind-canvas oklch(0.82 0.13 50)` · `--kind-html oklch(0.80 0.12 175)` (ADOPTED — the interactive-component-kind accent colors the apparatus/figures key off; new vocabulary, no prior §0 equivalent)
 
 **Semantic** (reference primitives)
-- bg: `--bg-app → ink-950` · `--bg-surface → ink-900` · `--bg-raised → ink-800` · `--border → ink-700`
-- text: `--text → fog-100` · `--text-muted → fog-300` · `--text-faint → fog-500`
-- interactive: `--interactive → accent-500` · `--interactive-hover → accent-400`
-- status: `--status-built → built-500` · `--status-soon → soon-500` · `--status-error → danger-500`
+- bg: `--bg-app → ink-950` · `--bg-surface → ink-900` · `--bg-raised → oklch(0.215 0.018 250)` · `--border → ink-800` (ADOPTED — the mock raises `--bg-raised` to its own near-ink value and points `--border → ink-800`; the prior `--border → ink-700` is superseded)
+- text: `--text → fog-100` · `--text-muted → fog-450` · `--text-faint → fog-550` (muted/faint shift to the new `--fog-450/550` steps)
+- interactive: `--interactive → accent` · `--interactive-hover → accent-dim`
+- status: `--status-built → ok` · `--status-soon → warn` · `--status-error → err`
 
 **Type scale (rem)** `--fs-hero 2.5` · `--fs-h1 1.875` · `--fs-h2 1.375` · `--fs-body 1` · `--fs-small 0.875` · `--fs-mono 0.9375`
 **Space (rem)** `--sp-1 .25` · `--sp-2 .5` · `--sp-3 .75` · `--sp-4 1` · `--sp-5 1.5` · `--sp-6 2` · `--sp-7 3`
 **Radii** `--r-sm 6px` · `--r-md 10px` · `--r-lg 16px`
-**Motion** `--dur-fast 120ms` · `--dur-base 220ms` · `--dur-slow 360ms` · `--ease-out cubic-bezier(.16,1,.3,1)` · `--ease-in-out cubic-bezier(.65,0,.35,1)`
+**Geometry** (ADOPTED — the lesson-workspace spine/panel/frame metrics §Lesson layout depends on; new vocabulary, no prior §0 equivalent)
+- `--measure 33rem` (~62ch frozen reading spine — the HARD stable-spine invariant) · `--panel-w 23rem` (the apparatus panel, ~22–26rem) · `--col-gap clamp(1.6rem,2.6vw,3.4rem)` (the reading↔panel gutter)
+- `--edge-gap clamp(1.6rem,2.4vw,3.2rem)` (equal outer gutters flanking the workspace — never lopsided) · `--scrub-w 1.1rem` (the dot-scrubber rail, reserved inside the right gutter — never viewport-pinned) · `--frame-max 1640px` (the ultra-wide cap bounding the whole reading+gap+panel+scrub assembly, ~1500–1640px)
+**Motion** `--dur-fast 120ms` (unchanged) · `--dur-base 200ms` (ADOPTED — was 220ms; resolves the §0↔mock conflict to the mock's snappier base) · `--dur-slow 440ms` (ADOPTED — was 360ms; the mock's longer slow tier for the card↔reader morph) · `--ease cubic-bezier(.2,.75,.2,1)` (ADOPTED — unified to the mock's single ease, superseding the prior split `--ease-out`/`--ease-in-out` pair; one ease keeps motion coherent across the catalog)
+**Type families** `--sans ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif` · `--mono ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace` · `--serif "Iowan Old Style","Charter","Georgia",serif` (ADOPTED — `--serif` is new; lesson headings only — see §Typography)
 
 ## Color & contrast
 Dark, technical palette (inspired by the ai-concept-viz explainers). Body `--text` on `--bg-app` clears WCAG AA for normal text; muted text used only at ≥ `--fs-body`. Status is always conveyed by **label + icon**, never color alone. Target: WCAG 2.2 AA.
 
 ## Typography
-Chrome: system UI stack (`ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`). Code/tokens (and generated pages' code): monospace (`ui-monospace, SFMono-Regular, Menlo, monospace`). Scale per §0; line-height 1.5 body / 1.2 headings.
+Three families, all declared in §0. **Chrome + body** use the sans stack (`--sans`): the intake form, top bar, hub, generating-state — everything that isn't a lesson heading. **Lesson headings** (the lesson `h1`/`h2`) use the serif stack (`--serif`, ADOPTED in TS-3 from the v11 mock) — a reading voice distinct from the chrome's sans. **Code/tokens** (and generated pages' code) use monospace (`--mono`); the per-step timer/durations use the mono stack with tabular figures so digits don't jitter (§Components → Progress). Scale per §0; line-height 1.5 body / 1.2 headings.
 
 ## Motion
-Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no runtime dependency) at the §0 durations/easings. Allowed in the skeleton: staggered hub-tile reveal, modal/panel open, status-badge change, progress updates. **Reduced motion:** `@media (prefers-reduced-motion: reduce)` removes non-essential transitions and staggers; status/progress change instantly.
+Transitions use the **`transitions-dev`** snippet catalog (copy-paste CSS, no runtime dependency) at the §0 durations and the single §0 `--ease` (the `--dur-fast`/`--dur-base`/`--dur-slow` tiers + `--ease`; this section states no literal duration of its own — §0 wins, and TS-24's motion catalog consumes the resolved 120/200/440 + `--ease`). Allowed in the skeleton: staggered hub-tile reveal, modal/panel open, status-badge change, progress updates. **Reduced motion:** `@media (prefers-reduced-motion: reduce)` removes non-essential transitions and staggers; status/progress change instantly.
 
 ## Components (skeleton surfaces)
 - **Intake form** — topic field + settings (level, depth); submit triggers a generation run.
