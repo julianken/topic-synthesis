@@ -1,7 +1,7 @@
 import { contentHash } from '../domain/identity';
 import { BRIEF_SYSTEM } from './brief';
 import { CODE_SYSTEM } from './code';
-import { CRITIC_SYSTEM } from './critic';
+import { CRITIC_SYSTEM, GRADED_CRITIC_SYSTEM } from './critic';
 import { GRAPH_SYSTEM } from './graph';
 import { PLANNER_SYSTEM } from './planner';
 import { RESEARCH_SYSTEM, STRUCTURE_SYSTEM } from './researcher';
@@ -33,6 +33,11 @@ const SYSTEM_PROMPTS: ReadonlyArray<readonly [name: string, text: string]> = [
   ['spec', SPEC_SYSTEM],
   ['code', CODE_SYSTEM],
   ['critic', CRITIC_SYSTEM],
+  // The GRADED critic (the v11 `StageBundle.critic` arm — program decision 7) is a distinct stage
+  // prompt from the binary `critic`; folding it in means a graded-arm rubric edit (TS-7's
+  // ledger-aware rewrite) yields a distinct `workflow_version` eval arm, exactly as the binary
+  // `critic` does. The binary `CRITIC_SYSTEM` stays the live blob-arm default (decision 3).
+  ['graded-critic', GRADED_CRITIC_SYSTEM],
 ];
 
 /** The content hash of every stage system prompt (name-keyed, sorted for order-independence). */
