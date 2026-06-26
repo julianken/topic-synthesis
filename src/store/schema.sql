@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS concept_page (
   spec_json       JSONB,
   html            TEXT,
   coverage_conf   REAL,
+  -- The graded critic's named sub-scores (CriticVerdict v2 — learningEfficacy + ledgerConformance),
+  -- written ONLY by the v11 graded-critic arm (TS-8). Nullable: the live blob arm and degraded
+  -- soon/text rows carry NULL (a single JSONB blob, not typed columns, so the arm's sub-score schema
+  -- can evolve without a per-axis DDL change — open-question 4). Write-mostly for in-run gating; the
+  -- queryable A/B substrate is the eleatic _analysis trace row (TS-9), not this column.
+  critic_scores   JSONB,
   workflow_ver    TEXT NOT NULL REFERENCES workflow_version(id),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (concept_slug, settings_bucket, content_hash)
@@ -44,6 +50,10 @@ CREATE TABLE IF NOT EXISTS concept_page (
 ALTER TABLE concept_page ADD COLUMN IF NOT EXISTS title TEXT;
 UPDATE concept_page SET title = concept_slug WHERE title IS NULL;
 ALTER TABLE concept_page ALTER COLUMN title SET NOT NULL;
+-- Idempotent upgrade for DBs created before `critic_scores` existed (the CREATE above covers fresh
+-- DBs). Nullable — blob-arm rows and degraded soon/text rows carry NULL; no backfill (no historical
+-- graded verdicts exist).
+ALTER TABLE concept_page ADD COLUMN IF NOT EXISTS critic_scores JSONB;
 
 -- RETAINED(v1-persistence — ADR-0003): the `curriculum` table NAME is a code identifier, not a live
 -- product descriptor. The single-lesson run persists as a one-page `curriculum` row (persistRun/
