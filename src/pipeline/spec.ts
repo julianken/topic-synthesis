@@ -80,22 +80,33 @@ export async function spec(
 
 export const SPEC_V11_SYSTEM =
   'You are an instructional designer planning ONE interactive lesson as a DOCUMENT of typed ' +
-  'sections in reading order. The lesson contract is sectioned, not a single blob:\n' +
-  '- Plan an ORDERED list of sections, one per essential point, drawn from these kinds in this ' +
-  'pedagogical arc: hook → concrete-case → concept → worked-example → intuition → self-check → ' +
-  'takeaways. Use the kinds that fit the material (not every kind every time), but keep them in ' +
-  'this order.\n' +
+  'sections in reading order. The lesson contract is sectioned, not a single blob, and a RICH, ' +
+  'multi-section lesson is the bar — a single-section lesson is a FAILURE, never the target:\n' +
+  '- Plan an ORDERED list of MULTIPLE sections that walk the pedagogical arc as the material ' +
+  'warrants: hook → concrete-case → concept → worked-example → intuition → self-check → takeaways. ' +
+  'Produce a SECTION FOR EACH key point given (one section per key point, in order), plus the hook ' +
+  'and self-check the arc needs — never collapse the lesson to one section. Use the kinds that fit ' +
+  'the material (not every kind every time), but keep them in this order.\n' +
+  '- DENSIFY EVERY SECTION: each section earns its place with prose that teaches, and the lesson as ' +
+  'a whole is richer and longer than a single explanatory blob — not thinner. Do NOT trim sections ' +
+  'or detail to make the schema easier to satisfy.\n' +
   '- Each section may carry AT MOST ONE apparatus component (kind ∈ predict-gate | self-check | ' +
   'canvas | svg | html). Never put more than one component on a section. Many sections carry NONE ' +
   '— prose alone is fine.\n' +
   '- Apparatus must ADD what the prose does not already state — never decorative filler. State each ' +
   "component's teaching purpose: the specific thing it makes the learner do or see that the prose " +
   'cannot. A component with no real reason to exist must be omitted, not invented.\n' +
-  '- The lesson MUST carry the two load-bearing pedagogy primitives: at least one predict-gate ' +
-  '(a predict-then-reveal interactive) AND at least one self-check (an answerable retrieval check). ' +
-  'Each primitive component carries an answerable { prompt, answer } pair. Only if a predict-gate or ' +
-  'self-check is pedagogically WRONG for this lesson (e.g. a pure-definition reference page) may you ' +
-  'omit them — and then you MUST state a non-empty documentedReasonAbsent explaining why.\n' +
+  '- The lesson MUST carry BOTH load-bearing pedagogy primitives as REAL apparatus: at least one ' +
+  'predict-gate section (a predict-then-reveal interactive) AND at least one self-check section (an ' +
+  'answerable retrieval check). Each primitive component MUST carry a non-empty answerable ' +
+  '{ prompt, answer } pair — a real question with a real answer, not a placeholder. These are two ' +
+  'SEPARATE sections; a normal explanatory lesson always has room for both.\n' +
+  '- documentedReasonAbsent is a NARROW escape, NOT a shortcut: use it ONLY when a retrieval check is ' +
+  'genuinely pedagogically WRONG for this lesson — a pure-definition / glossary / reference page with ' +
+  'nothing to predict or recall. An ordinary explanatory lesson (e.g. how a process works, why a ' +
+  'phenomenon happens) ALWAYS needs a real self-check — for such a lesson you MUST include the real ' +
+  'primitives and MUST NOT use documentedReasonAbsent to skip them. Prefer adding a real self-check ' +
+  'over reaching for the escape hatch.\n' +
   '- State an accessibility contract (text alternative + keyboard support, up front not retrofitted) ' +
   'and cite only the offered sources.';
 
@@ -105,19 +116,24 @@ function specV11Prompt(input: SpecInput): string {
   const findings = brief.findings
     .map((f, i) => `[${i}] ${f.claim}  (${f.source.title} — ${f.source.url})`)
     .join('\n');
+  const keyPointCount = brief.keyPoints.length;
   return [
     `Learning goal: ${brief.learningGoal}`,
-    `Key points (one section each, in order): ${brief.keyPoints.join('; ') || '(none)'}`,
+    `Key points (${keyPointCount}; ONE section each, in order): ${brief.keyPoints.join('; ') || '(none)'}`,
     `Audience: ${brief.audience} (level ${settings.level}, depth ${settings.depth}/5).`,
     '',
     'Grounded findings to teach from and cite:',
     findings || '(none)',
     '',
     `Section kinds, in order: ${SECTION_KINDS.join(' → ')}.`,
-    'Plan the lesson as an ordered list of typed sections. Each section has a kind, its reading-spine',
-    'prose, and AT MOST ONE optional apparatus component with a stated teachingPurpose. Include ≥1',
-    'predict-gate and ≥1 self-check (each with an answerable { prompt, answer }), or a',
-    'documentedReasonAbsent. Cite only the findings’ sources above; state the accessibility contract.',
+    'Plan the lesson as a RICH, ordered list of MULTIPLE typed sections — a section for EACH key point',
+    `above (${keyPointCount}), plus the hook and self-check the arc needs. Do NOT collapse to one`,
+    'section. Each section has a kind, its reading-spine prose, and AT MOST ONE optional apparatus',
+    'component with a stated teachingPurpose. Include BOTH real primitives as separate sections: ≥1',
+    'predict-gate AND ≥1 self-check, each carrying a non-empty answerable { prompt, answer }. This is',
+    'an explanatory lesson — include a real self-check; use documentedReasonAbsent ONLY for a',
+    'pure-definition/reference page where a retrieval check is genuinely wrong, never to skip an',
+    'ordinary self-check. Cite only the findings’ sources above; state the accessibility contract.',
   ].join('\n');
 }
 
@@ -172,19 +188,31 @@ const SPEC_V11_MAX_ATTEMPTS = 3 as const;
  * object failed `LessonSpecSchema.safeParse`) or the AI SDK's structured-output validation throw (its
  * `Output.object` `parseCompleteOutput` throws `NoObjectGeneratedError` → `TypeValidationError` →
  * `ZodError` on the same schema). Either way the model sees the SPECIFIC unmet refine — the structural
- * signal the JSON Schema couldn't carry — followed by an explicit restatement of both refine rules.
+ * signal the JSON Schema couldn't carry — followed by an explicit instruction to fix by ADDING the
+ * missing primitive as a real component while KEEPING the existing sections (TS-12b quality fix): the
+ * naïve "satisfy the schema" re-prompt let the model take the cheapest valid path (collapse to one
+ * section + use `documentedReasonAbsent`), producing a degenerate lesson thinner than the blob arm. The
+ * repair therefore steers it to the RICH fix — add the real predict-gate/self-check, do not collapse,
+ * and do not reach for the escape hatch on an ordinary explanatory lesson.
  */
 function repairFeedback(error: string): string {
   return [
     '',
-    'Your previous response did NOT satisfy the LessonSpec contract. Fix EXACTLY this and re-emit',
-    'the full corrected spec:',
+    'Your previous response did NOT satisfy the LessonSpec contract. Fix it by ADDING the missing',
+    'apparatus, then re-emit the FULL corrected spec:',
     error,
     '',
-    'Reminder: every predict-gate AND every self-check component object MUST include an answerable',
-    'with a non-empty prompt AND a non-empty answer. The spec MUST contain at least one predict-gate',
-    'component AND at least one self-check component (each with its answerable), OR a non-empty',
-    'documentedReasonAbsent explaining why those primitives are pedagogically wrong for this lesson.',
+    'HOW to fix (do NOT take the cheap path):',
+    '- ADD the missing primitive as a REAL component on its own section — e.g. add a self-check',
+    '  section whose component is { kind: "self-check", teachingPurpose: <specific>, answerable:',
+    '  { prompt: <a real question>, answer: <its real answer> } }, and likewise a predict-gate',
+    '  section. Every predict-gate AND every self-check component MUST carry a non-empty answerable',
+    '  { prompt, answer }.',
+    '- KEEP all the sections you already wrote — append the missing primitive section(s), do NOT',
+    '  collapse the lesson to fewer sections or strip detail. A richer multi-section lesson is the bar.',
+    '- Do NOT reach for documentedReasonAbsent to make this pass. It is ONLY for a pure-definition /',
+    '  reference page where a retrieval check is genuinely pedagogically wrong; an ordinary explanatory',
+    '  lesson MUST include the real predict-gate + self-check primitives instead.',
   ].join('\n');
 }
 

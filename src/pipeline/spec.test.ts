@@ -304,6 +304,41 @@ describe('specV11 (the v11 sectioned arm)', () => {
     expect(SPEC_V11_SYSTEM).toMatch(/ADD what the prose/i);
   });
 
+  // ── TS-12b quality steer: demand a RICH multi-section lesson with both REAL primitives ──
+  it('TS-12b — SPEC_V11_SYSTEM demands a rich multi-section lesson, not a single section', () => {
+    // a single-section lesson is the degenerate failure mode the live render exposed
+    expect(SPEC_V11_SYSTEM).toMatch(/multi-section/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/section for each key point|one section per key point/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/densify every section/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/never collapse the lesson to one section/i);
+  });
+
+  it('TS-12b — SPEC_V11_SYSTEM re-scopes documentedReasonAbsent to pure-reference pages only', () => {
+    // it must FORBID the escape on an ordinary explanatory lesson (the Photosynthesis bug)
+    expect(SPEC_V11_SYSTEM).toMatch(/documentedReasonAbsent/);
+    expect(SPEC_V11_SYSTEM).toMatch(/ordinary explanatory lesson.*always needs a real self-check/is);
+    expect(SPEC_V11_SYSTEM).toMatch(/MUST NOT use documentedReasonAbsent/i);
+  });
+
+  it('TS-12b — the v11 prompt asks for one section per brief key point (N key-points → N sections)', async () => {
+    // a brief with three key points must drive the prompt to request a section for EACH — not a blob
+    const completeObject = vi.fn().mockResolvedValue({ object: validLessonSpec(), record: rec });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    const prompt = completeObject.mock.calls[0]![0].prompt as string;
+    // v11Brief() has 3 key points → the prompt states the count and asks for a section for each
+    expect(prompt).toMatch(/Key points \(3;/);
+    expect(prompt).toMatch(/a section for EACH key point/i);
+    expect(prompt).toMatch(/Do NOT collapse to one\s+section/i);
+    // and steers away from the escape hatch on an ordinary lesson
+    expect(prompt).toMatch(/use documentedReasonAbsent ONLY for a/i);
+  });
+
   // ── self-repair retry (TS-12b: refines absent from the JSON Schema → intermittent invalid specs) ──
   // A valid sectioned LessonSpec with BOTH load-bearing primitives — the shape a successful (or
   // self-corrected) emission produces.
@@ -383,8 +418,61 @@ describe('specV11 (the v11 sectioned arm)', () => {
     const retryPrompt = completeObject.mock.calls[1]![0].prompt as string;
     expect(retryPrompt).toMatch(/did NOT satisfy the LessonSpec contract/i);
     expect(retryPrompt).toMatch(/predict-gate/);
+    // TS-12b: the repair must steer toward ADDING a real primitive + KEEPING existing sections,
+    // and AWAY from the cheap path (collapse + documentedReasonAbsent) the live render exposed
+    expect(retryPrompt).toMatch(/ADD the missing primitive as a REAL component/i);
+    expect(retryPrompt).toMatch(/KEEP all the sections you already wrote/i);
+    expect(retryPrompt).toMatch(/do NOT\s+collapse the lesson to fewer sections/i);
+    expect(retryPrompt).toMatch(/Do NOT reach for documentedReasonAbsent/i);
     // and it still carries the base prompt (the brief feed) so the model has the full context
     expect(retryPrompt).toContain('understand recursion');
+  });
+
+  it('TS-12b — self-repair recovers by ADDING a real self-check (not the documentedReasonAbsent escape)', async () => {
+    // First attempt lacks a self-check (a predict-gate only, no documentedReasonAbsent) — invalid.
+    // The repaired attempt ADDS a REAL self-check section (with an answerable), the rich fix the steer
+    // demands. Asserting the recovered spec has a real self-check primitive AND no escape hatch proves
+    // the fix path is "add the missing primitive", not "collapse + documentedReasonAbsent".
+    const predictGateOnly = {
+      nodeSlug: 'recursion',
+      sections: [
+        {
+          kind: 'hook',
+          prose: 'why does a function call itself?',
+          component: {
+            kind: 'predict-gate',
+            teachingPurpose: 'predict the stop condition',
+            answerable: { prompt: 'what stops it?', answer: 'the base case' },
+          },
+        },
+        { kind: 'concept', prose: 'a function that calls itself needs a base case' },
+      ],
+      a11yContract: 'kb',
+      citations: [],
+    };
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ object: predictGateOnly, record: { ...rec, costUsd: 0.3 } })
+      .mockResolvedValueOnce({ object: validLessonSpec(), record: { ...rec, costUsd: 0.4 } });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    const out = await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    if (!isLessonSpec(out.spec)) throw new Error('expected a LessonSpec');
+    expect(completeObject).toHaveBeenCalledTimes(2);
+    // the recovered spec carries a REAL self-check with an answerable — not the escape hatch
+    const selfCheck = out.spec.sections.find(
+      (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
+    );
+    expect(selfCheck).toBeDefined();
+    expect(selfCheck!.component!.answerable!.prompt.length).toBeGreaterThan(0);
+    expect(selfCheck!.component!.answerable!.answer.length).toBeGreaterThan(0);
+    expect(out.spec.documentedReasonAbsent).toBeUndefined(); // it did NOT use the escape hatch
+    // and it kept BOTH primitives (rich, not collapsed)
+    expect(out.spec.sections.some((s) => s.component?.kind === 'predict-gate')).toBe(true);
   });
 
   it('self-repairs when completeObject THROWS (the real SDK path) — re-calls, then succeeds', async () => {
