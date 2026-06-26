@@ -3,7 +3,7 @@
 > **Status: Phase 0 (Foundation) + Phase 1 (MEASURE) IMPLEMENTED + MERGED (TS-1…TS-9, incl. TS-5b); Phases 2–4 (PRODUCE / FRAME / MOTION) pending.** This doc is
 > **self-contained**: the binding architecture decisions (the *why* + the as-built calls) live inline
 > in **Key decisions** below — the direction is adopted; spike-gated/owner-confirmable items are
-> flagged provisional inline. This program doc stays DRAFT until these PRs land. It is the **program
+> flagged provisional inline. This program doc is updated as each phase lands (the status above tracks which). It is the **program
 > view + dependency graph + the locked decisions**, not a second copy of the per-issue specs — each
 > GitHub issue body (TS-1…TS-26) is the spec, authored to the five-section `issue-authoring` shape.
 > Read **Key decisions** for the architecture; read the issues for per-PR detail.
