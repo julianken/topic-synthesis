@@ -219,7 +219,7 @@ npx @eleatic/eval serve --db ab.sqlite
 
 Each arm's trace `label` carries its arm tag (`<topic> [blob-binary]` / `<topic> [v11-graded]`) so the two `_analysis` rows are distinguishable in one store; the v11 row's `meta.baseline = <blobRunId>` is the arm pairing.
 
-**A/B numbers — PENDING the live operational run** (the local environment for the TS-9 PR had no `ANTHROPIC_API_KEY`, so the actual paired rows are produced on owner go-ahead; the gating + bench wiring + tests ship now, the numbers are NOT fabricated). Record the graded sub-scores per arm here when the run lands:
+**A/B numbers — PENDING the live operational run** (the local environment for the TS-9 PR had no `ANTHROPIC_API_KEY`, so the actual paired rows are produced on owner go-ahead; the gating + bench wiring + tests ship now, the numbers are NOT fabricated). **TS-9's AC4/AC5 (the real paired numbers + this table) remain open after the TS-9 substrate PR merges — issue #95 stays OPEN as the tracker for the owner-gated run** (the PR references #95 with `Refs`, deliberately not `Closes`, so the merge does not auto-close it). Record the graded sub-scores per arm here when the run lands:
 
 | arm | run id | misconceptionHook | retrievalCheck | findingsGrounded | apparatusAddsBeyondProse | namedGridPresent | perSectionSubgrid | collapseQueryPresent | noRootLiteralOverride | predictGateStructure | derived `passed` |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
