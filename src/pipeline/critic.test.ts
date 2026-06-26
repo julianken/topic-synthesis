@@ -6,7 +6,7 @@ import {
   type LedgerConformance,
   type PageArtifact,
 } from '../domain/stages';
-import { critique, gradedCritique } from './critic';
+import { critique, gradedCritique, GRADED_CRITIC_SYSTEM } from './critic';
 import { defaultStages } from './ports';
 import type { StageDeps } from './deps';
 
@@ -93,6 +93,26 @@ const vapidScores: { learningEfficacy: LearningEfficacy; ledgerConformance: Ledg
   },
 };
 
+// A structurally-broken lesson: strong teaching, but the named-grid axis fails because the
+// `[scrub]` track is missing (the TS-5 demonstrated failure — present in only 1 of 2 spikes) and
+// an anti-pattern (single column) collapses `perSectionSubgrid`. A ledger axis below threshold must
+// sink the verdict even when the four learning-efficacy axes are high.
+const brokenScores: { learningEfficacy: LearningEfficacy; ledgerConformance: LedgerConformance } = {
+  learningEfficacy: {
+    misconceptionHook: sub(0.9),
+    retrievalCheck: sub(0.9),
+    findingsGrounded: sub(0.9),
+    apparatusAddsBeyondProse: sub(0.9),
+  },
+  ledgerConformance: {
+    namedGridPresent: sub(0.1), // `[scrub]` missing → low
+    perSectionSubgrid: sub(0.2), // single-column anti-pattern → low
+    collapseQueryPresent: sub(0.9),
+    noRootLiteralOverride: sub(0.9),
+    predictGateStructure: sub(0.9),
+  },
+};
+
 describe('derivePassed (CriticVerdict v2 threshold)', () => {
   it('passes when every sub-score is at or above the threshold', () => {
     expect(derivePassed(goodScores)).toBe(true);
@@ -102,9 +122,45 @@ describe('derivePassed (CriticVerdict v2 threshold)', () => {
     expect(derivePassed(vapidScores)).toBe(false);
   });
 
+  it('fails when a ledger axis is below threshold — a missing `[scrub]` / anti-pattern sinks the verdict', () => {
+    expect(derivePassed(brokenScores)).toBe(false);
+  });
+
   it('is an all-axes floor: a sub-score exactly at the threshold still passes, just below fails', () => {
     expect(derivePassed(verdictAt(CRITIC_PASS_THRESHOLD))).toBe(true);
     expect(derivePassed(verdictAt(CRITIC_PASS_THRESHOLD - 0.01))).toBe(false);
+  });
+});
+
+describe('GRADED_CRITIC_SYSTEM (the ledger-aware rubric prompt — TS-7)', () => {
+  it('names every learning-efficacy axis (decomposed, not one scalar teachingQuality)', () => {
+    expect(GRADED_CRITIC_SYSTEM).toContain('misconceptionHook');
+    expect(GRADED_CRITIC_SYSTEM).toContain('retrievalCheck');
+    expect(GRADED_CRITIC_SYSTEM).toContain('findingsGrounded');
+    expect(GRADED_CRITIC_SYSTEM).toContain('apparatusAddsBeyondProse');
+    expect(GRADED_CRITIC_SYSTEM).not.toContain('teachingQuality');
+  });
+
+  it('checks the canonical named-grid set including the literal `[scrub]` track', () => {
+    expect(GRADED_CRITIC_SYSTEM).toContain('[screen-start] [read] [gap] [panel] [scrub]');
+    expect(GRADED_CRITIC_SYSTEM).toContain('[scrub]');
+  });
+
+  it('grades the remaining statically-checkable ledger proxies', () => {
+    expect(GRADED_CRITIC_SYSTEM).toContain('perSectionSubgrid');
+    expect(GRADED_CRITIC_SYSTEM).toContain('collapseQueryPresent');
+    expect(GRADED_CRITIC_SYSTEM).toContain('noRootLiteralOverride');
+    expect(GRADED_CRITIC_SYSTEM).toContain('predictGateStructure');
+  });
+
+  it('claims no rendered-geometry measurement (no getBoundingClientRect — the repo has no renderer)', () => {
+    expect(GRADED_CRITIC_SYSTEM).toContain('getBoundingClientRect');
+    expect(GRADED_CRITIC_SYSTEM).toMatch(/MUST NOT measure rendered geometry/);
+  });
+
+  it('references the rejected anti-patterns so they pull down the relevant ledger axis', () => {
+    expect(GRADED_CRITIC_SYSTEM).toContain('anti-pattern');
+    expect(GRADED_CRITIC_SYSTEM).toContain('single column');
   });
 });
 

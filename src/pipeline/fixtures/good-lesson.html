@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Why does a sine wave look the same when you shift it by 2π?</title>
+    <style>
+      /* No :root token override — the page inherits the design-system §0 tokens from the chrome. */
+      body {
+        margin: 0;
+        background: var(--surface);
+        color: var(--ink);
+        font-family: var(--font-body, system-ui);
+      }
+      /* The lesson workspace: the canonical named grid-line set, [scrub] track present, capped + centered. */
+      .workspace {
+        display: grid;
+        max-width: 1600px;
+        margin: 0 auto;
+        grid-template-columns:
+          [screen-start] minmax(0, 62ch) [read]
+          var(--col-gap, 2rem) [gap]
+          minmax(0, 1fr) [panel]
+          2.5rem [scrub] [screen-end];
+      }
+      /* Each section keeps the reading spine stable via its own subgrid. */
+      .workspace section {
+        display: grid;
+        grid-template-columns: subgrid;
+        grid-column: screen-start / screen-end;
+        align-items: start;
+      }
+      .prose {
+        grid-column: screen-start / read;
+        text-align: left;
+      }
+      .panel {
+        grid-column: gap / panel;
+      }
+      /* Collapse to a single column on narrow viewports — apparatus reflows under its prose. */
+      @media (max-width: 900px) {
+        .workspace,
+        .workspace section {
+          grid-template-columns: 1fr;
+        }
+        .prose,
+        .panel {
+          grid-column: 1 / -1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="workspace">
+      <section>
+        <div class="prose">
+          <h1>Why does a sine wave look identical after a 2π shift?</h1>
+          <p>
+            Most people first assume a wave "resets" because the clock ticks over — but the period is not a
+            property of time, it is a property of the <span class="term">angle</span> swept. That confusion is
+            exactly what trips learners on phase. Let's pin down what is really repeating.
+          </p>
+        </div>
+        <aside class="panel">
+          <dl>
+            <dt class="term">angle</dt>
+            <dd>The argument fed to sine, measured in radians — a full turn is 2π.</dd>
+          </dl>
+          <p class="cite">Grounded in: the unit-circle definition of sine (MIT 18.01 notes).</p>
+        </aside>
+      </section>
+
+      <section>
+        <div class="prose">
+          <h2>Predict before you reveal</h2>
+          <p>
+            A point rotates around the unit circle. After it sweeps an angle of 2π radians, where is its height
+            (its sine value) relative to where it started?
+          </p>
+          <form class="predict-gate" data-answer="same">
+            <fieldset>
+              <legend>Predict, then check:</legend>
+              <label><input type="radio" name="p" value="higher" /> Higher than the start</label>
+              <label><input type="radio" name="p" value="same" /> Exactly the same as the start</label>
+              <label><input type="radio" name="p" value="lower" /> Lower than the start</label>
+              <button type="submit">Reveal</button>
+            </fieldset>
+            <output hidden></output>
+          </form>
+        </div>
+        <aside class="panel">
+          <figure>
+            <figcaption>Mini-figure: one full turn returns the point to its starting height.</figcaption>
+          </figure>
+        </aside>
+      </section>
+    </main>
+    <script>
+      // Answer-SPECIFIC feedback: the message responds to which wrong answer was picked.
+      document.querySelector('.predict-gate')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const form = e.currentTarget;
+        const picked = form.querySelector('input[name="p"]:checked')?.value;
+        const out = form.querySelector('output');
+        out.hidden = false;
+        if (picked === 'same') {
+          out.textContent = 'Right — 2π is exactly one full turn, so the height is identical.';
+        } else if (picked === 'higher') {
+          out.textContent =
+            'Not quite — "higher" would mean the point overshot a full turn. 2π lands precisely back at the start.';
+        } else if (picked === 'lower') {
+          out.textContent =
+            'Close reasoning, but a full turn does not dip below the start — 2π returns to the same height.';
+        } else {
+          out.textContent = 'Pick a prediction first, then reveal.';
+        }
+      });
+    </script>
+  </body>
+</html>
