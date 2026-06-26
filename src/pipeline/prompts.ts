@@ -5,7 +5,7 @@ import { CRITIC_SYSTEM, GRADED_CRITIC_SYSTEM } from './critic';
 import { GRAPH_SYSTEM } from './graph';
 import { PLANNER_SYSTEM } from './planner';
 import { RESEARCH_SYSTEM, STRUCTURE_SYSTEM } from './researcher';
-import { SPEC_SYSTEM } from './spec';
+import { SPEC_SYSTEM, SPEC_V11_SYSTEM } from './spec';
 
 /**
  * A stable, content-DERIVED version anchor for the stage system prompts — one of the two
@@ -31,6 +31,10 @@ const SYSTEM_PROMPTS: ReadonlyArray<readonly [name: string, text: string]> = [
   ['graph', GRAPH_SYSTEM],
   ['brief', BRIEF_SYSTEM],
   ['spec', SPEC_SYSTEM],
+  // The v11 SECTIONED spec (the v11 arm's `StageBundle.spec`, TS-11) is a distinct stage prompt from
+  // the blob `SPEC_SYSTEM`; folding it in means the v11 arm self-distinguishes by `workflow_version`
+  // exactly as the graded critic does. The blob `SPEC_SYSTEM` stays the live default (kill-switch).
+  ['spec-v11', SPEC_V11_SYSTEM],
   ['code', CODE_SYSTEM],
   ['critic', CRITIC_SYSTEM],
   // The GRADED critic (the v11 `StageBundle.critic` arm — program decision 7) is a distinct stage
