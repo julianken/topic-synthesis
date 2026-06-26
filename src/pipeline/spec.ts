@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   type LessonBrief,
   LessonSpecSchema,
@@ -154,6 +155,65 @@ function clampSection(section: LooseSection): Section {
 }
 
 /**
+ * The bounded number of `completeObject` attempts `specV11` makes: ONE initial call plus up to two
+ * self-repair retries. The repair exists because `LessonSpecSchema`'s `.superRefine` constraints (a
+ * primitive component MUST carry an `answerable`; the spec MUST have ≥1 predict-gate + ≥1 self-check,
+ * or a `documentedReasonAbsent`) are NOT expressible in the JSON Schema the AI SDK sends the model —
+ * the model gets NO structural signal for them, so it intermittently emits a spec that the prompt
+ * asks for but the JSON Schema can't force, and the strict-schema validation throws (surfaced live by
+ * TS-12b: `No object generated: response did not match schema` → the lesson degraded to 'soon'). On a
+ * validation failure we re-call with the Zod error appended so the model self-corrects the missing
+ * primitive/answerable. Bounded so a persistently-failing model fails loud rather than looping.
+ */
+const SPEC_V11_MAX_ATTEMPTS = 3 as const;
+
+/**
+ * The repair feedback appended to the prompt on a retry. Derived from a Zod error (the returned
+ * object failed `LessonSpecSchema.safeParse`) or the AI SDK's structured-output validation throw (its
+ * `Output.object` `parseCompleteOutput` throws `NoObjectGeneratedError` → `TypeValidationError` →
+ * `ZodError` on the same schema). Either way the model sees the SPECIFIC unmet refine — the structural
+ * signal the JSON Schema couldn't carry — followed by an explicit restatement of both refine rules.
+ */
+function repairFeedback(error: string): string {
+  return [
+    '',
+    'Your previous response did NOT satisfy the LessonSpec contract. Fix EXACTLY this and re-emit',
+    'the full corrected spec:',
+    error,
+    '',
+    'Reminder: every predict-gate AND every self-check component object MUST include an answerable',
+    'with a non-empty prompt AND a non-empty answer. The spec MUST contain at least one predict-gate',
+    'component AND at least one self-check component (each with its answerable), OR a non-empty',
+    'documentedReasonAbsent explaining why those primitives are pedagogically wrong for this lesson.',
+  ].join('\n');
+}
+
+/** Walk an error's `.cause` chain (bounded) to find the first `ZodError`. The AI SDK wraps a
+ *  structured-output validation failure TWO levels deep — `NoObjectGeneratedError.cause` is a
+ *  `TypeValidationError`, whose `.cause` is the actual `ZodError`. Walking by `.cause` (rather than
+ *  importing the SDK's error classes) keeps the AI-SDK import surface in `src/llm/` only and is
+ *  resilient to the SDK's wrapping depth. Returns undefined if no ZodError is on the chain. */
+function findZodError(err: unknown): z.ZodError | undefined {
+  let current: unknown = err;
+  for (let depth = 0; depth < 5 && current != null; depth++) {
+    if (current instanceof z.ZodError) return current;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/** Extract a model-facing repair message from a thrown `completeObject` error. When the chain carries
+ *  the underlying `ZodError` (the live path: `NoObjectGeneratedError` → `TypeValidationError` →
+ *  `ZodError`), `z.prettifyError` renders it into the same readable per-field form as the
+ *  returned-but-invalid path — so the model sees the unmet refine, not the opaque "response did not
+ *  match schema". Falls back to the raw error message for any other throw. */
+function errorToFeedback(err: unknown): string {
+  const zerr = findZodError(err);
+  if (zerr) return z.prettifyError(zerr);
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Spec v11 (Sonnet): a LessonBrief → the typed sectioned `LessonSpec` (TS-10's contract). The v11
  * ARM's spec stage — it is NOT `defaultStages.spec` (the blob `spec` above stays the live default);
  * it is wired as a `StageBundle.spec` arm override (the arm wiring TS-14 finalizes). It shares the
@@ -162,26 +222,78 @@ function clampSection(section: LooseSection): Section {
  * strips an off-schema over-fill on parse); the deterministic clamp below is belt-and-suspenders for
  * a non-validating injection point, NOT the primary enforcer (the literal ≤3-gloss/≤1-mini-figure
  * DESIGN.md cap is the TS-12 code prompt's concern, and a typed-gloss schema cap is GAPS-deferred).
+ *
+ * SELF-REPAIR RETRY (surfaced by TS-12b's first live v11 render): `LessonSpecSchema`'s two
+ * `.superRefine` constraints (a primitive carries an `answerable`; the spec has both pedagogy
+ * primitives or a `documentedReasonAbsent`) are NOT in the JSON Schema the AI SDK sends the model, so
+ * the model gets no structural signal for them and intermittently emits a spec that fails validation
+ * → `completeObject` throws → the lesson degraded to 'soon'. We re-call up to `SPEC_V11_MAX_ATTEMPTS`
+ * times, appending the Zod validation error to the prompt so the model self-corrects the missing
+ * primitive/answerable. Every attempt that RETURNS threads its `LlmCallRecord` cost (a throwing
+ * attempt carries no record). The contract is unchanged — repair makes the model meet it, never
+ * weakens it. This is arm-scoped: `defaultStages.spec` (the blob `spec`) is untouched.
  */
 export async function specV11(
   input: SpecInput,
   deps: StageDeps = defaultDeps,
   model: StageModel = STAGE_MODELS.spec,
 ): Promise<SpecV11Output> {
-  const { object, record } = await deps.completeObject({
-    model,
-    system: SPEC_V11_SYSTEM,
-    prompt: specV11Prompt(input),
-    schema: LessonSpecSchema,
-  });
-  // Anti-fabrication: keep only citations pointing at a brief-findings source (the blob arm's
-  // discipline, applied to the sectioned spec's citations). The sectioned `LessonSpec` carries no
-  // per-section source field, so `citations` is the only grounded-source list to filter.
-  const offered = new Set(input.brief.findings.map((f) => f.source.url));
-  const citations = object.citations.filter((c) => offered.has(c.url));
-  // ≤1-component-per-section is enforced by `LessonSpecSchema` on parse (singular `component`, an
-  // over-fill stripped); this clamp is belt-and-suspenders for a non-validating injection point and
-  // is a no-op on validated input. Keep it in brief/reading order (first component wins).
-  const sections = (object.sections as LooseSection[]).map(clampSection);
-  return { spec: { ...object, sections, citations }, records: [record] };
+  const basePrompt = specV11Prompt(input);
+  const records: LlmCallRecord[] = [];
+  let prompt = basePrompt;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < SPEC_V11_MAX_ATTEMPTS; attempt++) {
+    let object: LessonSpec;
+    try {
+      const result = await deps.completeObject({
+        model,
+        system: SPEC_V11_SYSTEM,
+        prompt,
+        schema: LessonSpecSchema,
+      });
+      records.push(result.record); // this attempt produced a (paid) call — thread its cost
+      object = result.object;
+    } catch (err) {
+      // The real client's `completeObject` validates with the SAME schema (refines included) and
+      // THROWS on a refine miss before returning, so the live failure path is a throw (no record to
+      // thread). Feed the Zod detail back and retry; on the last attempt, re-throw.
+      lastError = err;
+      if (attempt + 1 >= SPEC_V11_MAX_ATTEMPTS) throw err;
+      prompt = basePrompt + repairFeedback(errorToFeedback(err));
+      continue;
+    }
+
+    // ≤1-component-per-section: enforced by `LessonSpecSchema` on parse (singular `component`, an
+    // over-fill stripped), but run the deterministic clamp FIRST so a non-validating injection point
+    // (a test's Zod-bypassing fake, or a future passthrough schema) that over-fills a section is
+    // collapsed to its first component BEFORE re-validation — otherwise `safeParse` would strip the
+    // off-schema `components` array to a component-less section and spuriously fail the primitives
+    // refine. On already-validated input this is a no-op. First component wins (brief/reading order).
+    const clamped = { ...object, sections: (object.sections as LooseSection[]).map(clampSection) };
+
+    // A returned object can still violate a refine on a non-validating injection point. Re-validate
+    // the CLAMPED candidate so the repair fires uniformly whether the failure came back as a throw OR
+    // as an invalid return (e.g. a fake that omits the answerable on a primitive).
+    const parsed = LessonSpecSchema.safeParse(clamped);
+    if (!parsed.success) {
+      lastError = parsed.error;
+      if (attempt + 1 >= SPEC_V11_MAX_ATTEMPTS) throw parsed.error;
+      prompt = basePrompt + repairFeedback(z.prettifyError(parsed.error));
+      continue;
+    }
+
+    // Anti-fabrication: keep only citations pointing at a brief-findings source (the blob arm's
+    // discipline, applied to the sectioned spec's citations). The sectioned `LessonSpec` carries no
+    // per-section source field, so `citations` is the only grounded-source list to filter.
+    const offered = new Set(input.brief.findings.map((f) => f.source.url));
+    const citations = parsed.data.citations.filter((c) => offered.has(c.url));
+    return { spec: { ...parsed.data, citations }, records };
+  }
+
+  // Unreachable: the loop returns on success and throws on the last failing attempt. Throw the last
+  // seen error defensively so a future edit to the loop bound can't silently fall through.
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('specV11: exhausted repair attempts without a valid LessonSpec');
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isLessonSpec, type LessonBrief, type LessonSpec, type PageSpec } from '../domain/stages';
+import {
+  isLessonSpec,
+  type LessonBrief,
+  type LessonSpec,
+  LessonSpecSchema,
+  type PageSpec,
+} from '../domain/stages';
 import type { StageDeps } from './deps';
 import { defaultStages, type StageBundle } from './ports';
 import { spec, SPEC_V11_SYSTEM, specV11 } from './spec';
@@ -206,9 +212,21 @@ describe('specV11 (the v11 sectioned arm)', () => {
   });
 
   it('AC6 — drops a citation pointing at a source not in the brief findings', async () => {
+    // The fixture carries BOTH load-bearing primitives so it is contract-valid: `specV11` now
+    // re-validates the (clamped) emission against LessonSpecSchema, so a primitive-less spec would
+    // trip the self-repair retry rather than reaching the citation filter under test.
     const lessonSpec = {
       nodeSlug: 'recursion',
       sections: [
+        {
+          kind: 'hook',
+          prose: 'p0',
+          component: {
+            kind: 'predict-gate',
+            teachingPurpose: 'predict',
+            answerable: { prompt: 'q', answer: 'a' },
+          },
+        },
         {
           kind: 'self-check',
           prose: 'p',
@@ -284,6 +302,137 @@ describe('specV11 (the v11 sectioned arm)', () => {
     expect(SPEC_V11_SYSTEM).toMatch(/self-check/);
     // mirrors the critic's apparatusAddsBeyondProse language so emission + grading agree
     expect(SPEC_V11_SYSTEM).toMatch(/ADD what the prose/i);
+  });
+
+  // ── self-repair retry (TS-12b: refines absent from the JSON Schema → intermittent invalid specs) ──
+  // A valid sectioned LessonSpec with BOTH load-bearing primitives — the shape a successful (or
+  // self-corrected) emission produces.
+  function validLessonSpec(): LessonSpec {
+    return {
+      nodeSlug: 'recursion',
+      sections: [
+        {
+          kind: 'hook',
+          prose: 'p0',
+          component: {
+            kind: 'predict-gate',
+            teachingPurpose: 'predict the stop condition',
+            answerable: { prompt: 'what stops it?', answer: 'the base case' },
+          },
+        },
+        {
+          kind: 'self-check',
+          prose: 'p1',
+          component: {
+            kind: 'self-check',
+            teachingPurpose: 'retrieval on the base case',
+            answerable: { prompt: 'name the non-recursing case', answer: 'base case' },
+          },
+        },
+      ],
+      a11yContract: 'kb',
+      citations: [],
+    };
+  }
+
+  // A spec that VIOLATES a top-level refine: a self-check but NO predict-gate and no
+  // documentedReasonAbsent (the exact intermittent failure TS-12b surfaced live).
+  const missingPrimitive = {
+    nodeSlug: 'recursion',
+    sections: [
+      {
+        kind: 'self-check',
+        prose: 'p',
+        component: {
+          kind: 'self-check',
+          teachingPurpose: 'retrieval',
+          answerable: { prompt: 'q', answer: 'a' },
+        },
+      },
+    ],
+    a11yContract: 'kb',
+    citations: [],
+  };
+
+  it('self-repairs a returned-but-invalid spec: re-calls with the Zod error appended, then succeeds', async () => {
+    // The fake bypasses the SDK validation, so it RETURNS an invalid spec on the first call (no
+    // predict-gate). specV11 must re-validate, append the Zod error, and re-call — succeeding on the retry.
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ object: missingPrimitive, record: { ...rec, costUsd: 0.5 } })
+      .mockResolvedValueOnce({ object: validLessonSpec(), record: { ...rec, costUsd: 0.7 } });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    const out = await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    if (!isLessonSpec(out.spec)) throw new Error('expected a LessonSpec');
+    // it re-called exactly once after the invalid first attempt
+    expect(completeObject).toHaveBeenCalledTimes(2);
+    // the result is the valid (repaired) spec — both primitives present
+    const hasPredictGate = out.spec.sections.some((s) => s.component?.kind === 'predict-gate');
+    const hasSelfCheck = out.spec.sections.some(
+      (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
+    );
+    expect(hasPredictGate && hasSelfCheck).toBe(true);
+    // BOTH attempts' cost records thread through (a returning attempt is a paid call)
+    expect(out.records.map((r) => r.costUsd)).toEqual([0.5, 0.7]);
+    // the retry prompt carries the repair feedback the model self-corrects against
+    const retryPrompt = completeObject.mock.calls[1]![0].prompt as string;
+    expect(retryPrompt).toMatch(/did NOT satisfy the LessonSpec contract/i);
+    expect(retryPrompt).toMatch(/predict-gate/);
+    // and it still carries the base prompt (the brief feed) so the model has the full context
+    expect(retryPrompt).toContain('understand recursion');
+  });
+
+  it('self-repairs when completeObject THROWS (the real SDK path) — re-calls, then succeeds', async () => {
+    // The real client validates with the SAME schema and THROWS on a refine miss before returning, so
+    // the live failure is a throw (no record to thread). The AI SDK wraps the failure TWO levels deep —
+    // NoObjectGeneratedError → (a TypeValidationError-like wrapper) → ZodError — so the test mirrors
+    // that depth to prove `findZodError` descends the `.cause` chain and prettifies the real Zod detail.
+    const cause = LessonSpecSchema.safeParse(missingPrimitive);
+    if (cause.success) throw new Error('fixture should be invalid');
+    // Mirror the live two-level wrapping the AI SDK produces — NoObjectGeneratedError →
+    // TypeValidationError → ZodError — with plain nested Errors (specV11 detects the ZodError by
+    // walking `.cause`, not by the SDK's error class, so a structural mirror is the faithful fixture).
+    const typeValidationLike = new Error('Type validation failed', { cause: cause.error });
+    const thrown = new Error('No object generated: response did not match schema.', {
+      cause: typeValidationLike,
+    });
+    const completeObject = vi
+      .fn()
+      .mockRejectedValueOnce(thrown)
+      .mockResolvedValueOnce({ object: validLessonSpec(), record: { ...rec, costUsd: 0.9 } });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    const out = await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    if (!isLessonSpec(out.spec)) throw new Error('expected a LessonSpec');
+    expect(completeObject).toHaveBeenCalledTimes(2);
+    // only the successful (returning) attempt threads a record — the throwing attempt carries none
+    expect(out.records.map((r) => r.costUsd)).toEqual([0.9]);
+    // the retry prompt carries the prettified Zod detail dug out of the TWO-level-wrapped cause chain,
+    // not the opaque SDK message — proving findZodError descended to the ZodError
+    const retryPrompt = completeObject.mock.calls[1]![0].prompt as string;
+    expect(retryPrompt).toMatch(/did NOT satisfy the LessonSpec contract/i);
+    expect(retryPrompt).toContain('documentedReasonAbsent'); // the refine's path, from the prettified ZodError
+  });
+
+  it('fails loud after the bounded repair attempts rather than looping forever', async () => {
+    // The model keeps emitting the same invalid spec; specV11 must stop after SPEC_V11_MAX_ATTEMPTS (3)
+    // and surface the failure — never loop indefinitely on an unfixable model.
+    const completeObject = vi.fn().mockResolvedValue({ object: missingPrimitive, record: rec });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    await expect(
+      specV11({ brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } }, deps),
+    ).rejects.toThrow();
+    expect(completeObject).toHaveBeenCalledTimes(3); // 1 initial + 2 repairs, then it gives up
   });
 
   it('AC8 — wires as a StageBundle.spec arm OVERRIDE, not a mutation of defaultStages.spec', () => {
