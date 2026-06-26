@@ -56,8 +56,11 @@ describe('spec', () => {
 // ── the v11 SECTIONED spec (TS-11) ───────────────────────────────────────────
 // A LessonSpec the fake returns; section[1] is deliberately OVER-FILLED with two components (a shape
 // a real LLM might return despite the one-component instruction) so the deterministic clamp is exercised.
-// The fake `completeObject` bypasses Zod, so it can return an off-schema `components` array — the
-// stage's clamp is what enforces TS-10's ≤1-component-per-section invariant (enforce-don't-assume).
+// IN PRODUCTION the ≤1-component-per-section invariant is enforced by `LessonSpecSchema` (Zod, TS-10):
+// `completeObject` validates the model output and `SectionSchema` (default strip) drops an off-schema
+// `components` array before `specV11` runs. The fake `completeObject` here BYPASSES Zod, so it can
+// return the over-fill — this exercises the stage's belt-and-suspenders clamp, the only thing that
+// fires on a non-validating injection point (not the production enforcer).
 function v11Brief(): LessonBrief {
   return {
     learningGoal: 'understand recursion',

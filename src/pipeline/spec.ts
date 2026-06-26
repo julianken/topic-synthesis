@@ -126,12 +126,16 @@ export interface SpecV11Output {
 }
 
 /**
- * A section as the model may return it BEFORE the deterministic clamp. The clamp accepts a single
- * `component` OR a `components` array (a model that ignores the one-component instruction), so the
- * "≤1 component per section" invariant (TS-10's `Section` field is singular) is enforced at emission
- * — instruct in the prompt AND clamp after parse, the program's enforce-don't-assume posture (the
- * model does not reliably honor structural literals from prose alone). The clamp keeps the FIRST
- * component (reading order) and drops the rest.
+ * A section as it MIGHT arrive before the deterministic clamp. NOTE the actual enforcer of the
+ * "≤1 component per section" invariant (TS-10's `Section.component` is singular) in production is
+ * `LessonSpecSchema` (Zod, TS-10), not this clamp: `completeObject` validates the model output
+ * through `SectionSchema` (a plain `z.object`, default strip) before `specV11` runs, so a stray
+ * `components` array is dropped on parse and a JSON object cannot carry two `component` keys — the
+ * over-fill never survives to here on real parsed data. This `components`-array branch is therefore
+ * BELT-AND-SUSPENDERS: it covers the only non-validating injection point — the unit test's
+ * Zod-bypassing fake `completeObject` (spec.test.ts AC5) — and a future passthrough/non-stripping
+ * schema. The clamp keeps the FIRST component (reading order) and drops the rest, so it is a no-op
+ * on validated input and lossless otherwise (the singular `component` is preserved verbatim).
  */
 type LooseSection = Omit<Section, 'component'> & {
   component?: Section['component'];
@@ -140,7 +144,9 @@ type LooseSection = Omit<Section, 'component'> & {
 };
 
 /** Collapse a possibly-over-filled section to TS-10's ≤1-component-per-section invariant: keep the
- *  first component (singular field wins, else the head of a `components` array) and drop the rest. */
+ *  first component (singular field wins, else the head of a `components` array) and drop the rest.
+ *  On validated `LessonSpecSchema` output the `components` array is already stripped, so this just
+ *  passes the singular `component` through — it only fires on a non-validating injection point. */
 function clampSection(section: LooseSection): Section {
   const { components, component, ...rest } = section;
   const kept = component ?? components?.[0];
@@ -151,10 +157,11 @@ function clampSection(section: LooseSection): Section {
  * Spec v11 (Sonnet): a LessonBrief → the typed sectioned `LessonSpec` (TS-10's contract). The v11
  * ARM's spec stage — it is NOT `defaultStages.spec` (the blob `spec` above stays the live default);
  * it is wired as a `StageBundle.spec` arm override (the arm wiring TS-14 finalizes). It shares the
- * blob arm's anti-fabrication citation filter and adds the deterministic ≤1-component-per-section
- * clamp (path B: TS-10's `Section` models no gloss/mini-figure fields, so "within caps" reduces to
- * its one-component invariant; the literal ≤3-gloss/≤1-mini-figure DESIGN.md cap is the TS-12 code
- * prompt's concern, and a typed-gloss schema cap is GAPS-deferred).
+ * blob arm's anti-fabrication citation filter. The ≤1-component-per-section invariant is enforced
+ * by `LessonSpecSchema` itself (path B: TS-10's `Section.component` is singular and `SectionSchema`
+ * strips an off-schema over-fill on parse); the deterministic clamp below is belt-and-suspenders for
+ * a non-validating injection point, NOT the primary enforcer (the literal ≤3-gloss/≤1-mini-figure
+ * DESIGN.md cap is the TS-12 code prompt's concern, and a typed-gloss schema cap is GAPS-deferred).
  */
 export async function specV11(
   input: SpecInput,
@@ -172,7 +179,9 @@ export async function specV11(
   // per-section source field, so `citations` is the only grounded-source list to filter.
   const offered = new Set(input.brief.findings.map((f) => f.source.url));
   const citations = object.citations.filter((c) => offered.has(c.url));
-  // Deterministic ≤1-component-per-section clamp, in brief/reading order (enforce-don't-assume).
+  // ≤1-component-per-section is enforced by `LessonSpecSchema` on parse (singular `component`, an
+  // over-fill stripped); this clamp is belt-and-suspenders for a non-validating injection point and
+  // is a no-op on validated input. Keep it in brief/reading order (first component wins).
   const sections = (object.sections as LooseSection[]).map(clampSection);
   return { spec: { ...object, sections, citations }, records: [record] };
 }

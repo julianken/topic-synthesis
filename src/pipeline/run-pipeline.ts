@@ -54,8 +54,16 @@ export interface RunOptions {
  * Narrow the arm-scoped `spec` (TS-10's `PageSpec | LessonSpec` union) down to the flat `PageSpec`
  * that `code` consumes. The live default arm (`defaultStages.spec` = the blob `spec`) only ever
  * emits a `PageSpec`, so this is a runtime no-op on the deployed path. TS-12 gives `code` its v11
- * `LessonSpec` branch; until then a v11 spec reaching `code` is wiring not finished yet, so throw a
- * loud, arm-scoped error rather than silently mis-rendering the sectioned plan as a blob.
+ * `LessonSpec` branch; until then a v11 spec reaching `code` is wiring not finished yet, so throw an
+ * arm-scoped error rather than silently mis-rendering the sectioned plan as a blob.
+ *
+ * NOTE on blast radius: both call sites (`synthesizeNode` / `synthesizeLesson`) run this inside the
+ * spec→code→critic `try`, whose `catch` is the walking-skeleton degrade contract — so this throw
+ * does NOT crash the run or fail CI. It degrades THAT node/lesson to a 'soon' page with the
+ * arm-scoped reason in the `degraded` string (logged via `console.warn`). The safety goal holds (a
+ * LessonSpec can never be mis-rendered as a blob), but the failure mode is degrade-with-logged-reason,
+ * not a hard crash — a future author wiring a v11 arm before TS-12 sees a 'soon' page + a log line,
+ * not a process abort.
  */
 function specForCode(spec: PageSpec | LessonSpec): PageSpec {
   if (isLessonSpec(spec)) {
