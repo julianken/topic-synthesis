@@ -202,6 +202,32 @@ TS-22 + TS-23 ──┴─▶ TS-24 └─▶ TS-25(HIL — terminal)
 | TS-24 | Apply the transitions-dev motion catalog across the chrome | 4 | TS-22, TS-23 | the unified motion language at `## 0` tokens |
 | TS-25 | Owner visual-acceptance closeout: assembled chrome+lesson vs the v11 reference | 4 | TS-24 | the epic's terminal `HIL:` acceptance gate (morph fidelity is **box-only** per TS-5b's verdict — the owner certifies the container morph + instant content-swap, NOT a prose-cropping content morph) |
 
+## MEASURE outcome (TS-9) — the offline A/B record
+
+Phase 1's last issue. The graded critic now **gates `built` on the live/Job path** for the v11 arm and the blob arm keeps its binary gate as the live default (the arm-native kill-switch). Verified on `main` by `src/eval/run-job.test.ts` (the Job-path `runLesson(... defaultStages ...)` flow: above-threshold → `built`, below-threshold → `soon`; the blob binary critic gates unchanged; only the `StageBundle.critic` field differs between arms — no `RunOptions` arm flag) and the AC3 no-telemetry pins (`run-job.ts` passes `noopSink`, constructs no `SpanCollector`, never calls `judgeBrief` — no `_analysis` row / judge spend on a production run).
+
+**The A/B record is a CLI-offline artifact, never live telemetry** (Key-decisions §4 / revision 7). The bench wiring TS-9 adds is the `--graded` arm selector in `run-skeleton` (`selectArm` — a `StageBundle.critic` swap, the ONLY CLI path that runs the v11 graded arm; the deployed Job always runs `defaultStages`). Reproduce the paired `_analysis` rows by running BOTH arms over one eleatic store — a **NAMED operational step: live spend, run by hand on owner go-ahead, NEVER in CI** (same posture as `npm run critic:calibrate`). Keep it cheap (`--cheap` + `--max-questions`):
+
+```sh
+# 1) blob arm (binary critic) — note the "(run id <id>)" the --trace line prints (it IS the eleatic run id)
+npm run skeleton -- --topic "Fourier transforms" --cheap --max-questions 3 --trace ab.sqlite
+# 2) v11 graded arm, baselined against the blob run id for arm pairing
+npm run skeleton -- --topic "Fourier transforms" --cheap --max-questions 3 --graded --trace ab.sqlite --baseline <blobRunId>
+# explore the paired rows (the v11 _analysis row carries baseline = <blobRunId>):
+npx @eleatic/eval serve --db ab.sqlite
+```
+
+Each arm's trace `label` carries its arm tag (`<topic> [blob-binary]` / `<topic> [v11-graded]`) so the two `_analysis` rows are distinguishable in one store; the v11 row's `meta.baseline = <blobRunId>` is the arm pairing.
+
+**A/B numbers — PENDING the live operational run** (the local environment for the TS-9 PR had no `ANTHROPIC_API_KEY`, so the actual paired rows are produced on owner go-ahead; the gating + bench wiring + tests ship now, the numbers are NOT fabricated). **TS-9's AC4/AC5 (the real paired numbers + this table) remain open after the TS-9 substrate PR merges — issue #95 stays OPEN as the tracker for the owner-gated run** (the PR references #95 with `Refs`, deliberately not `Closes`, so the merge does not auto-close it). Record the graded sub-scores per arm here when the run lands:
+
+| arm | run id | misconceptionHook | retrievalCheck | findingsGrounded | apparatusAddsBeyondProse | namedGridPresent | perSectionSubgrid | collapseQueryPresent | noRootLiteralOverride | predictGateStructure | derived `passed` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blob (binary) | _pending_ | n/a (binary critic emits no sub-scores) | | | | | | | | | _pending_ |
+| v11 (graded) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+The win the record proves: the v11 graded arm's named sub-scores distinguish a good lesson from a vapid one (a vapid lesson fails a named axis the blob arm's opaque binary verdict would have waved through). Real-v11-emission re-calibration + the arm-promotion decision is TS-15b's job, not TS-9's.
+
 ## Recommended build order
 
 `TS-1 → TS-2 → TS-3 → TS-4 → TS-5 → TS-5b → TS-6 → TS-7 → TS-8 → TS-9 → TS-10 → TS-11 → TS-12 → TS-12b → TS-13 → TS-14 → TS-15 → TS-15b → TS-16 → TS-17 → TS-26 → TS-18 → TS-19 → TS-20 → TS-21 → TS-22 → TS-23 → TS-24 → TS-25.`
