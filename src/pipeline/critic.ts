@@ -66,6 +66,15 @@ export async function critique(
  *    `passed` is DERIVED from the sub-scores by `derivePassed` (program decision 3), and
  *    regression-vs-best-prior is the offline `--baseline` bench, never an in-run input.
  *
+ * KNOWN LIMITATION (`findingsGrounded`): the brief's denormalized `findings` are NOT threaded into
+ * the critic input — `PageArtifact` carries no findings (they live on `LessonBrief`), and
+ * `gradedCriticPrompt` shows only the goal + a11y contract + HTML. So `findingsGrounded` currently
+ * grades source-INTERNAL claim plausibility (does the prose read as invented?), not actual grounding
+ * against a supplied evidence list. Threading the brief findings into the critic input is a contract
+ * extension owned by TS-8 (the `CriticVerdict`/`CritiquedArtifact` write-path / critic-input work) —
+ * see `docs/plans/lesson-workspace.md`; until then the offline calibration step (`npm run
+ * critic:calibrate`) is what surfaces whether this axis carries real signal.
+ *
  * It is one of the system prompts folded into `PROMPTS_VERSION` (`src/pipeline/prompts.ts`), so
  * editing the graded rubric makes the graded arm a distinct `workflow_version` eval arm.
  */
@@ -113,6 +122,9 @@ export const GRADED_CRITIC_SYSTEM = [
  * The per-call graded-critic prompt. Shows the artifact's goal + a11y contract + the full HTML
  * and asks for the v2 graded verdict. It introduces NO best-prior / regression input (program
  * decision 3) — the critic grades the CURRENT artifact against the ledger only.
+ *
+ * NOTE: it threads NO brief findings (`PageArtifact` carries none), so `findingsGrounded` is graded
+ * source-internally here — see the `GRADED_CRITIC_SYSTEM` doc-comment's KNOWN LIMITATION (TS-8).
  */
 function gradedCriticPrompt(artifact: PageArtifact): string {
   return [

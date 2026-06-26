@@ -36,7 +36,9 @@ export const FIXTURE_MANIFEST: readonly LabeledFixture[] = [
     label: 'good',
     rationale:
       'Named grid incl. [scrub], per-section subgrid, ≤900px collapse, no :root override; misconception ' +
-      'hook, a real predict-gate with answer-specific feedback, grounded claim, apparatus that adds.',
+      'hook, a real predict-gate with answer-specific feedback, source-internally plausible (non-invented) ' +
+      'claims, apparatus that adds. (`findingsGrounded` grades intrinsic plausibility, not grounding ' +
+      'against supplied brief findings — those are not threaded into the critic; see critic.ts / TS-8.)',
     file: 'good-lesson.html',
     learningGoal: 'understand why a sine wave repeats every 2π',
   },
