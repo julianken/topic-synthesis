@@ -4,15 +4,24 @@ import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
 /**
- * CODE_SYSTEM (Sonnet) — the v11 lesson-workspace contract (TS-12). It teaches the model the
+ * CODE_SYSTEM (Sonnet) — the v11 lesson-workspace contract (TS-12, TS-13). It teaches the model the
  * LOCKED two-column teaching workspace from DESIGN.md `## Lesson layout` (DESIGN.md wins on any
- * design conflict — this prompt references that bar, it does NOT fork it) and states the three
+ * design conflict — this prompt references that bar, it does NOT fork it) and states the
  * hard, non-negotiable structural requirements the downstream graded critic (TS-7) statically
  * gates on and serve-time injection (TS-19) relies on:
  *   1. the named CSS-grid column-line literal `[screen-start] [read] [gap] [panel] [scrub]`,
  *   2. `var(--token)`-only theming with NO competing `:root` color/geometry literal block, and
  *   3. an inline `var(--token, <fallback>)` self-contained fallback so a doc still renders when no
  *      `:root` token block is injected at serve time (the no-injection path).
+ * TS-13 adds two content-internal apparatus requirements authored into the SAME one-pass emission:
+ *   4. ≥1 PREDICT-THEN-REVEAL gate (the v11 pedagogy primitive — learner commits a prediction before
+ *      the answer + answer-specific feedback reveals; a still-locked gate is a critic anti-pattern),
+ *   5. the decision-12 `postMessage` SENDER (path a) — a coordinate-only `{type, sections, scroll
+ *      Progress}` posted to `window.parent` at a KNOWN target origin (never `'*'`), the cross-iframe
+ *      contract TS-20's reader shell later consumes via the receive-side validator in
+ *      `src/app/curriculum/[id]/lesson-message.ts` (it never reads this opaque-origin frame's DOM). concept-drift-ok: route/code identifier path, deferred rename (ADR-0003)
+ * Neither relaxes the sandbox or the `ARTIFACT_CSP` (Key-decision 1 — new behavior lands INSIDE the
+ * sandboxed HTML, never by widening the boundary); `maxTokens` stays 32000 (one-pass, TS-5).
  *
  * One-pass emission (TS-5 verdict, #87): a real v11-shaped generated emission measured ~59–60% of
  * `maxTokens: 32000` with teaching density surviving, so this stays one `deps.complete` call and the
@@ -65,6 +74,29 @@ export const CODE_SYSTEM = [
   '',
   'ACCESSIBILITY: satisfy the stated accessibility contract EXACTLY — keyboard operability and the',
   'text alternative are generation targets, stated up front, not retrofitted.',
+  '',
+  'PREDICT-GATE (HARD, non-negotiable — TS-13): the lesson MUST include AT LEAST ONE predict-then-',
+  'reveal gate — an interactive control where the learner COMMITS A PREDICTION (picks/enters an',
+  'answer and submits) BEFORE the answer and its feedback are revealed. The reveal is GATED on that',
+  'input: nothing about the answer is shown until the learner commits. The feedback MUST be',
+  'ANSWER-SPECIFIC — a different message for each wrong choice that addresses THAT misconception, not',
+  'a generic "correct/incorrect". Every gate MUST have a reachable reveal path (a still-locked gate',
+  'with no way to reveal is a failure). A free, un-gated reveal button (reveal with no prediction',
+  'required) does NOT satisfy this. Keyboard-operable, like all controls.',
+  '',
+  'PROGRESS postMessage (HARD, non-negotiable — TS-13 decision-12 path a): emit a small inline script',
+  'that posts COORDINATE-ONLY reading-progress data to the parent so the (future) reader shell can',
+  'render a reading-progress bar / section-jump without reading this opaque-origin frame. The sender',
+  'MUST: (1) build a section list of `{ id, title }` from the rendered `<section>` headings, and a',
+  '`scrollProgress` scalar in 0..1 (how far the reader has scrolled); (2) post the EXACT shape',
+  "`{ type: 'lesson:progress', sections, scrollProgress }` to `window.parent` via",
+  '`window.parent.postMessage(msg, targetOrigin)`; (3) target a KNOWN origin string, NEVER `"*"` —',
+  'derive it from `document.referrer` (`new URL(document.referrer).origin`, falling back to the',
+  "literal opaque-origin token `'null'` when there is no referrer); (4) post once on load AND on",
+  'scroll (debounced/rAF-throttled). It reads ONLY this document — it sends coordinates, never HTML.',
+  'This coordinates the in-iframe dot-scrubber against the reserved `[scrub]` track (it does NOT',
+  're-emit the track). Wrap message posting in a `try/catch` so a framing-less standalone open is',
+  'harmless.',
 ].join('\n');
 
 /**
