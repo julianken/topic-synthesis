@@ -3,6 +3,7 @@ import {
   type CritiquedArtifact,
   derivePassed,
   GradedCriticVerdictSchema,
+  isLessonSpec,
   type PageArtifact,
 } from '../domain/stages';
 import type { LlmCallRecord } from '../llm/client';
@@ -14,10 +15,18 @@ export const CRITIC_SYSTEM =
   'teaches the learning goal, is genuinely interactive, satisfies the accessibility contract, ' +
   'and is self-contained. Pass only if all hold. Give a terse critique either way.';
 
+/** Render the arm-scoped spec's pedagogy descriptor: the blob arm's flat `interactionKind`, or
+ *  the v11 `LessonSpec`'s ordered section kinds. `a11yContract` is on both arms, so the prompts
+ *  read it directly; only `interactionKind`/`sections` differ, so they go through here. */
+function specDescriptor(spec: PageArtifact['spec']): string {
+  if (isLessonSpec(spec)) return `Section kinds: ${spec.sections.map((s) => s.kind).join(', ')}`;
+  return `Interaction kind: ${spec.interactionKind}`;
+}
+
 function criticPrompt(artifact: PageArtifact): string {
   return [
     `Learning goal: ${artifact.learningGoal}`,
-    `Interaction kind: ${artifact.spec.interactionKind}`,
+    specDescriptor(artifact.spec),
     `Accessibility contract: ${artifact.spec.a11yContract}`,
     '',
     'Generated HTML:',
@@ -134,7 +143,7 @@ export const GRADED_CRITIC_SYSTEM = [
 function gradedCriticPrompt(artifact: PageArtifact): string {
   return [
     `Learning goal: ${artifact.learningGoal}`,
-    `Interaction kind: ${artifact.spec.interactionKind}`,
+    specDescriptor(artifact.spec),
     `Accessibility contract: ${artifact.spec.a11yContract}`,
     '',
     'Grade this lesson page against the named learning-efficacy axes and the statically-checkable',

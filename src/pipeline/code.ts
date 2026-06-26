@@ -8,6 +8,8 @@ export const CODE_SYSTEM =
   '(inline CSS + JS, no external dependencies or network requests) that teaches the concept ' +
   'interactively and satisfies the accessibility contract exactly. Output only the HTML document.';
 
+// TS-11 will give `code` a v11 LessonSpec branch (sectioned apparatus); today `code` is the
+// BLOB-arm stage and takes the flat PageSpec — so its input type stays PageSpec, NOT the union.
 function codePrompt(spec: PageSpec, learningGoal: string): string {
   return [
     `Learning goal: ${learningGoal}`,
