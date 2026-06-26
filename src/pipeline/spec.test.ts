@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isLessonSpec, type LessonBrief, type LessonSpec, type PageSpec } from '../domain/stages';
+import {
+  isLessonSpec,
+  type LessonBrief,
+  type LessonSpec,
+  LessonSpecSchema,
+  type PageSpec,
+} from '../domain/stages';
 import type { StageDeps } from './deps';
 import { defaultStages, type StageBundle } from './ports';
 import { spec, SPEC_V11_SYSTEM, specV11 } from './spec';
@@ -73,6 +79,15 @@ function v11Brief(): LessonBrief {
   };
 }
 
+// Prose-only content sections (NO apparatus component) used to pad a fixture up to the TS-12b section
+// floor (MIN_LESSON_SECTIONS) so `specV11`'s re-validation against `LessonSpecSchema` passes for the
+// reason the test cares about — they never carry a primitive, so they don't perturb the apparatus logic.
+const contentFiller = [
+  { kind: 'concept' as const, prose: 'content prose A' },
+  { kind: 'concept' as const, prose: 'content prose B' },
+  { kind: 'takeaways' as const, prose: 'content prose C' },
+];
+
 describe('specV11 (the v11 sectioned arm)', () => {
   it('requests the sectioned LessonSpec schema (not PageSpecSchema) on the spec model', async () => {
     const lessonSpec: LessonSpec = {
@@ -96,6 +111,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'name the case that does not recurse', answer: 'the base case' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'keyboard + text alt',
       citations: [{ url: 'https://a.example', title: 'A' }],
@@ -186,6 +202,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'q', answer: 'a' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [],
@@ -206,9 +223,21 @@ describe('specV11 (the v11 sectioned arm)', () => {
   });
 
   it('AC6 — drops a citation pointing at a source not in the brief findings', async () => {
+    // The fixture carries BOTH load-bearing primitives so it is contract-valid: `specV11` now
+    // re-validates the (clamped) emission against LessonSpecSchema, so a primitive-less spec would
+    // trip the self-repair retry rather than reaching the citation filter under test.
     const lessonSpec = {
       nodeSlug: 'recursion',
       sections: [
+        {
+          kind: 'hook',
+          prose: 'p0',
+          component: {
+            kind: 'predict-gate',
+            teachingPurpose: 'predict',
+            answerable: { prompt: 'q', answer: 'a' },
+          },
+        },
         {
           kind: 'self-check',
           prose: 'p',
@@ -218,6 +247,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'q', answer: 'a' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [
@@ -258,6 +288,7 @@ describe('specV11 (the v11 sectioned arm)', () => {
             answerable: { prompt: 'name the non-recursing case', answer: 'base case' },
           },
         },
+        ...contentFiller, // pad past the section floor so re-validation passes
       ],
       a11yContract: 'kb',
       citations: [],
@@ -284,6 +315,232 @@ describe('specV11 (the v11 sectioned arm)', () => {
     expect(SPEC_V11_SYSTEM).toMatch(/self-check/);
     // mirrors the critic's apparatusAddsBeyondProse language so emission + grading agree
     expect(SPEC_V11_SYSTEM).toMatch(/ADD what the prose/i);
+  });
+
+  // ── TS-12b quality steer: demand a RICH multi-section lesson with both REAL primitives ──
+  it('TS-12b — SPEC_V11_SYSTEM demands a rich multi-section lesson, not a single section', () => {
+    // a single-section lesson is the degenerate failure mode the live render exposed
+    expect(SPEC_V11_SYSTEM).toMatch(/multi-section/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/section for each key point|one section per key point/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/densify every section/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/never collapse the lesson to one section/i);
+    // TS-12b — the system prompt states the explicit section floor (>= 4) the schema now enforces
+    expect(SPEC_V11_SYSTEM).toMatch(/at\s+least 4 sections/i);
+  });
+
+  it('TS-12b — SPEC_V11_SYSTEM re-scopes documentedReasonAbsent to pure-reference pages only', () => {
+    // it must FORBID the escape on an ordinary explanatory lesson (the Photosynthesis bug)
+    expect(SPEC_V11_SYSTEM).toMatch(/documentedReasonAbsent/);
+    expect(SPEC_V11_SYSTEM).toMatch(/ordinary explanatory lesson.*always needs both real primitives/is);
+    expect(SPEC_V11_SYSTEM).toMatch(/never use documentedReasonAbsent to skip them/i);
+    // the escape is valid ONLY on a genuinely apparatus-free page (NEITHER primitive present) — the
+    // closed half-apparatus hole
+    expect(SPEC_V11_SYSTEM).toMatch(/NO predict-gate AND NO self-check/i);
+    expect(SPEC_V11_SYSTEM).toMatch(/does NOT excuse\s+a half-apparatus lesson/i);
+  });
+
+  it('TS-12b — the v11 prompt asks for one section per brief key point (N key-points → N sections)', async () => {
+    // a brief with three key points must drive the prompt to request a section for EACH — not a blob
+    const completeObject = vi.fn().mockResolvedValue({ object: validLessonSpec(), record: rec });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    const prompt = completeObject.mock.calls[0]![0].prompt as string;
+    // v11Brief() has 3 key points → the prompt states the count and asks for a section for each
+    expect(prompt).toMatch(/Key points \(3;/);
+    expect(prompt).toMatch(/a section for EACH key point/i);
+    expect(prompt).toMatch(/Do NOT collapse to one\s+section/i);
+    // and steers away from the escape hatch on an ordinary lesson
+    expect(prompt).toMatch(/use documentedReasonAbsent ONLY for a/i);
+  });
+
+  // ── self-repair retry (TS-12b: refines absent from the JSON Schema → intermittent invalid specs) ──
+  // A valid sectioned LessonSpec with BOTH load-bearing primitives — the shape a successful (or
+  // self-corrected) emission produces.
+  function validLessonSpec(): LessonSpec {
+    return {
+      nodeSlug: 'recursion',
+      sections: [
+        {
+          kind: 'hook',
+          prose: 'p0',
+          component: {
+            kind: 'predict-gate',
+            teachingPurpose: 'predict the stop condition',
+            answerable: { prompt: 'what stops it?', answer: 'the base case' },
+          },
+        },
+        {
+          kind: 'self-check',
+          prose: 'p1',
+          component: {
+            kind: 'self-check',
+            teachingPurpose: 'retrieval on the base case',
+            answerable: { prompt: 'name the non-recursing case', answer: 'base case' },
+          },
+        },
+        ...contentFiller, // pad past the section floor so re-validation passes
+      ],
+      a11yContract: 'kb',
+      citations: [],
+    };
+  }
+
+  // A spec that VIOLATES a top-level refine: a self-check but NO predict-gate and no
+  // documentedReasonAbsent (the exact intermittent failure TS-12b surfaced live).
+  const missingPrimitive = {
+    nodeSlug: 'recursion',
+    sections: [
+      {
+        kind: 'self-check',
+        prose: 'p',
+        component: {
+          kind: 'self-check',
+          teachingPurpose: 'retrieval',
+          answerable: { prompt: 'q', answer: 'a' },
+        },
+      },
+    ],
+    a11yContract: 'kb',
+    citations: [],
+  };
+
+  it('self-repairs a returned-but-invalid spec: re-calls with the Zod error appended, then succeeds', async () => {
+    // The fake bypasses the SDK validation, so it RETURNS an invalid spec on the first call (no
+    // predict-gate). specV11 must re-validate, append the Zod error, and re-call — succeeding on the retry.
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ object: missingPrimitive, record: { ...rec, costUsd: 0.5 } })
+      .mockResolvedValueOnce({ object: validLessonSpec(), record: { ...rec, costUsd: 0.7 } });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    const out = await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    if (!isLessonSpec(out.spec)) throw new Error('expected a LessonSpec');
+    // it re-called exactly once after the invalid first attempt
+    expect(completeObject).toHaveBeenCalledTimes(2);
+    // the result is the valid (repaired) spec — both primitives present
+    const hasPredictGate = out.spec.sections.some((s) => s.component?.kind === 'predict-gate');
+    const hasSelfCheck = out.spec.sections.some(
+      (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
+    );
+    expect(hasPredictGate && hasSelfCheck).toBe(true);
+    // BOTH attempts' cost records thread through (a returning attempt is a paid call)
+    expect(out.records.map((r) => r.costUsd)).toEqual([0.5, 0.7]);
+    // the retry prompt carries the repair feedback the model self-corrects against
+    const retryPrompt = completeObject.mock.calls[1]![0].prompt as string;
+    expect(retryPrompt).toMatch(/did NOT satisfy the LessonSpec contract/i);
+    expect(retryPrompt).toMatch(/predict-gate/);
+    // TS-12b: the repair must steer toward ADDING a real primitive + KEEPING existing sections,
+    // and AWAY from the cheap path (collapse + documentedReasonAbsent) the live render exposed
+    expect(retryPrompt).toMatch(/ADD the missing primitive as a REAL component/i);
+    expect(retryPrompt).toMatch(/KEEP all the sections you already wrote/i);
+    expect(retryPrompt).toMatch(/do NOT\s+collapse the lesson to fewer sections/i);
+    expect(retryPrompt).toMatch(/Do NOT reach for documentedReasonAbsent/i);
+    // and it still carries the base prompt (the brief feed) so the model has the full context
+    expect(retryPrompt).toContain('understand recursion');
+  });
+
+  it('TS-12b — self-repair recovers by ADDING a real self-check (not the documentedReasonAbsent escape)', async () => {
+    // First attempt lacks a self-check (a predict-gate only, no documentedReasonAbsent) — invalid.
+    // The repaired attempt ADDS a REAL self-check section (with an answerable), the rich fix the steer
+    // demands. Asserting the recovered spec has a real self-check primitive AND no escape hatch proves
+    // the fix path is "add the missing primitive", not "collapse + documentedReasonAbsent".
+    const predictGateOnly = {
+      nodeSlug: 'recursion',
+      sections: [
+        {
+          kind: 'hook',
+          prose: 'why does a function call itself?',
+          component: {
+            kind: 'predict-gate',
+            teachingPurpose: 'predict the stop condition',
+            answerable: { prompt: 'what stops it?', answer: 'the base case' },
+          },
+        },
+        { kind: 'concept', prose: 'a function that calls itself needs a base case' },
+      ],
+      a11yContract: 'kb',
+      citations: [],
+    };
+    const completeObject = vi
+      .fn()
+      .mockResolvedValueOnce({ object: predictGateOnly, record: { ...rec, costUsd: 0.3 } })
+      .mockResolvedValueOnce({ object: validLessonSpec(), record: { ...rec, costUsd: 0.4 } });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    const out = await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    if (!isLessonSpec(out.spec)) throw new Error('expected a LessonSpec');
+    expect(completeObject).toHaveBeenCalledTimes(2);
+    // the recovered spec carries a REAL self-check with an answerable — not the escape hatch
+    const selfCheck = out.spec.sections.find(
+      (s) => s.component?.kind === 'self-check' && !!s.component.answerable,
+    );
+    expect(selfCheck).toBeDefined();
+    expect(selfCheck!.component!.answerable!.prompt.length).toBeGreaterThan(0);
+    expect(selfCheck!.component!.answerable!.answer.length).toBeGreaterThan(0);
+    expect(out.spec.documentedReasonAbsent).toBeUndefined(); // it did NOT use the escape hatch
+    // and it kept BOTH primitives (rich, not collapsed)
+    expect(out.spec.sections.some((s) => s.component?.kind === 'predict-gate')).toBe(true);
+  });
+
+  it('self-repairs when completeObject THROWS (the real SDK path) — re-calls, then succeeds', async () => {
+    // The real client validates with the SAME schema and THROWS on a refine miss before returning, so
+    // the live failure is a throw (no record to thread). The AI SDK wraps the failure TWO levels deep —
+    // NoObjectGeneratedError → (a TypeValidationError-like wrapper) → ZodError — so the test mirrors
+    // that depth to prove `findZodError` descends the `.cause` chain and prettifies the real Zod detail.
+    const cause = LessonSpecSchema.safeParse(missingPrimitive);
+    if (cause.success) throw new Error('fixture should be invalid');
+    // Mirror the live two-level wrapping the AI SDK produces — NoObjectGeneratedError →
+    // TypeValidationError → ZodError — with plain nested Errors (specV11 detects the ZodError by
+    // walking `.cause`, not by the SDK's error class, so a structural mirror is the faithful fixture).
+    const typeValidationLike = new Error('Type validation failed', { cause: cause.error });
+    const thrown = new Error('No object generated: response did not match schema.', {
+      cause: typeValidationLike,
+    });
+    const completeObject = vi
+      .fn()
+      .mockRejectedValueOnce(thrown)
+      .mockResolvedValueOnce({ object: validLessonSpec(), record: { ...rec, costUsd: 0.9 } });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    const out = await specV11(
+      { brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } },
+      deps,
+    );
+
+    if (!isLessonSpec(out.spec)) throw new Error('expected a LessonSpec');
+    expect(completeObject).toHaveBeenCalledTimes(2);
+    // only the successful (returning) attempt threads a record — the throwing attempt carries none
+    expect(out.records.map((r) => r.costUsd)).toEqual([0.9]);
+    // the retry prompt carries the prettified Zod detail dug out of the TWO-level-wrapped cause chain,
+    // not the opaque SDK message — proving findZodError descended to the ZodError
+    const retryPrompt = completeObject.mock.calls[1]![0].prompt as string;
+    expect(retryPrompt).toMatch(/did NOT satisfy the LessonSpec contract/i);
+    expect(retryPrompt).toContain('documentedReasonAbsent'); // the refine's path, from the prettified ZodError
+  });
+
+  it('fails loud after the bounded repair attempts rather than looping forever', async () => {
+    // The model keeps emitting the same invalid spec; specV11 must stop after SPEC_V11_MAX_ATTEMPTS (3)
+    // and surface the failure — never loop indefinitely on an unfixable model.
+    const completeObject = vi.fn().mockResolvedValue({ object: missingPrimitive, record: rec });
+    const deps = { completeObject } as unknown as StageDeps;
+
+    await expect(
+      specV11({ brief: v11Brief(), settings: { level: 'intro', depth: 2, audience: 'students' } }, deps),
+    ).rejects.toThrow();
+    expect(completeObject).toHaveBeenCalledTimes(3); // 1 initial + 2 repairs, then it gives up
   });
 
   it('AC8 — wires as a StageBundle.spec arm OVERRIDE, not a mutation of defaultStages.spec', () => {

@@ -1,6 +1,8 @@
+import { z } from 'zod';
 import {
   type LessonBrief,
   LessonSpecSchema,
+  MIN_LESSON_SECTIONS,
   type PageSpec,
   PageSpecSchema,
   SECTION_KINDS,
@@ -79,22 +81,37 @@ export async function spec(
 
 export const SPEC_V11_SYSTEM =
   'You are an instructional designer planning ONE interactive lesson as a DOCUMENT of typed ' +
-  'sections in reading order. The lesson contract is sectioned, not a single blob:\n' +
-  '- Plan an ORDERED list of sections, one per essential point, drawn from these kinds in this ' +
-  'pedagogical arc: hook → concrete-case → concept → worked-example → intuition → self-check → ' +
-  'takeaways. Use the kinds that fit the material (not every kind every time), but keep them in ' +
-  'this order.\n' +
+  'sections in reading order. The lesson contract is sectioned, not a single blob, and a RICH, ' +
+  'multi-section lesson is the bar — a single-section lesson is a FAILURE, never the target:\n' +
+  '- Plan an ORDERED list of MULTIPLE sections that walk the pedagogical arc as the material ' +
+  'warrants: hook → concrete-case → concept → worked-example → intuition → self-check → takeaways. ' +
+  'Produce a SECTION FOR EACH key point given (one section per key point, in order), plus the hook ' +
+  'and self-check the arc needs — never collapse the lesson to one section. Use the kinds that fit ' +
+  'the material (not every kind every time), but keep them in this order. A valid lesson has AT ' +
+  `LEAST ${MIN_LESSON_SECTIONS} sections (hook + content + self-check + takeaways is already that ` +
+  'many) — even a pure-reference page is multi-section, never one blob.\n' +
+  '- DENSIFY EVERY SECTION: each section earns its place with prose that teaches, and the lesson as ' +
+  'a whole is richer and longer than a single explanatory blob — not thinner. Do NOT trim sections ' +
+  'or detail to make the schema easier to satisfy.\n' +
   '- Each section may carry AT MOST ONE apparatus component (kind ∈ predict-gate | self-check | ' +
   'canvas | svg | html). Never put more than one component on a section. Many sections carry NONE ' +
   '— prose alone is fine.\n' +
   '- Apparatus must ADD what the prose does not already state — never decorative filler. State each ' +
   "component's teaching purpose: the specific thing it makes the learner do or see that the prose " +
   'cannot. A component with no real reason to exist must be omitted, not invented.\n' +
-  '- The lesson MUST carry the two load-bearing pedagogy primitives: at least one predict-gate ' +
-  '(a predict-then-reveal interactive) AND at least one self-check (an answerable retrieval check). ' +
-  'Each primitive component carries an answerable { prompt, answer } pair. Only if a predict-gate or ' +
-  'self-check is pedagogically WRONG for this lesson (e.g. a pure-definition reference page) may you ' +
-  'omit them — and then you MUST state a non-empty documentedReasonAbsent explaining why.\n' +
+  '- The lesson MUST carry BOTH load-bearing pedagogy primitives as REAL apparatus: at least one ' +
+  'predict-gate section (a predict-then-reveal interactive) AND at least one self-check section (an ' +
+  'answerable retrieval check). Each primitive component MUST carry a non-empty answerable ' +
+  '{ prompt, answer } pair — a real question with a real answer, not a placeholder. These are two ' +
+  'SEPARATE sections; a normal explanatory lesson always has room for both.\n' +
+  '- documentedReasonAbsent is a NARROW escape for a genuinely APPARATUS-FREE page ONLY, NOT a ' +
+  'shortcut. Use it ONLY when BOTH a predict-gate AND a self-check are pedagogically WRONG for this ' +
+  'lesson — a pure-definition / glossary / reference page with nothing to predict and nothing to ' +
+  'recall. When you use it there must be NO predict-gate AND NO self-check at all: it does NOT excuse ' +
+  'a half-apparatus lesson. If you include EITHER primitive you MUST include BOTH and MUST NOT set ' +
+  'documentedReasonAbsent. An ordinary explanatory lesson (e.g. how a process works, why a phenomenon ' +
+  'happens) ALWAYS needs both real primitives — never use documentedReasonAbsent to skip them. Prefer ' +
+  'adding the real self-check over reaching for the escape hatch.\n' +
   '- State an accessibility contract (text alternative + keyboard support, up front not retrofitted) ' +
   'and cite only the offered sources.';
 
@@ -104,19 +121,26 @@ function specV11Prompt(input: SpecInput): string {
   const findings = brief.findings
     .map((f, i) => `[${i}] ${f.claim}  (${f.source.title} — ${f.source.url})`)
     .join('\n');
+  const keyPointCount = brief.keyPoints.length;
   return [
     `Learning goal: ${brief.learningGoal}`,
-    `Key points (one section each, in order): ${brief.keyPoints.join('; ') || '(none)'}`,
+    `Key points (${keyPointCount}; ONE section each, in order): ${brief.keyPoints.join('; ') || '(none)'}`,
     `Audience: ${brief.audience} (level ${settings.level}, depth ${settings.depth}/5).`,
     '',
     'Grounded findings to teach from and cite:',
     findings || '(none)',
     '',
     `Section kinds, in order: ${SECTION_KINDS.join(' → ')}.`,
-    'Plan the lesson as an ordered list of typed sections. Each section has a kind, its reading-spine',
-    'prose, and AT MOST ONE optional apparatus component with a stated teachingPurpose. Include ≥1',
-    'predict-gate and ≥1 self-check (each with an answerable { prompt, answer }), or a',
-    'documentedReasonAbsent. Cite only the findings’ sources above; state the accessibility contract.',
+    'Plan the lesson as a RICH, ordered list of MULTIPLE typed sections — a section for EACH key point',
+    `above (${keyPointCount}), plus the hook and self-check the arc needs. Do NOT collapse to one`,
+    `section: a valid lesson has at least ${MIN_LESSON_SECTIONS} sections. Each section has a kind, its`,
+    'reading-spine prose, and AT MOST ONE optional apparatus component with a stated teachingPurpose.',
+    'Include BOTH real primitives as separate sections: ≥1 predict-gate AND ≥1 self-check, each',
+    'carrying a non-empty answerable { prompt, answer }. This is an explanatory lesson — include both',
+    'real primitives. Use documentedReasonAbsent ONLY for a genuinely apparatus-free pure-definition/',
+    'reference page that has NEITHER a predict-gate NOR a self-check; never to skip an ordinary',
+    'self-check and never on a lesson that has one primitive but not the other. Cite only the findings’',
+    'sources above; state the accessibility contract.',
   ].join('\n');
 }
 
@@ -154,6 +178,80 @@ function clampSection(section: LooseSection): Section {
 }
 
 /**
+ * The bounded number of `completeObject` attempts `specV11` makes: ONE initial call plus up to two
+ * self-repair retries. The repair exists because `LessonSpecSchema`'s `.superRefine` constraints (a
+ * primitive component MUST carry an `answerable`; the spec MUST have ≥1 predict-gate + ≥1 self-check,
+ * or a `documentedReasonAbsent`) are NOT expressible in the JSON Schema the AI SDK sends the model —
+ * the model gets NO structural signal for them, so it intermittently emits a spec that the prompt
+ * asks for but the JSON Schema can't force, and the strict-schema validation throws (surfaced live by
+ * TS-12b: `No object generated: response did not match schema` → the lesson degraded to 'soon'). On a
+ * validation failure we re-call with the Zod error appended so the model self-corrects the missing
+ * primitive/answerable. Bounded so a persistently-failing model fails loud rather than looping.
+ */
+const SPEC_V11_MAX_ATTEMPTS = 3 as const;
+
+/**
+ * The repair feedback appended to the prompt on a retry. Derived from a Zod error (the returned
+ * object failed `LessonSpecSchema.safeParse`) or the AI SDK's structured-output validation throw (its
+ * `Output.object` `parseCompleteOutput` throws `NoObjectGeneratedError` → `TypeValidationError` →
+ * `ZodError` on the same schema). Either way the model sees the SPECIFIC unmet refine — the structural
+ * signal the JSON Schema couldn't carry — followed by an explicit instruction to fix by ADDING the
+ * missing primitive as a real component while KEEPING the existing sections (TS-12b quality fix): the
+ * naïve "satisfy the schema" re-prompt let the model take the cheapest valid path (collapse to one
+ * section + use `documentedReasonAbsent`), producing a degenerate lesson thinner than the blob arm. The
+ * repair therefore steers it to the RICH fix — add the real predict-gate/self-check, do not collapse,
+ * and do not reach for the escape hatch on an ordinary explanatory lesson.
+ */
+function repairFeedback(error: string): string {
+  return [
+    '',
+    'Your previous response did NOT satisfy the LessonSpec contract. Fix it by ADDING the missing',
+    'apparatus, then re-emit the FULL corrected spec:',
+    error,
+    '',
+    'HOW to fix (do NOT take the cheap path):',
+    '- ADD the missing primitive as a REAL component on its own section — e.g. add a self-check',
+    '  section whose component is { kind: "self-check", teachingPurpose: <specific>, answerable:',
+    '  { prompt: <a real question>, answer: <its real answer> } }, and likewise a predict-gate',
+    '  section. Every predict-gate AND every self-check component MUST carry a non-empty answerable',
+    '  { prompt, answer }.',
+    `- KEEP all the sections you already wrote — append the missing primitive section(s), do NOT`,
+    `  collapse the lesson to fewer sections or strip detail. A valid lesson has at least`,
+    `  ${MIN_LESSON_SECTIONS} sections; a richer multi-section lesson is the bar.`,
+    '- Do NOT reach for documentedReasonAbsent to make this pass. It excuses ONLY a genuinely',
+    '  apparatus-free pure-definition / reference page that has NEITHER a predict-gate NOR a',
+    '  self-check — it is INVALID on a lesson that already has one primitive but is missing the other.',
+    '  An ordinary explanatory lesson MUST include the real predict-gate + self-check primitives',
+    '  instead; add the missing one, do not document its absence.',
+  ].join('\n');
+}
+
+/** Walk an error's `.cause` chain (bounded) to find the first `ZodError`. The AI SDK wraps a
+ *  structured-output validation failure TWO levels deep — `NoObjectGeneratedError.cause` is a
+ *  `TypeValidationError`, whose `.cause` is the actual `ZodError`. Walking by `.cause` (rather than
+ *  importing the SDK's error classes) keeps the AI-SDK import surface in `src/llm/` only and is
+ *  resilient to the SDK's wrapping depth. Returns undefined if no ZodError is on the chain. */
+function findZodError(err: unknown): z.ZodError | undefined {
+  let current: unknown = err;
+  for (let depth = 0; depth < 5 && current != null; depth++) {
+    if (current instanceof z.ZodError) return current;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/** Extract a model-facing repair message from a thrown `completeObject` error. When the chain carries
+ *  the underlying `ZodError` (the live path: `NoObjectGeneratedError` → `TypeValidationError` →
+ *  `ZodError`), `z.prettifyError` renders it into the same readable per-field form as the
+ *  returned-but-invalid path — so the model sees the unmet refine, not the opaque "response did not
+ *  match schema". Falls back to the raw error message for any other throw. */
+function errorToFeedback(err: unknown): string {
+  const zerr = findZodError(err);
+  if (zerr) return z.prettifyError(zerr);
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Spec v11 (Sonnet): a LessonBrief → the typed sectioned `LessonSpec` (TS-10's contract). The v11
  * ARM's spec stage — it is NOT `defaultStages.spec` (the blob `spec` above stays the live default);
  * it is wired as a `StageBundle.spec` arm override (the arm wiring TS-14 finalizes). It shares the
@@ -162,26 +260,78 @@ function clampSection(section: LooseSection): Section {
  * strips an off-schema over-fill on parse); the deterministic clamp below is belt-and-suspenders for
  * a non-validating injection point, NOT the primary enforcer (the literal ≤3-gloss/≤1-mini-figure
  * DESIGN.md cap is the TS-12 code prompt's concern, and a typed-gloss schema cap is GAPS-deferred).
+ *
+ * SELF-REPAIR RETRY (surfaced by TS-12b's first live v11 render): `LessonSpecSchema`'s two
+ * `.superRefine` constraints (a primitive carries an `answerable`; the spec has both pedagogy
+ * primitives or a `documentedReasonAbsent`) are NOT in the JSON Schema the AI SDK sends the model, so
+ * the model gets no structural signal for them and intermittently emits a spec that fails validation
+ * → `completeObject` throws → the lesson degraded to 'soon'. We re-call up to `SPEC_V11_MAX_ATTEMPTS`
+ * times, appending the Zod validation error to the prompt so the model self-corrects the missing
+ * primitive/answerable. Every attempt that RETURNS threads its `LlmCallRecord` cost (a throwing
+ * attempt carries no record). The contract is unchanged — repair makes the model meet it, never
+ * weakens it. This is arm-scoped: `defaultStages.spec` (the blob `spec`) is untouched.
  */
 export async function specV11(
   input: SpecInput,
   deps: StageDeps = defaultDeps,
   model: StageModel = STAGE_MODELS.spec,
 ): Promise<SpecV11Output> {
-  const { object, record } = await deps.completeObject({
-    model,
-    system: SPEC_V11_SYSTEM,
-    prompt: specV11Prompt(input),
-    schema: LessonSpecSchema,
-  });
-  // Anti-fabrication: keep only citations pointing at a brief-findings source (the blob arm's
-  // discipline, applied to the sectioned spec's citations). The sectioned `LessonSpec` carries no
-  // per-section source field, so `citations` is the only grounded-source list to filter.
-  const offered = new Set(input.brief.findings.map((f) => f.source.url));
-  const citations = object.citations.filter((c) => offered.has(c.url));
-  // ≤1-component-per-section is enforced by `LessonSpecSchema` on parse (singular `component`, an
-  // over-fill stripped); this clamp is belt-and-suspenders for a non-validating injection point and
-  // is a no-op on validated input. Keep it in brief/reading order (first component wins).
-  const sections = (object.sections as LooseSection[]).map(clampSection);
-  return { spec: { ...object, sections, citations }, records: [record] };
+  const basePrompt = specV11Prompt(input);
+  const records: LlmCallRecord[] = [];
+  let prompt = basePrompt;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < SPEC_V11_MAX_ATTEMPTS; attempt++) {
+    let object: LessonSpec;
+    try {
+      const result = await deps.completeObject({
+        model,
+        system: SPEC_V11_SYSTEM,
+        prompt,
+        schema: LessonSpecSchema,
+      });
+      records.push(result.record); // this attempt produced a (paid) call — thread its cost
+      object = result.object;
+    } catch (err) {
+      // The real client's `completeObject` validates with the SAME schema (refines included) and
+      // THROWS on a refine miss before returning, so the live failure path is a throw (no record to
+      // thread). Feed the Zod detail back and retry; on the last attempt, re-throw.
+      lastError = err;
+      if (attempt + 1 >= SPEC_V11_MAX_ATTEMPTS) throw err;
+      prompt = basePrompt + repairFeedback(errorToFeedback(err));
+      continue;
+    }
+
+    // ≤1-component-per-section: enforced by `LessonSpecSchema` on parse (singular `component`, an
+    // over-fill stripped), but run the deterministic clamp FIRST so a non-validating injection point
+    // (a test's Zod-bypassing fake, or a future passthrough schema) that over-fills a section is
+    // collapsed to its first component BEFORE re-validation — otherwise `safeParse` would strip the
+    // off-schema `components` array to a component-less section and spuriously fail the primitives
+    // refine. On already-validated input this is a no-op. First component wins (brief/reading order).
+    const clamped = { ...object, sections: (object.sections as LooseSection[]).map(clampSection) };
+
+    // A returned object can still violate a refine on a non-validating injection point. Re-validate
+    // the CLAMPED candidate so the repair fires uniformly whether the failure came back as a throw OR
+    // as an invalid return (e.g. a fake that omits the answerable on a primitive).
+    const parsed = LessonSpecSchema.safeParse(clamped);
+    if (!parsed.success) {
+      lastError = parsed.error;
+      if (attempt + 1 >= SPEC_V11_MAX_ATTEMPTS) throw parsed.error;
+      prompt = basePrompt + repairFeedback(z.prettifyError(parsed.error));
+      continue;
+    }
+
+    // Anti-fabrication: keep only citations pointing at a brief-findings source (the blob arm's
+    // discipline, applied to the sectioned spec's citations). The sectioned `LessonSpec` carries no
+    // per-section source field, so `citations` is the only grounded-source list to filter.
+    const offered = new Set(input.brief.findings.map((f) => f.source.url));
+    const citations = parsed.data.citations.filter((c) => offered.has(c.url));
+    return { spec: { ...parsed.data, citations }, records };
+  }
+
+  // Unreachable: the loop returns on success and throws on the last failing attempt. Throw the last
+  // seen error defensively so a future edit to the loop bound can't silently fall through.
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('specV11: exhausted repair attempts without a valid LessonSpec');
 }
