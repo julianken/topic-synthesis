@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { pathToFileURL } from 'node:url';
+import { describe, expect, it } from 'vitest';
 import type { LearningEfficacy, LedgerConformance } from '../domain/stages';
 import { STAGE_MODELS } from '../llm/models';
 import type { StageDeps } from '../pipeline/deps';
 import { FIXTURE_MANIFEST, type LabeledFixture } from '../pipeline/fixtures/corpus';
-import { calibrateOne, expectedToPass, formatRow } from './calibrate-critic';
+import { calibrateOne, expectedToPass, formatRow, isDirectInvocation } from './calibrate-critic';
 
 // This test proves the calibration DRIVER's wiring with a FAKE critic — NO live model, so it runs in
 // CI. The live-spend behavior (the real critic over the corpus) is the manual `npm run critic:calibrate`
@@ -95,12 +96,22 @@ describe('formatRow', () => {
   });
 });
 
-describe('the calibration driver does not run on import', () => {
-  it('importing calibrate-critic makes no live model call', async () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await import('./calibrate-critic');
-    // If main() had fired on import it would have logged the "Calibrating…" banner and spent.
-    expect(spy).not.toHaveBeenCalledWith(expect.stringContaining('LIVE SPEND'));
-    spy.mockRestore();
+describe('the main() guard (isDirectInvocation) — gates the only live-spend path', () => {
+  const moduleUrl = pathToFileURL('/x/src/eval/calibrate-critic.ts').href;
+
+  it('is true when argv[1] IS this module (direct `tsx …` invocation runs main())', () => {
+    // The literal filesystem path tsx passes as argv[1] for this module.
+    expect(isDirectInvocation(moduleUrl, '/x/src/eval/calibrate-critic.ts')).toBe(true);
+  });
+
+  it('is false when argv[1] is a DIFFERENT entrypoint (imported by another runner — e.g. vitest)', () => {
+    // This is the case that holds under `npm test`: the test runner is argv[1], not this module,
+    // so main() must NOT fire. A regressed guard (e.g. dropping the URL comparison) goes red here.
+    expect(isDirectInvocation(moduleUrl, '/usr/local/bin/vitest')).toBe(false);
+    expect(isDirectInvocation(moduleUrl, '/x/src/eval/run-job.ts')).toBe(false);
+  });
+
+  it('is false when argv[1] is undefined (no entrypoint — e.g. a bare REPL import)', () => {
+    expect(isDirectInvocation(moduleUrl, undefined)).toBe(false);
   });
 });

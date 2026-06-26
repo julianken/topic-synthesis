@@ -124,9 +124,18 @@ async function main(): Promise<void> {
   );
 }
 
-// Run only when invoked directly (tsx src/eval/calibrate-critic.ts) — never on import (so the unit
-// test importing the helpers above makes NO live call, and `npm test` never triggers live spend).
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * True iff this module is the directly-invoked entrypoint (`tsx src/eval/calibrate-critic.ts`) — the
+ * predicate that gates `main()`, so importing the module (e.g. the unit test) makes NO live call and
+ * `npm test` never triggers live spend. Exported (and pure) so a unit test can drive it red if the
+ * guard regresses: pass a `process.argv[1]` that is NOT this module's URL and it MUST stay false.
+ */
+export function isDirectInvocation(moduleUrl: string, argv1: string | undefined): boolean {
+  return argv1 !== undefined && moduleUrl === pathToFileURL(argv1).href;
+}
+
+// Run only when invoked directly (tsx src/eval/calibrate-critic.ts) — never on import.
+if (isDirectInvocation(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
