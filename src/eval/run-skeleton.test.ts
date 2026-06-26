@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CriticVerdictSchema,
   FindingsSchema,
+  GradedCriticVerdictSchema,
   LessonBriefSchema,
   PageSpecSchema,
   PlanSchema,
@@ -18,6 +19,8 @@ import type { PipelineRunResult } from '../pipeline/run-pipeline';
 import type { judgeBrief } from '../trace/judge';
 import { ANALYSIS_ROW_KEY } from '../trace/reduce';
 import { SpanCollector } from '../trace/span';
+import { gradedCritique } from '../pipeline/critic';
+import { defaultStages } from '../pipeline/ports';
 import {
   buildOptions,
   buildRequest,
@@ -26,6 +29,7 @@ import {
   persistInput,
   reduceRunTrace,
   runSkeleton,
+  selectArm,
 } from './run-skeleton';
 
 const mkRec = () => ({
@@ -152,6 +156,88 @@ describe('buildOptions', () => {
 
   it('--max-questions caps the research fan-out', () => {
     expect(buildOptions(['--max-questions', '3']).maxQuestions).toBe(3);
+  });
+});
+
+describe('selectArm (the offline A/B bench arm — TS-9)', () => {
+  it('defaults to the blob arm (defaultStages: binary critic, the deployed default)', () => {
+    expect(selectArm(['--topic', 'x'])).toBe(defaultStages);
+    expect(selectArm(['--topic', 'x']).critic).toBe(defaultStages.critic);
+  });
+
+  it('--graded selects the v11 graded-critic arm via a StageBundle.critic swap (no RunOptions flag)', () => {
+    const arm = selectArm(['--topic', 'x', '--graded']);
+    expect(arm.critic).toBe(gradedCritique); // the only field that differs from the blob arm
+    const { critic, ...rest } = arm;
+    const { critic: _blob, ...blobRest } = defaultStages;
+    expect(rest).toEqual(blobRest); // every other stage is identical — pure stage substitution
+  });
+
+  it('runSkeleton threads the selected v11 arm end-to-end (graded sub-scores reach the page)', async () => {
+    // The graded arm answers GradedCriticVerdictSchema; runSkeleton with selectArm(['--graded']) must
+    // carry the sub-scores onto the built page (proving the arm actually ran, not just was selected).
+    const completeObject = vi.fn(async (opts: { schema: unknown }) => {
+      if (opts.schema === PlanSchema) {
+        return { object: { scope: 'S', subtopics: ['a'], researchQuestions: ['q1'] }, record: mkRec() };
+      }
+      if (opts.schema === FindingsSchema) {
+        return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
+      }
+      if (opts.schema === LessonBriefSchema) {
+        return {
+          object: {
+            learningGoal: 'g',
+            keyPoints: ['k'],
+            findings: [{ claim: 'c', source: { url: 'https://s.example', title: 'S' } }],
+            audience: 'a',
+          },
+          record: mkRec(),
+        };
+      }
+      if (opts.schema === PageSpecSchema) {
+        return {
+          object: { nodeSlug: 'lesson', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+          record: mkRec(),
+        };
+      }
+      if (opts.schema === GradedCriticVerdictSchema) {
+        const sub = (s: number) => ({ score: s, note: 'n' });
+        return {
+          object: {
+            passed: false, // self-asserted false; derivePassed recomputes true from the high floor
+            critique: 'graded',
+            learningEfficacy: {
+              misconceptionHook: sub(0.9),
+              retrievalCheck: sub(0.9),
+              findingsGrounded: sub(0.9),
+              apparatusAddsBeyondProse: sub(0.9),
+            },
+            ledgerConformance: {
+              namedGridPresent: sub(0.9),
+              perSectionSubgrid: sub(0.9),
+              collapseQueryPresent: sub(0.9),
+              noRootLiteralOverride: sub(0.9),
+              predictGateStructure: sub(0.9),
+            },
+          },
+          record: mkRec(),
+        };
+      }
+      throw new Error('unexpected schema');
+    });
+    const searchWeb = vi.fn(async () => ({ text: 's', sources: [{ url: 'https://s.example', title: 'S' }], record: mkRec() }));
+    const complete = vi.fn(async () => ({ text: '<!doctype html>', record: mkRec() }));
+    const deps = { complete, completeObject, searchWeb } as unknown as StageDeps;
+
+    const run = await runSkeleton(
+      { topic: 'T', settings: { level: 'intro', depth: 2, audience: 'a' } },
+      deps,
+      {},
+      undefined,
+      selectArm(['--graded']),
+    );
+    expect(run.result.pages[0]?.passed).toBe(true); // derived from the sub-score floor
+    expect(run.result.pages[0]?.scores?.learningEfficacy.retrievalCheck.score).toBe(0.9); // arm ran
   });
 });
 
