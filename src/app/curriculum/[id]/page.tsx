@@ -54,7 +54,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
         // /artifact route (page.href → src/app/artifact/serve.ts), authorized through the owning row
         // (the same-origin GET carries the session cookie — ADR-0002 §5). The shell never reads the
         // iframe DOM and never relaxes the sandbox/CSP. concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
-        <ReaderShell href={page.href} title={page.title} />
+        <ReaderShell id={id} href={page.href} title={page.title} />
       ) : (
         <div className="lesson-degraded" role="status">
           <span className={`badge badge--${page ? page.status : 'soon'}`}>

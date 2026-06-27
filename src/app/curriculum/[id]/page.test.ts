@@ -44,4 +44,25 @@ describe('TS-13 AC8 / TS-20 AC2 — the lesson iframe sandbox stays opaque-origi
     expect(SHELL).not.toContain('startViewTransition');
     expect(SHELL).not.toContain('@view-transition');
   });
+
+  it('sets the destination view-transition-name INLINE and id-scoped via morphName(id) (TS-20 ↔ TS-17)', () => {
+    // The destination name must equal TS-17's per-card origin (`morphName(id)`), so it is set inline
+    // from the lesson id — NOT a static `reader-panel` rule that could never pair with a per-card name.
+    // (The exact morphName output is value-locked against the card side in reader-morph.test.ts.)
+    expect(SHELL).toContain('viewTransitionName: morphName(id)');
+  });
+});
+
+// The destination name is NOT a static rule in globals.css — it MUST be inline + id-scoped (above), so
+// a regression that re-introduces a single global `view-transition-name` (which can't pair with TS-17's
+// per-card origin) trips this byte-pin. We assert the prior static name (`reader-panel`) is gone.
+describe('TS-20 — the .morph-box destination name is NOT a static global CSS rule', () => {
+  const CSS = readFileSync(fileURLToPath(new URL('../../globals.css', import.meta.url)), 'utf8');
+
+  it('has no static view-transition-name declaration (the name is per-id inline in reader-shell.tsx)', () => {
+    // A declaration (a `view-transition-name:` property) — not the explanatory comments — must be absent.
+    expect(CSS).not.toMatch(/^\s*view-transition-name\s*:/m);
+    // and the specific prior global name must not return
+    expect(CSS).not.toContain('reader-panel');
+  });
 });

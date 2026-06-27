@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { INITIAL_READER_CHROME, reduceReaderMessage } from './reader-message';
+import { morphName } from './reader-morph';
 
 /**
  * The reader shell for a BUILT single lesson (TS-20, Phase 3 — FRAME). It frames the unchanged
@@ -20,7 +21,7 @@ import { INITIAL_READER_CHROME, reduceReaderMessage } from './reader-message';
  * doesn't emit the sender) leaves the chrome at its empty/zero initial state — the shell stays fully
  * usable over a bare iframe, never an error, never a blank frame.
  */
-export function ReaderShell({ href, title }: { href: string; title: string }) {
+export function ReaderShell({ id, href, title }: { id: string; href: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [chrome, setChrome] = useState(INITIAL_READER_CHROME);
 
@@ -48,14 +49,17 @@ export function ReaderShell({ href, title }: { href: string; title: string }) {
       <ReadingProgress percent={pct} />
 
       {/*
-        The card→reader morph's FLIP DESTINATION. The `view-transition-name` pairs with the library
-        card's name (TS-17, the FLIP origin) so TS-21's cross-document View-Transition has both
-        endpoints. The morph is BOX-ONLY per the TS-5b verdict — the container box geometry-FLIPs
-        while the opaque iframe contents "jump in" at the final frame. TS-20 builds ONLY the
-        destination box + the anchor; the morph animation (no View-Transition rule and no transition
-        call are added in this PR) lands in TS-21.
+        The card→reader morph's FLIP DESTINATION. The `view-transition-name` is set INLINE and is
+        id-scoped — `morphName(id)` (= `lesson-card-<id>`) — so it equals the per-card name TS-17 stamps
+        on the FLIP ORIGIN (`library-card.ts`'s `morphName`). A cross-document View-Transition only pairs
+        an old/new snapshot when the two names are IDENTICAL, so a per-card origin needs a per-id
+        destination here — a single global name would never pair. TS-21's cross-document View-Transition
+        then has BOTH matching endpoints. The morph is BOX-ONLY per the TS-5b verdict — the container box
+        geometry-FLIPs while the opaque iframe contents "jump in" at the final frame. TS-20 builds ONLY
+        the destination box + the anchor; the morph animation (no View-Transition rule and no transition
+        call are added here) lands in TS-21.
       */}
-      <div id="readerPanel" className="morph-box">
+      <div id="readerPanel" className="morph-box" style={{ viewTransitionName: morphName(id) }}>
         {/*
           The lesson iframe — attributes BYTE-UNCHANGED from the bare render (AC2): opaque origin via
           `sandbox="allow-scripts"` WITHOUT `allow-same-origin`, `src` at the strict-CSP `/artifact`

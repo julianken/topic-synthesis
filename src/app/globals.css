@@ -165,8 +165,9 @@ h1 {
 
 /* ── Reader shell (TS-20): reading-progress + the #readerPanel.morph-box FLIP destination ─────────
    Frames the unchanged opaque-origin lesson iframe. The morph-box is the card→reader FLIP
-   DESTINATION (TS-21 animates it); TS-20 only declares the destination box + its view-transition-name
-   anchor here (NO @view-transition rule, NO startViewTransition — that animation is TS-21). */
+   DESTINATION (TS-21 animates it); TS-20 only declares the destination box — its id-scoped
+   view-transition-name anchor is set INLINE in reader-shell.tsx (see the .morph-box note below), NOT
+   here (NO @view-transition rule, NO startViewTransition — that animation is TS-21). */
 .reader {
   margin-top: var(--sp-4);
   display: flex;
@@ -207,13 +208,13 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-/* The card→reader morph DESTINATION box. The view-transition-name pairs with the library card's
-   FLIP origin (TS-17) so TS-21's cross-document View-Transition has both endpoints. BOX-ONLY per the
-   TS-5b verdict: the container geometry-FLIPs while the opaque iframe contents "jump in" at the final
-   frame. No animation is defined here. */
-.morph-box {
-  view-transition-name: reader-panel;
-}
+/* The card→reader morph DESTINATION box (`#readerPanel.morph-box`). Its `view-transition-name` is NOT
+   a static rule here — it is set INLINE per lesson id in `reader-shell.tsx` (`morphName(id)` =
+   `lesson-card-<id>`) so it equals the per-CARD name TS-17 stamps on the FLIP ORIGIN. A cross-document
+   View-Transition only pairs old/new snapshots when the two names are IDENTICAL, so a per-card origin
+   needs a per-id destination — a single global name would never pair. TS-21's cross-document
+   View-Transition then has both matching endpoints. BOX-ONLY per the TS-5b verdict: the container
+   geometry-FLIPs while the opaque iframe contents "jump in" at the final frame. No animation here. */
 
 /* The lesson's section list, posted via the decision-12 channel (absent until a valid message lands). */
 .reader-sections {
