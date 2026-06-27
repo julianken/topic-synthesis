@@ -34,6 +34,15 @@ tmp/
 .superpowers/
 .playwright-mcp/
 
+# Playwright e2e: the RUN artifacts are ignored, but the COMMITTED visual baselines
+# (e2e/**/*-snapshots/*.png) are checked in by design — they ARE the visual contract,
+# not the screenshot-paste flow the PR template governs. Do not ignore the snapshots dir.
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/
+.last-run.json
+
 # Claude Code: repo-local agents/skills ARE committed; per-developer settings and agent worktrees are not
 .claude/settings.local.json
 .claude/worktrees/

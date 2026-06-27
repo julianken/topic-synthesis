@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import type { VerifiedIdentity } from '../../domain/auth';
 import { isAllowed } from './allowlist';
 import { devBypassIdentity } from './dev-bypass';
-import { defaultProvider } from './gcp-auth-provider';
+import { selectAuthProvider } from './provider';
 import { SESSION_COOKIE } from './session';
 
 /**
@@ -18,7 +18,10 @@ export async function getSessionIdentity(opts?: { checkRevoked?: boolean }): Pro
   const cookie = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!cookie) return null;
 
-  const identity = await defaultProvider().verifySessionCookie(cookie, opts);
+  // selectAuthProvider() returns the real GCP adapter in prod and the seeded in-memory fake ONLY in a
+  // non-prod e2e process (AUTH_PROVIDER=fake) — it throws if the fake is ever requested in production
+  // (see provider.ts). The cookie / allowlist / email-verified checks below are identical on both paths.
+  const identity = await selectAuthProvider().verifySessionCookie(cookie, opts);
   if (!identity || !identity.emailVerified || !isAllowed(identity.sub)) return null;
   return identity;
 }

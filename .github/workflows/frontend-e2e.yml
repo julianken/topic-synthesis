@@ -1,0 +1,95 @@
+name: frontend-e2e
+
+# The frontend E2E + VISUAL gate — Playwright against the BUILT production bundle (next build →
+# next start), at the two DESIGN.md viewports (390×844 mobile + 1440×900 desktop) under forced
+# reduced motion. It runs the smoke suite (auth gate · test-auth library render · generate→generating
+# with the LLM pipeline + Job dispatch MOCKED) and the visual-snapshot suite (per-screen committed
+# -linux baselines).
+#
+# SOFT-LAUNCH (GAPS.md "soft-launch → dated-flip → promote-to-blocker"): BOTH jobs are
+# `continue-on-error: true` and are NOT in the branch ruleset's required checks nor in `.mergify.yml`
+# `queue_conditions`, so a first-run/rebuild baseline change or a browser flake never blocks a merge
+# while the suite proves itself. The job still RUNS on every PR and uploads its report + any written
+# baselines, so regressions are visible — just non-blocking. The existing import-fence + scaffolding
+# gates are untouched and stay required.
+#
+# PROMOTE-TO-REQUIRED (the dated-flip): once the suite has run green across a handful of PRs and the
+# Figma-rebuild baselines have settled, drop `continue-on-error` here AND add `frontend-e2e / e2e` (and
+# `/ visual`) to the branch ruleset's required status checks + `.mergify.yml` queue_conditions. That
+# ruleset change is an orchestrator action (a GitHub API / settings change), made in a separate PR —
+# NOT done here. Until then this gate is advisory.
+
+on: [push, pull_request]
+
+concurrency:
+  group: frontend-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e + visual (soft)
+    runs-on: ubuntu-latest
+    continue-on-error: true # SOFT — see header. Remove on the dated-flip to make this a blocker.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: topic
+          POSTGRES_PASSWORD: topic_dev
+          POSTGRES_DB: topic_synthesis
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U topic -d topic_synthesis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The webServer (playwright.config.ts) reads DATABASE_URL; point it at the service. The test
+      # seams (AUTH_PROVIDER=fake / E2E=1 / AUTH_ALLOWLIST) are set by the webServer `env` block in the
+      # config — they need not be repeated here. No K_SERVICE → the seams are reachable; a real Cloud
+      # Run deploy always carries K_SERVICE and would refuse the fake (src/app/auth/provider.ts).
+      DATABASE_URL: postgresql://topic:topic_dev@localhost:5433/topic_synthesis
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Migrate the database schema
+        run: npm run db:migrate
+
+      - name: Install Playwright Chromium (+ OS deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e + visual (Playwright, builds + serves the production bundle)
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7
+
+      # On the first CI run (or after a chrome rebuild) a -linux baseline may be missing/changed; the
+      # suite writes the actual PNG and (being soft) does not block. Upload the snapshot dir so the
+      # -linux baselines can be downloaded and COMMITTED to seed/refresh them.
+      - name: Upload visual snapshots (for committing -linux baselines)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-snapshots
+          path: e2e/**/*-snapshots/**
+          retention-days: 7
