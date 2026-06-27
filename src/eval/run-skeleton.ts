@@ -6,11 +6,9 @@ import type { Level } from '../domain/settings';
 import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
 import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
-import { gradedCritique } from '../pipeline/critic';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
-import { defaultStages, noopSink, type StageBundle, type TraceSink } from '../pipeline/ports';
+import { defaultStages, noopSink, type TraceSink } from '../pipeline/ports';
 import { runLesson, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
-import { specV11 } from '../pipeline/spec';
 import { persistRun, type PersistRunInput } from '../store/repo';
 import { writeTrace } from '../trace/eleatic-adapter';
 import { judgeBrief } from '../trace/judge';
@@ -43,7 +41,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--v11] [--graded] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--baseline <runId>]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--baseline <runId>]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -72,50 +70,6 @@ export function buildOptions(args: string[]): RunOptions {
   return options;
 }
 
-/**
- * Select the eval ARM for the offline A/B bench (TS-9, TS-14). An arm is realized purely as
- * `StageBundle` field SWAPS (program decision 3/7 — there is NO `RunOptions` arm flag; `RunOptions`'s
- * `{thresholds, maxNodes, models, maxQuestions}` shape is unchanged). Two independent, COMPOSABLE flags:
- *
- *  - `--v11`    swaps `spec → specV11` (the v11 SECTIONED `LessonSpec` emission, TS-11/TS-12; `code`
- *               already narrows the `PageSpec | LessonSpec` union, so a v11 spec is rendered into the
- *               v11 workspace). Default (no flag) keeps `defaultStages.spec` — the blob flat-`PageSpec`
- *               emission, now the reachable R10 kill-switch (TS-15b/#107 promoted `specV11` to the live
- *               default via `LIVE_ARM`; this CLI no-flag bench arm is still the blob emission).
- *               This replaces the throwaway `--v11` used by hand in TS-12b verification with a real,
- *               tested arm selector — the SYNTHESIS half of the A/B axis.
- *  - `--graded` swaps `critic → gradedCritique` (the v11 named-sub-score critic, the arm whose `built`
- *               gate the live path verifies). Default keeps the binary `critique` (the blob critic).
- *
- * They compose: `--v11 --graded` runs the full v11 arm (sectioned emission + graded read), `--graded`
- * alone scores the BLOB emission with the graded critic, etc. — every combination is one pure stage
- * substitution over `defaultStages`. Running the blob arm, then a `--graded`/`--v11` arm, over
- * `--trace <path> --baseline <blobRunId>` produces the paired `_analysis` rows that are the queryable
- * A/B substrate (TS-9 AC4 / TS-14 AC6). This is the ONLY CLI path that swaps an arm; the deployed Job
- * (`run-job.ts`) runs `LIVE_ARM` (the v11-graded arm — TS-15b/#107), not a CLI flag — the A/B record
- * is CLI-offline, never live telemetry.
- */
-export function selectArm(args: string[]): StageBundle {
-  const stages: StageBundle = { ...defaultStages };
-  if (args.includes('--v11')) stages.spec = specV11; // SYNTHESIS arm: the sectioned LessonSpec emission
-  if (args.includes('--graded')) stages.critic = gradedCritique; // the graded named-sub-score critic
-  return stages;
-}
-
-/**
- * The human-readable ARM TAG that rides each run's trace `label` (TS-9 AC4 / TS-14 AC6) so the paired
- * `_analysis` rows are distinguishable in one eleatic store. It names BOTH composable axes
- * `selectArm` swaps — the SYNTHESIS spec arm (`blob`/`v11`) and the CRITIC arm (`binary`/`graded`) —
- * e.g. `blob-binary` (the kill-switch arm; the CLI no-flag default), `v11-graded` (the full v11 arm —
- * the PROMOTED live default, TS-15b/#107), `blob-graded`,
- * `v11-binary`. Pure over `args` so it stays in lockstep with `selectArm` and is unit-testable.
- */
-export function armLabel(args: string[]): string {
-  const spec = args.includes('--v11') ? 'v11' : 'blob';
-  const critic = args.includes('--graded') ? 'graded' : 'binary';
-  return `${spec}-${critic}`;
-}
-
 /** Human-readable run summary: the synthesized lesson page(s) + the per-model cost breakdown.
  *  `runLesson` produces a trivial one-tier/one-page hub, so this iterates `hub.tiers` and prints a
  *  single lesson; the loop generalizes to the dormant curriculum path's multi-tier hub unchanged. */
@@ -142,20 +96,15 @@ export function formatSummary(run: PipelineRunResult): string {
  * matching the deployed Cloud Run Job (`run-job.ts`) + the single-lesson UI (#49). It exposes
  * `result.brief` (the `runLesson` Analysis product), so a `--trace` run now FIRES the #51 eval judge
  * over that brief (see `reduceRunTrace`). `deps` defaults to the live client, so a real run needs a
- * provider API key in the env (ANTHROPIC_API_KEY / OPENAI_API_KEY / …); tests inject fakes. `stages`
- * is the A/B arm (TS-9/TS-14): `defaultStages` (the blob arm — blob spec + binary critic, the reachable
- * kill-switch / CLI no-flag default; the deployed Job runs `LIVE_ARM` — TS-15b/#107) unless `selectArm`
- * swaps in the v11 SYNTHESIS spec (`--v11`) and/or the graded critic
- * (`--graded`) — the two composable `StageBundle` field swaps the offline bench pairs.
+ * provider API key in the env (ANTHROPIC_API_KEY / OPENAI_API_KEY / …); tests inject fakes.
  */
 export async function runSkeleton(
   request: TopicRequest,
   deps: StageDeps = defaultDeps,
   options: RunOptions = {},
   sink: TraceSink = noopSink,
-  stages: StageBundle = defaultStages,
 ): Promise<PipelineRunResult> {
-  return runLesson(request, new InlineEngine(), deps, options, stages, sink);
+  return runLesson(request, new InlineEngine(), deps, options, defaultStages, sink);
 }
 
 /** Write each synthesized page's HTML to `<dir>/<slug>.html` (for `--dump-html`); returns the paths. */
@@ -250,16 +199,11 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const request = buildRequest(args);
   const options = buildOptions(args);
-  // The A/B arm (TS-9/TS-14): `--v11` swaps the SYNTHESIS spec to the sectioned `specV11` emission and
-  // `--graded` swaps the CRITIC to `gradedCritique`; they compose. Default = the blob-binary arm.
-  const stages = selectArm(args);
-  const label = armLabel(args); // names both axes, e.g. 'blob-binary' | 'v11-graded' (rides the trace label)
   // `--max-nodes` is deliberately absent from the mode line: the CLI drives `runLesson`, which builds
   // exactly one page, so the flag is inert here (see `buildOptions`).
   const mode = [
     options.models ? 'cheap/Haiku' : 'default models',
     options.maxQuestions !== undefined ? `≤${options.maxQuestions} questions` : 'all questions',
-    `${label} arm`,
   ].join(', ');
   console.log(
     `Generating a lesson for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth}; ${mode})…\n`,
@@ -268,7 +212,7 @@ async function main(): Promise<void> {
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
   const collector = args.includes('--trace') ? new SpanCollector() : undefined;
-  const run = await runSkeleton(request, defaultDeps, options, collector ?? noopSink, stages);
+  const run = await runSkeleton(request, defaultDeps, options, collector ?? noopSink);
   console.log(formatSummary(run));
   if (args.includes('--dump-html')) {
     const dumpDir = readFlag(args, '--dump-html');
@@ -293,10 +237,8 @@ async function main(): Promise<void> {
       collector,
       run,
       {
-        // The arm tag rides the label so the paired blob/v11 `_analysis` rows are distinguishable in
-        // one eleatic store (TS-9 AC4); the v11 row also carries `baseline = <blobRunId>` (below).
         runId,
-        label: `${request.topic} [${label}]`,
+        label: request.topic,
         startedAt,
         config: { models: { ...STAGE_MODELS, ...(options.models ?? {}) }, settings: request.settings },
       },
@@ -306,13 +248,10 @@ async function main(): Promise<void> {
         ...(tracePath !== undefined ? { tracePath } : {}),
       },
     );
-    // Always surface the run id: it IS the eleatic run id, and the offline A/B bench needs it to pair
-    // the blob run into step 2's `--baseline` (the documented step-1 command traces WITHOUT --persist,
-    // so this is the only place the id is printed — TS-9 AC4 reproduction).
     console.log(
       path === ':memory:'
-        ? `\nTraced ${rowCount} row(s) (run id ${runId}; ephemeral :memory: — pass \`--trace <path>\` to persist).`
-        : `\nTraced ${rowCount} row(s) (run id ${runId}) to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
+        ? `\nTraced ${rowCount} row(s) (ephemeral :memory: — pass \`--trace <path>\` to persist).`
+        : `\nTraced ${rowCount} row(s) to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
     );
   }
   if (args.includes('--persist')) {

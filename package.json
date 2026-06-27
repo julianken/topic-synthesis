@@ -16,8 +16,7 @@
     "test:watch": "vitest",
     "db:migrate": "tsx src/store/migrate.ts",
     "skeleton": "tsx src/eval/run-skeleton.ts",
-    "job": "tsx src/eval/run-job.ts",
-    "critic:calibrate": "tsx src/eval/calibrate-critic.ts"
+    "job": "tsx src/eval/run-job.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.85",
