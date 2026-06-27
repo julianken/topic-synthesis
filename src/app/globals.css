@@ -173,6 +173,95 @@ h1 {
   gap: var(--sp-3);
 }
 
+/* ── Library home (TS-17): card grid of lesson posters + the folded-in intake ── */
+/* The card grid (FLIP origin). Responsive auto-fill so the grid reflows from a single column on
+   narrow viewports up to a multi-column wall, mirroring the Figma Library node 6:2 card wall. */
+.library-grid {
+  list-style: none;
+  margin: var(--sp-6) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--sp-4);
+}
+
+/* Each poster card is a BOUNDED BOX — the morph's FLIP ORIGIN (TS-21 names + animates it via the
+   per-card view-transition-name set inline in page.tsx; no animation runs here, TS-17 is box-only). */
+.poster {
+  display: flex;
+}
+
+.poster__card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  width: 100%;
+  min-height: 9rem;
+  padding: var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.poster__card:hover {
+  border-color: var(--interactive);
+  background: var(--bg-raised);
+}
+
+.poster__title {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.poster__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  font-size: var(--fs-small);
+}
+
+.poster__kind {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.poster__when {
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+/* First-run prompt — never a bare blank grid (DESIGN.md — empty states are labeled, not void). */
+.library-empty {
+  margin-top: var(--sp-6);
+  padding: var(--sp-5);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+
+/* The sole generation entry, folded onto the library page below the grid. */
+.library-intake {
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-6);
+  border-top: 1px solid var(--border);
+}
+
+.library-intake__heading {
+  font-size: var(--fs-h2);
+  margin: 0;
+}
+
 /* ── Intake form ──────────────────────────────────────────────────────────── */
 .intake {
   margin-top: var(--sp-6);

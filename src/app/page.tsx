@@ -1,106 +1,85 @@
-'use client';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getSessionIdentity } from './auth/require-session';
+import { listLessons } from '../store/repo';
+import { IntakeForm } from './intake-form';
+import { badgeClass, kindLabel, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
 
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+// The library lists the signed-in owner's persisted lessons — Postgres data read per request, not at
+// build time (mirrors the reader route's `force-dynamic`).
+export const dynamic = 'force-dynamic';
 
-export default function Home() {
-  const router = useRouter();
-  const [topic, setTopic] = useState('');
-  const [level, setLevel] = useState('intermediate');
-  const [depth, setDepth] = useState(3);
-  const [audience, setAudience] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * The library home (`/`, TS-17) — the FRAME-phase library route: an auth-gated, owner-scoped card grid
+ * of the signed-in user's lesson posters that is ALSO the product's sole generation entry (the intake
+ * form folds in here — program decision 11). It is the FLIP ORIGIN of the card→reader morph: each card
+ * is a bounded box carrying a per-card `view-transition-name` endpoint (`morphName`) that TS-21 will
+ * later animate into the reader's `#readerPanel.morph-box` (TS-20). NO global `@view-transition` is
+ * declared and NO animation runs here — TS-17 establishes the origin geometry only (box-only, per the
+ * TS-5b verdict; the library `/` and reader `/curriculum/[id]` stay two independent App-Router routes). concept-drift-ok: route identifier, deferred rename (ADR-0003)
+ *
+ * A SERVER component (the owner-scoped `listLessons` fetch must run behind the session gate, off the
+ * client) with the `<IntakeForm>` client island embedded — mirroring `layout.tsx` server + `SessionNav`.
+ */
+export default async function Library() {
+  const identity = await getSessionIdentity();
+  if (!identity) redirect('/sign-in');
 
-  async function submit() {
-    if (!topic.trim() || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ topic: topic.trim(), level, depth, audience: audience.trim() }),
-      });
-      if (!res.ok) throw new Error(`Generation request failed (${res.status}).`);
-      const { id } = (await res.json()) as { id: string };
-      router.push(`/curriculum/${encodeURIComponent(id)}`); // concept-drift-ok: route identifier, deferred rename (ADR-0003)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-      setSubmitting(false);
-    }
-  }
+  const lessons = await listLessons(identity.sub);
 
   return (
-    <main className="wrap">
+    <main className="wrap wrap--wide">
       <p className="eyebrow">Topic Synthesis</p>
-      <h1>Generate a lesson</h1>
+      <h1>Lessons</h1>
       <p className="lead">
-        Enter a STEM topic. A multi-agent pipeline researches it and synthesizes one interactive,
-        scaffolded lesson end-to-end.
+        Your generated lessons. Enter a STEM topic below and a multi-agent pipeline researches it and
+        synthesizes one interactive, scaffolded lesson end-to-end.
       </p>
 
-      <form
-        className="intake"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <label className="field">
-          <span className="field__label">Topic</span>
-          <input
-            className="field__input"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g. Fourier transforms"
-            required
-            autoFocus
-          />
-        </label>
+      {lessons.length > 0 ? (
+        <ul className="library-grid">
+          {lessons.map((lesson) => {
+            const kind = kindLabel(lesson.interactionKind);
+            const when = relativeTime(lesson.createdAt);
+            return (
+              <li key={lesson.id} className="poster">
+                {/* Each card is a bounded box linking CROSS-DOCUMENT to the reader (a plain next/link
+                    anchor — no client-router shell, TS-5b box-only routing). The `view-transition-name`
+                    endpoint (morphName, id-scoped) makes this box the morph's FLIP ORIGIN for TS-21; it
+                    is inert here (no `@view-transition` declared → no animation runs). */}
+                <Link
+                  className="poster__card"
+                  href={`/curriculum/${encodeURIComponent(lesson.id)}`} // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+                  style={{ viewTransitionName: morphName(lesson.id) }}
+                >
+                  <span className="poster__title">{lesson.title}</span>
+                  <span className="poster__meta">
+                    <span className={badgeClass(lesson.status)}>
+                      <span className="badge__icon" aria-hidden="true">
+                        {STATUS_ICON[lesson.status]}
+                      </span>{' '}
+                      {STATUS_LABEL[lesson.status]}
+                    </span>
+                    {kind ? <span className="poster__kind">{kind}</span> : null}
+                    {when ? <span className="poster__when">{when}</span> : null}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        // Empty state: a first-run prompt that points at the intake — never a bare blank grid (AC4).
+        <p className="library-empty">
+          No lessons yet. Generate your first one below — it takes about a minute.
+        </p>
+      )}
 
-        <label className="field">
-          <span className="field__label">Level</span>
-          <select className="field__input" value={level} onChange={(e) => setLevel(e.target.value)}>
-            <option value="intro">Intro</option>
-            <option value="intermediate">Intermediate</option>
-            <option value="advanced">Advanced</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span className="field__label">Depth: {depth}</span>
-          <input
-            className="field__range"
-            type="range"
-            min={1}
-            max={5}
-            value={depth}
-            onChange={(e) => setDepth(Number(e.target.value))}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">Audience (optional)</span>
-          <input
-            className="field__input"
-            value={audience}
-            onChange={(e) => setAudience(e.target.value)}
-            placeholder="e.g. self-taught dev"
-          />
-        </label>
-
-        <button className="btn" type="submit" disabled={submitting || !topic.trim()}>
-          {submitting ? 'Generating…' : 'Generate'}
-        </button>
-        {error ? (
-          <p className="intake__error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </form>
-
-      <p className="intake__note">Runs on Haiku, capped — about a minute and a few cents.</p>
+      <section className="library-intake" aria-label="Generate a new lesson">
+        <h2 className="library-intake__heading">Generate a lesson</h2>
+        <IntakeForm />
+        <p className="intake__note">Runs on Haiku, capped — about a minute and a few cents.</p>
+      </section>
     </main>
   );
 }
