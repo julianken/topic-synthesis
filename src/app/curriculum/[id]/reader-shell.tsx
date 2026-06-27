@@ -8,8 +8,10 @@ import { morphName } from './reader-morph';
  * The reader shell for a BUILT single lesson (TS-20, Phase 3 — FRAME). It frames the unchanged
  * opaque-origin lesson iframe in the v11 reader chrome: a reading-progress affordance + a section
  * list driven by the decision-12 `postMessage` channel, and the `#readerPanel.morph-box` wrapper
- * that is the card→reader FLIP destination (TS-21 animates it; TS-20 only builds the destination box
- * + its `view-transition-name` anchor — it adds no View-Transition rule and no transition call here).
+ * that is the card→reader FLIP destination. The box-only container-transform is animated by the
+ * route-level cross-document View-Transition transport + box-geometry tween in `globals.css` (TS-21,
+ * keyed to the per-id `view-transition-name` this shell sets inline); this component itself adds no
+ * View-Transition rule and no scripted transition call — the morph is pure CSS at the route boundary.
  *
  * Trust boundary (UNCHANGED — Key-decision 1): the iframe stays `sandbox="allow-scripts"` WITHOUT
  * `allow-same-origin` (opaque origin) and `src` points at the `/artifact` route's strict-CSP HTML.
@@ -53,11 +55,12 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
         id-scoped — `morphName(id)` (= `lesson-card-<id>`) — so it equals the per-card name TS-17 stamps
         on the FLIP ORIGIN (`library-card.ts`'s `morphName`). A cross-document View-Transition only pairs
         an old/new snapshot when the two names are IDENTICAL, so a per-card origin needs a per-id
-        destination here — a single global name would never pair. TS-21's cross-document View-Transition
-        then has BOTH matching endpoints. The morph is BOX-ONLY per the TS-5b verdict — the container box
-        geometry-FLIPs while the opaque iframe contents "jump in" at the final frame. TS-20 builds ONLY
-        the destination box + the anchor; the morph animation (no View-Transition rule and no transition
-        call are added here) lands in TS-21.
+        destination here — a single global name would never pair. TS-21's route-level cross-document
+        View-Transition transport (in globals.css) then pairs BOTH endpoints and tweens the box. The
+        morph is BOX-ONLY per the TS-5b verdict — the container box geometry-FLIPs while the opaque
+        iframe contents "jump in" at the final frame (the iframe's sandbox + ARTIFACT_CSP are
+        byte-unchanged across the morph). The animation lives in globals.css, NOT here — this box only
+        carries the inline per-id endpoint name.
       */}
       <div id="readerPanel" className="morph-box" style={{ viewTransitionName: morphName(id) }}>
         {/*
