@@ -155,12 +155,87 @@ h1 {
 }
 
 .artifact-frame {
+  display: block;
   width: 100%;
   height: 80vh;
-  margin-top: var(--sp-4);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-surface);
+}
+
+/* ── Reader shell (TS-20): reading-progress + the #readerPanel.morph-box FLIP destination ─────────
+   Frames the unchanged opaque-origin lesson iframe. The morph-box is the card→reader FLIP
+   DESTINATION (TS-21 animates it); TS-20 only declares the destination box — its id-scoped
+   view-transition-name anchor is set INLINE in reader-shell.tsx (see the .morph-box note below), NOT
+   here (NO @view-transition rule, NO startViewTransition — that animation is TS-21). */
+.reader {
+  margin-top: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* Reading progress (DESIGN.md §Components → "Reading progress"): a labeled bar + a tabular-figure
+   percent readout — status legible by NUMBER, not color alone (§Accessibility). The fill width is
+   driven by the posted scrollProgress; under prefers-reduced-motion the global rule above zeroes the
+   transition, so the fill updates instantly (§Motion). */
+.reading-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.reading-progress__track {
+  flex: 1 1 auto;
+  height: 4px;
+  background: var(--bg-raised);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.reading-progress__fill {
+  height: 100%;
+  background: var(--interactive);
+  border-radius: var(--r-sm);
+  transition: width var(--dur-base) var(--ease);
+}
+
+.reading-progress__label {
+  flex: none;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The card→reader morph DESTINATION box (`#readerPanel.morph-box`). Its `view-transition-name` is NOT
+   a static rule here — it is set INLINE per lesson id in `reader-shell.tsx` (`morphName(id)` =
+   `lesson-card-<id>`) so it equals the per-CARD name TS-17 stamps on the FLIP ORIGIN. A cross-document
+   View-Transition only pairs old/new snapshots when the two names are IDENTICAL, so a per-card origin
+   needs a per-id destination — a single global name would never pair. TS-21's cross-document
+   View-Transition then has both matching endpoints. BOX-ONLY per the TS-5b verdict: the container
+   geometry-FLIPs while the opaque iframe contents "jump in" at the final frame. No animation here. */
+
+/* The lesson's section list, posted via the decision-12 channel (absent until a valid message lands). */
+.reader-sections {
+  font-size: var(--fs-small);
+}
+
+.reader-sections ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.reader-sections__item {
+  color: var(--text-muted);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
 }
 
 /* Single-lesson degraded state: the run produced a soon/text lesson, not a built page.
