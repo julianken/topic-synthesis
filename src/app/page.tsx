@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionIdentity } from './auth/require-session';
 import { listLessons } from '../store/repo';
@@ -44,12 +43,17 @@ export default async function Library() {
             const when = relativeTime(lesson.createdAt);
             return (
               <li key={lesson.id} className="poster">
-                {/* Each card is a bounded box linking CROSS-DOCUMENT to the reader (a plain next/link
-                    anchor — no client-router shell, TS-5b box-only routing). The `view-transition-name`
-                    endpoint (morphName, id-scoped) makes this box the morph's FLIP ORIGIN; the TS-21
-                    cross-document View-Transition transport in `globals.css` pairs it with the reader's
-                    destination box and box-FLIPs the geometry on navigation. */}
-                <Link
+                {/* Each card links CROSS-DOCUMENT to the reader via a PLAIN <a> anchor — deliberately
+                    NOT next/link. next/link intercepts the click and does a CLIENT-SIDE soft navigation
+                    (RSC payload swap, no document unload/load), and `@view-transition { navigation: auto }`
+                    is a cross-document mechanism that only activates on a real document navigation — so a
+                    soft nav would never fire the morph (the card click would be an instant route swap with
+                    no box-FLIP). A plain anchor is a genuine full-document navigation App Router does not
+                    intercept, so the cross-document View-Transition transport in `globals.css` activates,
+                    pairs this card's `view-transition-name` endpoint (morphName, id-scoped — the FLIP
+                    ORIGIN) with the reader's destination box, and box-FLIPs the geometry on the click. The
+                    two routes stay independent (TS-5b decision 2: cross-doc VT transport, SPA shell rejected). */}
+                <a
                   className="poster__card"
                   href={`/curriculum/${encodeURIComponent(lesson.id)}`} // concept-drift-ok: route identifier, deferred rename (ADR-0003)
                   style={{ viewTransitionName: morphName(lesson.id) }}
@@ -65,7 +69,7 @@ export default async function Library() {
                     {kind ? <span className="poster__kind">{kind}</span> : null}
                     {when ? <span className="poster__when">{when}</span> : null}
                   </span>
-                </Link>
+                </a>
               </li>
             );
           })}

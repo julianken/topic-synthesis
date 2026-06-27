@@ -65,6 +65,35 @@ describe('TS-13 AC8 / TS-20 AC2 — the lesson iframe sandbox stays opaque-origi
   });
 });
 
+// ── TS-21 AC2 transport-FIRES regression pin: the card link must be a CROSS-DOCUMENT navigation ──────
+// The morph's transport is `@view-transition { navigation: auto }` (globals.css) — a CROSS-DOCUMENT
+// mechanism that only activates on a real full-document navigation (unload/load), never on a client-side
+// soft nav. A `next/link` (App Router `<Link>`) intercepts the card click and does a soft navigation (RSC
+// payload swap, no document navigation), so the morph would NEVER fire on the actual card-click flow — an
+// instant route swap with no box-FLIP (the deterministic non-firing TS-21's first review caught). The FLIP
+// ORIGIN card must therefore be a PLAIN `<a>` anchor (a genuine cross-document navigation App Router does
+// not intercept), so the transport activates and the box morphs. This guard byte-pins that on the source:
+// a regression that re-introduces `next/link` for the card (re-breaking the morph) trips it.
+describe('TS-21 AC2 — the FLIP-origin card is a cross-document <a> (NOT next/link soft nav)', () => {
+  // The FLIP ORIGIN is the LIBRARY home (`src/app/page.tsx`), two levels up from this reader route —
+  // NOT the reader `./page.tsx` the first block reads. Resolve the library page explicitly.
+  const LIBRARY = readFileSync(fileURLToPath(new URL('../../page.tsx', import.meta.url)), 'utf8');
+
+  it('does NOT import or use next/link for the card (a soft nav would never fire @view-transition)', () => {
+    // `next/link` soft-navigates (no document unload/load), so `@view-transition { navigation: auto }`
+    // would never activate — the morph would not run on the card click. The card must be a plain anchor.
+    expect(LIBRARY).not.toContain("from 'next/link'");
+    expect(LIBRARY).not.toMatch(/<Link\b/);
+  });
+
+  it('renders the FLIP-origin card as a plain <a> carrying the per-id view-transition-name endpoint', () => {
+    // The plain anchor is the genuine cross-document navigation that activates the transport; it still
+    // carries the inline per-id `morphName(lesson.id)` FLIP-origin endpoint the transport pairs.
+    expect(LIBRARY).toMatch(/<a\b[^>]*className="poster__card"/);
+    expect(LIBRARY).toContain('viewTransitionName: morphName(lesson.id)');
+  });
+});
+
 // The destination name is NOT a static rule in globals.css — it MUST be inline + id-scoped (above), so
 // a regression that re-introduces a single global `view-transition-name` (which can't pair with TS-17's
 // per-card origin) trips this byte-pin. We assert the prior static name (`reader-panel`) is gone.
