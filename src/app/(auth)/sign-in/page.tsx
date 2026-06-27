@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { signInWithGoogle } from '../../auth/client';
 import { GoogleG } from './google-g';
+import { SparkleMark } from './sparkle';
 
 export default function SignIn() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function SignIn() {
     <main className="signin">
       <div className="signin__card">
         <div className="signin__badge" aria-hidden="true">
-          ✦
+          <SparkleMark />
         </div>
         <p className="signin__wordmark">
           topic·<span className="signin__wordmark-accent">synthesis</span>

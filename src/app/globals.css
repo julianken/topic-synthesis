@@ -778,8 +778,10 @@ h1 {
   text-align: center;
 }
 
-/* ✦ icon badge (Figma 5:6/5:7): 54×54, 0.8px --accent-dim outline, rounded 15px; the glyph is the cyan
-   --accent at the light Inter weight. */
+/* ✦ icon badge (Figma 5:6/5:7): 54×54, 0.8px --accent-dim outline, rounded 15px. The mark is the inlined
+   <SparkleMark/> SVG (sparkle.tsx) — NOT the "✦" character, which isn't in Inter and fell back to a
+   per-platform system glyph that mis-sized/mis-positioned vs. Figma and drifted dev↔Cloud Run. `color:
+   var(--accent)` drives the SVG's `currentColor` so the cyan still resolves to the §0 token (no hardcode). */
 .signin__badge {
   display: flex;
   align-items: center;
@@ -789,10 +791,6 @@ h1 {
   border: 0.8px solid var(--accent-dim);
   border-radius: 15px;
   color: var(--accent);
-  font-family: var(--sans);
-  font-weight: 300;
-  font-size: 25px;
-  line-height: 1;
 }
 
 /* Two-tone wordmark (Figma 5:10): Inter SemiBold "topic·" in --text + Inter Black "synthesis" in --accent,
