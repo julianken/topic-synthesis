@@ -6,7 +6,7 @@ import { useState } from 'react';
 /**
  * The topic-intake form — the library home's SOLE generation entry (TS-17). RELOCATED VERBATIM from the
  * prior intake-only `page.tsx`: the validation, the `POST /api/generate`, and the success
- * `router.push('/curriculum/[id]')` are unchanged — TS-17 folds the intake onto the library page (one
+ * `router.push` to the reader route are unchanged — TS-17 folds the intake onto the library page (one
  * cross-document route the morph originates from), it does NOT rewrite the generation contract.
  *
  * A small `'use client'` island embedded in the server-component library page (which owns the
