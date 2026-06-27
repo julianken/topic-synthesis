@@ -128,18 +128,23 @@ export const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
  * no DOMPurify; R12 / revision-8 injection-safety made concrete). Injecting the canonical `:root`
  * at serve time (rather than baking it into each stored artifact) is what lets a future re-theme
  * reach ALREADY-GENERATED lessons: re-theming is a one-place edit here that every served lesson,
- * old and new, picks up on its next load. The artifact itself stays `:root`-free (forbidden by
- * `code.ts`) and keeps its §0-faithful inline `var()` fallbacks for the no-injection path.
+ * old and new, picks up on its next load. The artifact itself carries no `:root` block of its own —
+ * it references the §0 tokens by name and relies entirely on this serve-time injection to define
+ * them (the v11 revert dropped the artifact's inline `var(--token, …)` fallback copy, so this block
+ * is now the sole definition site the sandboxed page sees).
  */
 export const ARTIFACT_ROOT_STYLE = `<style>:root{${Object.entries(ARTIFACT_ROOT_TOKENS)
   .map(([name, value]) => `${name}:${value};`)
   .join('')}}</style>`;
 
 /**
- * The custom-property names the injected `:root` block defines — exported so a unit test can
- * statically assert this set is a SUPERSET of the `var(--token, …)` names `code.ts` references
- * (AC10). If a future §0 rename adds a token the artifact references but injection doesn't define,
- * that test fails — serve-time re-theming would otherwise silently no-op for the new token.
+ * The custom-property names the injected `:root` block defines — exported so `serve.test.ts`'s
+ * value-drift guard can iterate them and assert, for the FULL injected set against the resolved
+ * `globals.css` `:root` (the §0 source of truth): (a) every injected token NAME exists in
+ * `globals.css` (a §0-rename catch) and (b) each value matches the resolved `globals.css` value
+ * value-for-value (the one allowed divergence — the `--sans`/`--mono` loaded-font prefix — is
+ * normalized away). That guard is what keeps the §0 "two-copies invariant" honest: a retoken that
+ * edits `globals.css` but forgets this block is a CI failure here, not a silent old-theme serve.
  */
 export const ARTIFACT_ROOT_TOKEN_NAMES: readonly string[] = Object.keys(ARTIFACT_ROOT_TOKENS);
 
