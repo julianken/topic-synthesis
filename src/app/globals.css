@@ -6,33 +6,43 @@
  * tokens by name in component styles; never repeat a raw literal outside :root.
  */
 :root {
-  /* primitives — color */
-  --c-ink-950: #0a0d12;
-  --c-ink-900: #11151c;
-  --c-ink-800: #1a212b;
-  --c-ink-700: #2a333f;
-  --c-fog-100: #e8edf3;
-  --c-fog-300: #aab6c4;
-  --c-fog-500: #6b7888;
-  --c-accent-500: #5b9dff;
-  --c-accent-400: #8bb8ff;
-  --c-built-500: #3ecf8e;
-  --c-soon-500: #c9a227;
-  --c-danger-500: #ff6b6b;
+  /* primitives — color (OKLCH ramps, DESIGN.md §0; -c- prefix dropped to match the mock 1:1) */
+  --ink-950: oklch(0.165 0.018 250);
+  --ink-900: oklch(0.205 0.020 250);
+  --ink-850: oklch(0.245 0.020 250);
+  --ink-800: oklch(0.32 0.020 250);
+  --ink-700: oklch(0.40 0.020 250);
+  --fog-50: oklch(0.98 0.006 250);
+  --fog-100: oklch(0.95 0.008 250);
+  --fog-300: oklch(0.84 0.013 250);
+  --fog-450: oklch(0.74 0.015 250);
+  --fog-550: oklch(0.65 0.016 250);
+  --accent: oklch(0.82 0.145 215);
+  --accent-dim: oklch(0.70 0.11 215);
 
-  /* semantic — color */
-  --bg-app: var(--c-ink-950);
-  --bg-surface: var(--c-ink-900);
-  --bg-raised: var(--c-ink-800);
-  --border: var(--c-ink-700);
-  --text: var(--c-fog-100);
-  --text-muted: var(--c-fog-300);
-  --text-faint: var(--c-fog-500);
-  --interactive: var(--c-accent-500);
-  --interactive-hover: var(--c-accent-400);
-  --status-built: var(--c-built-500);
-  --status-soon: var(--c-soon-500);
-  --status-error: var(--c-danger-500);
+  /* semantic status primitives */
+  --ok: oklch(0.78 0.15 152);
+  --warn: oklch(0.82 0.13 80);
+  --err: oklch(0.66 0.17 25);
+
+  /* kind accents (new vocabulary — interactive-component-kind) */
+  --kind-svg: oklch(0.80 0.13 295);
+  --kind-canvas: oklch(0.82 0.13 50);
+  --kind-html: oklch(0.80 0.12 175);
+
+  /* semantic — color (reference primitives, DESIGN.md §0) */
+  --bg-app: var(--ink-950);
+  --bg-surface: var(--ink-900);
+  --bg-raised: oklch(0.215 0.018 250);
+  --border: var(--ink-800);
+  --text: var(--fog-100);
+  --text-muted: var(--fog-450);
+  --text-faint: var(--fog-550);
+  --interactive: var(--accent);
+  --interactive-hover: var(--accent-dim);
+  --status-built: var(--ok);
+  --status-soon: var(--warn);
+  --status-error: var(--err);
 
   /* type scale (rem) */
   --fs-hero: 2.5rem;
@@ -51,25 +61,34 @@
   --sp-6: 2rem;
   --sp-7: 3rem;
 
+  /* geometry (DESIGN.md §0 — lesson-workspace spine/panel/frame metrics) */
+  --measure: 33rem;
+  --panel-w: 23rem;
+  --col-gap: clamp(1.6rem, 2.6vw, 3.4rem);
+  --edge-gap: clamp(1.6rem, 2.4vw, 3.2rem);
+  --scrub-w: 1.1rem;
+  --frame-max: 1640px;
+
   /* radii + motion */
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 16px;
   --dur-fast: 120ms;
-  --dur-base: 220ms;
-  --dur-slow: 360ms;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-base: 200ms;
+  --dur-slow: 440ms;
+  --ease: cubic-bezier(.2, .75, .2, 1);
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* type families (DESIGN.md §0) */
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --serif: "Iowan Old Style", "Charter", "Georgia", serif;
 }
 
 html,
 body {
   background: var(--bg-app);
   color: var(--text);
-  font-family: var(--font-sans);
+  font-family: var(--sans);
   line-height: 1.5;
 }
 
@@ -198,7 +217,7 @@ h1 {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease);
 }
 
 .btn:hover {
@@ -289,7 +308,7 @@ h1 {
 /* Monospace + tabular figures so the live timer doesn't jitter as the digits tick (DESIGN.md §Typography). */
 .timeline__time {
   flex: none;
-  font-family: var(--font-mono);
+  font-family: var(--mono);
   font-size: var(--fs-mono);
   font-variant-numeric: tabular-nums;
 }
