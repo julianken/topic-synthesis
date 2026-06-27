@@ -1,7 +1,8 @@
 name: frontend-e2e
 
-# The frontend E2E + VISUAL gate — Playwright against the BUILT production bundle (next build →
-# next start), at the two DESIGN.md viewports (390×844 mobile + 1440×900 desktop) under forced
+# The frontend E2E + VISUAL gate — Playwright against the BUILT production bundle served the EXACT way
+# Cloud Run does (next build → `node .next/standalone/server.js`, the standalone-output entrypoint /
+# Dockerfile.app CMD, NOT next start), at the two DESIGN.md viewports (390×844 mobile + 1440×900 desktop) under forced
 # reduced motion. It runs the smoke suite (auth gate · test-auth library render · generate→generating
 # with the LLM pipeline + Job dispatch MOCKED) and the visual-snapshot suite (per-screen committed
 # -linux baselines).
@@ -72,7 +73,7 @@ jobs:
       - name: Install Playwright Chromium (+ OS deps)
         run: npx playwright install --with-deps chromium
 
-      - name: Run e2e + visual (Playwright, builds + serves the production bundle)
+      - name: Run e2e + visual (Playwright, builds + serves the standalone production bundle)
         run: npm run test:e2e
 
       - name: Upload Playwright report

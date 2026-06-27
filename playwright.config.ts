@@ -19,14 +19,21 @@ import { defineConfig, devices } from '@playwright/test';
 // Google fetch) and `display: 'swap'` avoids a reflow, text metrics are stable across the machine
 // that captures a baseline and the CI runner of the same OS. No extra preload wiring is needed.
 //
+// DEPLOY FIDELITY — the webServer serves the EXACT process Cloud Run runs: `node
+// .next/standalone/server.js` (Dockerfile.app's `CMD`), the standalone-output entrypoint, NOT
+// `next start` (officially-unsupported over `output: standalone` — Next logs `⚠ "next start" does not
+// work with "output: standalone"` and the standalone build omits the assets `next start` expects, so
+// it is a DIFFERENT, broken server than the deploy). So the e2e exercises the real shipped server, not
+// a different entrypoint. See the `webServer` block below.
+//
 // TEST-AUTH SEAM — the webServer sets `AUTH_PROVIDER=fake` (the in-memory FakeAuthProvider seam,
 // src/app/auth/provider.ts) + `E2E=1` (the network-free pipeline stub, src/pipeline/e2e-stub-deps.ts)
 // + the e2e owner sub on `AUTH_ALLOWLIST`. Both seams are opt-in via those flags AND hard-DENIED on a
 // deployed Cloud Run runtime (detected by `K_SERVICE`, the Knative var a deploy always carries — the
 // provider selector THROWS if the fake is requested there). The e2e runs the REAL `next build`
-// production bundle (NODE_ENV=production from `next start`) but with NO `K_SERVICE`, so the seam is
-// reachable; a real Cloud Run deploy never sets the flags and always has `K_SERVICE`, so it runs the
-// real GCP adapter and would crash on a misconfigured `AUTH_PROVIDER=fake`. See provider.ts.
+// production bundle (NODE_ENV=production) but with NO `K_SERVICE`, so the seam is reachable; a real
+// Cloud Run deploy never sets the flags and always has `K_SERVICE`, so it runs the real GCP adapter
+// and would crash on a misconfigured `AUTH_PROVIDER=fake`. See provider.ts.
 //
 // VISUAL BASELINES — platform-suffixed committed PNGs (-darwin locally, -linux in CI) under
 // e2e/visual.spec.ts-snapshots/; the toHaveScreenshot tolerance is set in `expect` below. The
@@ -88,14 +95,27 @@ export default defineConfig({
     },
   ],
   webServer: {
-    // Build then serve the PRODUCTION bundle (`next build` output via `next start`) on a fixed port —
-    // the e2e runs against the shipped bundle, not the dev server. `next start` runs NODE_ENV=production
-    // (a dev build mis-prerenders), which is fine: the test seams gate on the opt-in flags + the ABSENCE
-    // of `K_SERVICE`, not on NODE_ENV, so they are reachable here yet impossible on a Cloud Run deploy.
+    // Build the PRODUCTION bundle, then serve it the EXACT way Cloud Run does: `node
+    // .next/standalone/server.js` (Dockerfile.app's `CMD ["node", "server.js"]`), NOT `next start`.
+    // next.config.ts sets `output: 'standalone'`, and `next start` is officially-unsupported over
+    // standalone output (Next logs `⚠ "next start" does not work with "output: standalone"` and the
+    // standalone build omits the assets `next start` expects), so the harness MUST drive the standalone
+    // server to test the real deploy entrypoint. The standalone tree omits static assets by design (the Dockerfile copies
+    // `.next/static` in separately), so we copy them in before starting — same as the image build.
+    // There is no `public/` dir in this repo (Dockerfile.app copies none either), so it isn't copied.
+    // NODE_ENV=production comes from the build; the test seams gate on the opt-in flags + the ABSENCE of
+    // `K_SERVICE`, not on NODE_ENV, so they are reachable here yet impossible on a Cloud Run deploy.
     // DATABASE_URL must point at a reachable Postgres (docker compose locally; the `postgres` service in
     // CI) with the schema migrated.
-    command: 'npm run build && npm run start -- --port ' + String(PORT),
+    command:
+      'npm run build && cp -r .next/static .next/standalone/.next/static && ' +
+      `PORT=${String(PORT)} node .next/standalone/server.js`,
     url: BASE_URL,
+    // Reuse a server already listening on the port LOCALLY (fast iteration); never in CI (a fresh cold
+    // build+serve every run). CAVEAT when validating the harness itself: reuse can mask a broken cold
+    // start by serving a leftover process from a previous run — so a true local green requires the
+    // standalone `command` above to actually serve. When re-capturing baselines or proving the cold
+    // path, kill any process on PORT first so the build+standalone-serve path is exercised, not reuse.
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     env: {
