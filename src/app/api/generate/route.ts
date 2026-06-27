@@ -3,7 +3,8 @@ import type { Level } from '../../../domain/settings';
 import type { TopicRequest } from '../../../domain/stages';
 import { InlineEngine } from '../../../engine/inline-engine';
 import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
-import { defaultDeps } from '../../../pipeline/deps';
+import { defaultDeps, type StageDeps } from '../../../pipeline/deps';
+import { e2eStubDeps } from '../../../pipeline/e2e-stub-deps';
 import { runLesson } from '../../../pipeline/run-pipeline';
 import { persistRun, recordRunOwner } from '../../../store/repo';
 import { getSessionIdentity } from '../../auth/require-session';
@@ -24,6 +25,32 @@ export const dynamic = 'force-dynamic';
 // pipeline behind the Cloud Run Job; the lean local path runs it in-process here — see ADR 0001.)
 const CHEAP_MODELS: Record<Stage, StageModel> = cheapModels();
 const APP_RUN = { models: CHEAP_MODELS, maxNodes: 4, maxQuestions: 4 } as const;
+
+/**
+ * The in-process pipeline's LLM deps. NETWORK-FREE stub deps ONLY when the e2e harness flag `E2E=1` is
+ * set AND this is NOT a deployed runtime — mirroring the auth test-seam's deploy-deny in
+ * `src/app/auth/provider.ts`. A deployed Cloud Run instance always carries `K_SERVICE` (the Knative
+ * runtime var; not in our config, unsettable by a client), so `resolveRunDeps()` forces the real
+ * Vercel-AI-SDK client there even if `E2E` somehow leaked in — fail safe, never a fake run in prod. The
+ * e2e runs a real `next build` bundle (NODE_ENV=production) but with no `K_SERVICE`, so the stub is
+ * reachable there.
+ *
+ * This is the SECURITY TWIN of the auth seam's `assertFakeNotInProduction()` — but where the auth fake
+ * fails LOUD (throws on a misconfigured deploy), this stub guard fails SILENTLY-SAFE (falls back to the
+ * real deps). That makes the `!process.env.K_SERVICE` clause the no-spend-in-prod invariant, with no
+ * crash to surface a regression — so it is its own EXPORTED pure helper, unit-tested over stubbed env
+ * (route.stub-guard.test.ts), mirroring how `isTestAuthEnabled()` is exported and tested.
+ */
+export function resolveRunDeps(env: {
+  E2E?: string | undefined;
+  K_SERVICE?: string | undefined;
+}): StageDeps {
+  const stubEnabled = env.E2E === '1' && !env.K_SERVICE;
+  return stubEnabled ? e2eStubDeps : defaultDeps;
+}
+
+// Read once at module load from server env only, never from request input.
+const RUN_DEPS: StageDeps = resolveRunDeps({ E2E: process.env.E2E, K_SERVICE: process.env.K_SERVICE });
 
 const LEVELS: readonly string[] = ['intro', 'intermediate', 'advanced'];
 
@@ -50,7 +77,7 @@ function startRun(runId: string, request: TopicRequest, ownerSub: string): void 
     // single-lesson UI (#49), so `npm run dev` generates one lesson locally instead of a full
     // curriculum. `maxNodes` in APP_RUN is inert on this path (it builds exactly one page), kept only
     // so the cheap+capped knobs read identically to the curriculum-era config.
-    const run = await runLesson(request, new InlineEngine(), defaultDeps, APP_RUN);
+    const run = await runLesson(request, new InlineEngine(), RUN_DEPS, APP_RUN);
     const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...CHEAP_MODELS };
     await persistRun({ runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots, ownerSub });
   })();
