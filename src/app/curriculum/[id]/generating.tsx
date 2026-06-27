@@ -2,44 +2,39 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import {
+  STAGE_RAIL,
+  deriveRail,
+  formatDuration,
+  type RailStage,
+  type StepEvent,
+} from './stage-rail';
 
 const POLL_MS = 2500;
 const MAX_ATTEMPTS = 160; // ~6-7 min, then stop polling and surface a hint
 const TICK_MS = 250; // how often the live in-progress timer re-renders
 
-/** One step's timing, as the status poll returns it (mirrors repo.ts StepEvent). */
-interface StepEvent {
-  name: string;
-  stepKey: string;
-  startedAt: string;
-  finishedAt: string | null;
-  status: string;
-}
-
-/** Human label per pipeline step name (the engine's `name` arg). Unknown names fall back to the raw name. */
-const STEP_LABEL: Record<string, string> = {
-  plan: 'Planning',
-  research: 'Researching',
-  brief: 'Briefing',
-  spec: 'Designing',
-  code: 'Building',
-  critic: 'Reviewing',
+/** The per-state affordance glyph + screen-reader word, so state reads by ICON + TEXT, never color alone
+ *  (DESIGN.md §Accessibility). The glyph is aria-hidden; the word is the accessible state name. */
+const RAIL_AFFORDANCE: Record<RailStage['state'], { icon: string; word: string }> = {
+  pending: { icon: '○', word: 'Pending' },
+  running: { icon: '◐', word: 'In progress' },
+  done: { icon: '✓', word: 'Done' },
+  error: { icon: '✗', word: 'Failed' },
 };
 
-/** Format a millisecond span as a compact duration, e.g. 820ms → "0.8s", 3210ms → "3.2s". */
-function formatDuration(ms: number): string {
-  if (ms < 0) return '0.0s';
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
 /**
- * Polls the lesson's status while a run is in flight, and renders the live per-step timeline from
- * the poll's `steps` (issue #61). Finished steps show their final `finished_at − started_at`; the
- * one in-progress step (`finishedAt` null, status 'running') shows a LIVE elapsed timer that ticks
- * client-side (now − startedAt) and freezes into a duration once the next poll reports it finished;
- * an 'error' step is labeled. When the lesson row lands (`ready`) it calls router.refresh(),
- * re-running the lesson server component so the lesson renders. After MAX_ATTEMPTS it stops and shows
- * a "still working" hint (covers a slow run and a bad id, without polling forever).
+ * Polls the lesson's status while a run is in flight and renders the live generating view as a FIXED
+ * six-stage RAIL with a per-stage ledger (TS-23), driven by the SAME owner-scoped `steps` the status
+ * poll already returns (issue #61) — no new data path, no durable store, no deploy-topology change (R8).
+ *
+ * The rail shows ALL SIX live single-lesson stages (`plan → research → brief → spec → code → critic`,
+ * NO graph — see `stage-rail.ts`) up front: a not-yet-started stage is `pending` (no timer); the one
+ * in-flight stage shows a LIVE elapsed timer (now − startedAt) that freezes into a duration once the
+ * next poll reports it finished; a finished stage shows its frozen `finished_at − started_at`; a failed
+ * stage is labeled `· failed`. When the lesson row lands (`ready`) it calls `router.refresh()`,
+ * re-running the server component so the lesson renders. After MAX_ATTEMPTS it stops and shows a "still
+ * working" hint (covers a slow run and a bad id, without polling forever).
  */
 export function GeneratingPoller({ id }: { id: string }) {
   const router = useRouter();
@@ -78,15 +73,18 @@ export function GeneratingPoller({ id }: { id: string }) {
     };
   }, [id, router]);
 
+  // Fold the poll's steps onto the fixed six-stage rail (pure — stage-rail.ts). The rail is ALWAYS the
+  // full six positions, so the view shows "where am I in plan → … → critic" from the first paint, even
+  // before any step lands (every position pending), not a list that grows one row at a time.
+  const rail = deriveRail(steps);
+
   return (
     <div role="status" aria-live="polite">
-      {steps.length > 0 && (
-        <ol className="timeline">
-          {steps.map((step) => (
-            <TimelineStep key={`${step.name}:${step.stepKey}`} step={step} />
-          ))}
-        </ol>
-      )}
+      <ol className="rail" aria-label={`Generation progress — ${STAGE_RAIL.length} stages`}>
+        {rail.map((stage) => (
+          <RailStageRow key={stage.name} stage={stage} />
+        ))}
+      </ol>
       <div className="generating">
         <span className="generating__spinner" aria-hidden="true" />
         <span>
@@ -99,25 +97,44 @@ export function GeneratingPoller({ id }: { id: string }) {
   );
 }
 
-/** A single timeline row: the step label + its time (live for a running step, frozen once finished). */
-function TimelineStep({ step }: { step: StepEvent }) {
-  const label = STEP_LABEL[step.name] ?? step.name;
-  const running = step.finishedAt === null && step.status === 'running';
-  const errored = step.status === 'error';
+/**
+ * One rail row (the per-stage ledger entry): a state affordance (icon + screen-reader word), the stage
+ * label, and the stage's timing. State is conveyed by ICON + TEXT, not color alone (DESIGN.md
+ * §Accessibility) — pending → no time; running → the live ticking timer; done → the frozen duration;
+ * error → the `· failed` tag (and a partial duration if it timed an end before failing).
+ */
+function RailStageRow({ stage }: { stage: RailStage }) {
+  const { icon, word } = RAIL_AFFORDANCE[stage.state];
+  const running = stage.state === 'running';
+  const errored = stage.state === 'error';
   return (
-    <li className={`timeline__step timeline__step--${errored ? 'error' : running ? 'running' : 'done'}`}>
-      <span className="timeline__label">
-        {label}
-        {errored && <span className="timeline__tag"> · failed</span>}
+    <li className={`rail__stage rail__stage--${stage.state}`}>
+      <span className="rail__icon" aria-hidden="true">
+        {icon}
       </span>
-      <span className="timeline__time">
-        {running ? <LiveTimer startedAt={step.startedAt} /> : <FrozenTime step={step} />}
+      <span className="rail__label">
+        {stage.label}
+        {/* The accessible state name (visually hidden) so a screen reader hears the state, not just the icon. */}
+        <span className="rail__state-sr"> · {word}</span>
+        {errored && (
+          <span className="rail__tag" aria-hidden="true">
+            {' '}
+            · failed
+          </span>
+        )}
+      </span>
+      <span className="rail__time">
+        {running && stage.event ? (
+          <LiveTimer startedAt={stage.event.startedAt} />
+        ) : (
+          <FrozenTime event={stage.event} />
+        )}
       </span>
     </li>
   );
 }
 
-/** A live elapsed timer for the in-progress step: re-renders every TICK_MS off the wall clock. */
+/** A live elapsed timer for the in-progress stage: re-renders every TICK_MS off the wall clock. */
 function LiveTimer({ startedAt }: { startedAt: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -127,9 +144,14 @@ function LiveTimer({ startedAt }: { startedAt: string }) {
   return <>{formatDuration(now - new Date(startedAt).getTime())}</>;
 }
 
-/** A finished (or errored-after-some-work) step's frozen duration; em-dash if it never timed an end. */
-function FrozenTime({ step }: { step: StepEvent }) {
-  if (step.finishedAt === null) return <>—</>;
-  const ms = new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime();
+/**
+ * A non-running stage's timing readout: a pending stage (no event) shows nothing; a finished stage shows
+ * its frozen `finished_at − started_at`; an errored stage that timed an end shows that partial duration,
+ * else an em-dash.
+ */
+function FrozenTime({ event }: { event: StepEvent | null }) {
+  if (event === null) return null; // pending — no timer, no duration (the rail position is just listed).
+  if (event.finishedAt === null) return <>—</>;
+  const ms = new Date(event.finishedAt).getTime() - new Date(event.startedAt).getTime();
   return <>{formatDuration(ms)}</>;
 }
