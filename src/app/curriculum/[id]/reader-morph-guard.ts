@@ -97,3 +97,68 @@ export function prefersReducedMotion(
   if (typeof matcher !== 'function') return false;
   return matcher('(prefers-reduced-motion: reduce)').matches;
 }
+
+/**
+ * The `pagereveal` HANDLER body (TS-22 — the ACTIVE receiver-guarantee, fixed per PR #143 review).
+ *
+ * WHY THIS IS NOT A `useEffect`. The cross-document View-Transition's `pagereveal` event fires on the
+ * NEW (reader) document BEFORE its first rendering opportunity — per the spec it is equivalent to a
+ * `requestAnimationFrame` queued from the document `<head>`, so a listener must be attached during HTML
+ * PARSE to catch it. A `'use client'` `useEffect` runs only after the deferred hydration bundle loads
+ * and React mounts — i.e. AFTER the reader document's own `pagereveal` has already fired — so an
+ * effect-registered listener deterministically MISSES the navigation that loaded the page and never
+ * calls `skipTransition()` in time. This handler is therefore registered SYNCHRONOUSLY from a
+ * parser-time inline `<script>` (see {@link MORPH_RECEIVER_SCRIPT}), not an effect.
+ *
+ * It is a self-contained function (no closure over module scope) so its `.toString()` source can be
+ * inlined verbatim into that script AND unit-tested directly — the test exercises the SAME function
+ * whose source ships, so the wiring (not just the {@link decideMorph} decision) is pinned and the two
+ * cannot drift. Its gate mirrors `decideMorph` (capability → reduced-motion → box presence; `reader-
+ * morph-guard.test.ts` pins them identical), inlined because a head-time script cannot import modules.
+ *
+ * It reads the destination box from the LIVE DOM (`document.getElementById('readerPanel')`) rather than
+ * a React-supplied branch claim, so it is a genuine receiver-guarantee on EITHER reader branch: the
+ * `built` shell renders `#readerPanel` (→ morph), the degraded `soon`/`text` state does not (→ skip,
+ * AC4). Box-only per the TS-5b verdict: it calls the VT's own `skipTransition()` to drop the geometry
+ * tween; it NEVER reads or mutates the opaque-origin iframe, its sandbox, or `ARTIFACT_CSP`.
+ */
+export function handleReaderPageReveal(
+  event: { viewTransition?: { skipTransition?: () => void } | null },
+  win: {
+    document?: { getElementById?: (id: string) => unknown; startViewTransition?: unknown } | undefined;
+    CSS?: { supports?: (prop: string, value: string) => boolean };
+    matchMedia?: (query: string) => { matches: boolean };
+  },
+): void {
+  const viewTransition = event && event.viewTransition;
+  if (!viewTransition || typeof viewTransition.skipTransition !== 'function') return; // no VT → nothing to skip.
+
+  const doc = win.document;
+  // Capability gate (AC1): the cross-document VT needs BOTH the VT API and view-transition-name support.
+  const supported =
+    typeof (doc as { startViewTransition?: unknown } | undefined)?.startViewTransition === 'function' &&
+    typeof win.CSS?.supports === 'function' &&
+    win.CSS.supports('view-transition-name', 'none');
+  // Preference gate (AC5): honor prefers-reduced-motion: reduce (false when matchMedia is unavailable).
+  const reducedMotion = typeof win.matchMedia === 'function' && win.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Receiver gate (AC4): the destination box must actually be in the LIVE DOM — not a branch's claim.
+  const boxPresent = typeof doc?.getElementById === 'function' && doc.getElementById('readerPanel') !== null;
+
+  // Same rule as decideMorph (pinned identical in the tests): morph only when ALL three hold; any falsy
+  // input → instant-swap. INSTANT-SWAP cancels the morph's box pairing so the navigation is a clean
+  // no-animation swap — the page is already the destination, we just drop the geometry tween (AC2/4/5).
+  if (!supported || reducedMotion || !boxPresent) viewTransition.skipTransition();
+}
+
+/**
+ * The parser-time inline-script SOURCE that registers {@link handleReaderPageReveal} for `pagereveal`.
+ *
+ * Rendered as `<script dangerouslySetInnerHTML={{ __html: MORPH_RECEIVER_SCRIPT }} />` at the top of the
+ * reader route's tree, this executes during the reader document's HTML PARSE — before hydration and
+ * before the first rendering opportunity — so the `pagereveal` listener is attached in time to actually
+ * call `skipTransition()` on the box-absent degraded path (the active AC4 guarantee a `useEffect` could
+ * never deliver). The handler's source is interpolated via `.toString()`, so the shipped script and the
+ * unit-tested function are byte-identical by construction. The string contains only this code (no
+ * untrusted interpolation), so it is safe inline JS — it never reflects request data into the page.
+ */
+export const MORPH_RECEIVER_SCRIPT = `(function(){var h=${handleReaderPageReveal.toString()};window.addEventListener('pagereveal',function(e){h(e,window);});})();`;

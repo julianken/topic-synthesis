@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { MORPH_RECEIVER_SCRIPT } from './reader-morph-guard';
 
 // ── TS-13 AC8 / TS-20 AC2 trust-boundary regression pin: the iframe sandbox is unchanged ────────────
 // The sandbox attribute is the PRIMARY trust boundary for the generated lesson (more load-bearing than
@@ -168,37 +169,60 @@ describe('TS-22 — the transport is scoped so reduced-motion never runs the cro
   });
 });
 
-describe('TS-22 — the receiver-guard is mounted on BOTH reader branches and is box-only (AC3/AC4/AC6/AC7)', () => {
+describe('TS-22 — the receiver-guard registers BEFORE hydration and is box-only (AC3/AC4/AC6/AC7)', () => {
   const PAGE = readFileSync(fileURLToPath(new URL('./page.tsx', import.meta.url)), 'utf8');
   const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
+  const CORE = readFileSync(fileURLToPath(new URL('./reader-morph-guard.ts', import.meta.url)), 'utf8');
+  const SCRIPT = MORPH_RECEIVER_SCRIPT; // the runnable serialized inline-script the guard ships
 
-  it('mounts MorphReceiverGuard on the built branch with the destination box present (AC3)', () => {
-    // The `built` branch renders the morph-box, so the guard is told the destination is present — the
-    // morph runs when the browser supports the cross-doc VT and reduced motion is off.
-    expect(PAGE).toContain('<MorphReceiverGuard destinationBoxPresent />');
+  it('mounts MorphReceiverGuard ONCE on the reader route (one mount, live-DOM-driven; AC3/AC4)', () => {
+    // The guard reads the destination box from the LIVE DOM, so a SINGLE prop-less mount decides
+    // correctly on either branch — the `built` shell renders `#readerPanel` (→ morph), the degraded
+    // branch does not (→ instant-swap). It is mounted once above the branch, never per-branch.
+    expect(PAGE).toContain('<MorphReceiverGuard />');
+    expect(PAGE.match(/<MorphReceiverGuard\b/g)?.length).toBe(1);
+    // The obsolete per-branch / prop-driven mounts must be gone (they implied a branch-claim, not a
+    // live-DOM guarantee, and the old form mounted the script twice).
+    expect(PAGE).not.toContain('destinationBoxPresent');
   });
 
-  it('mounts MorphReceiverGuard on the degraded branch with the destination box ABSENT (AC4)', () => {
-    // The `soon`/`text` degraded state renders NO `#readerPanel.morph-box`, so the guard is told the
-    // destination is absent — it instant-swaps rather than pairing a missing endpoint.
-    expect(PAGE).toContain('<MorphReceiverGuard destinationBoxPresent={false} />');
+  it('registers the pagereveal listener at PARSE time via an inline script, NOT a useEffect (AC4 fix)', () => {
+    // `pagereveal` fires on the new document BEFORE its first rendering opportunity, so a `useEffect`
+    // (post-hydration) listener registers too late and misses it — the active receiver-guarantee then
+    // never fires. The guard must emit a parser-time inline script that adds the listener synchronously.
+    // Byte-pin: the guard wires the listener via the inline-script source, and uses no React effect.
+    expect(GUARD).toContain('MORPH_RECEIVER_SCRIPT');
+    expect(GUARD).toContain('dangerouslySetInnerHTML');
+    // No effect-based registration (the bug) and no client directive — it is a SERVER island that emits a
+    // parse-time script. We pin the runnable forms (`useEffect(` call, the `'use client'` directive on
+    // its own line) so the explanatory prose that NAMES the rejected approach doesn't trip the guard.
+    expect(GUARD).not.toContain('useEffect(');
+    expect(GUARD).not.toMatch(/^'use client';/m);
+    expect(GUARD).not.toContain("from 'react'");
+    // The script source itself attaches the listener synchronously (no effect indirection).
+    expect(CORE).toContain("addEventListener('pagereveal'");
   });
 
   it('the guard instant-swaps by skipping the View-Transition, never by touching the iframe (AC6/AC7)', () => {
-    // The receiver-guarantee cancels the morph via the VT's own `skipTransition()` — box-only. The guard
-    // must NEVER read/mutate the opaque-origin iframe, its sandbox, or the CSP: no `contentWindow`, no
-    // `allow-same-origin`, no `iframe` access, no `ARTIFACT_CSP`. It decides over the CONTAINER box only.
-    expect(GUARD).toContain('skipTransition');
-    expect(GUARD).not.toContain('contentWindow');
-    expect(GUARD).not.toContain('allow-same-origin');
-    expect(GUARD).not.toContain('ARTIFACT_CSP');
-    expect(GUARD).not.toMatch(/getElementsByTagName\(['"]iframe/);
+    // The receiver-guarantee cancels the morph via the VT's own `skipTransition()` — box-only. The
+    // SHIPPED handler source (the serialized inline script that actually runs in the browser) must NEVER
+    // read/mutate the opaque-origin iframe, its sandbox, or the CSP. We assert against the runnable script
+    // source (MORPH_RECEIVER_SCRIPT, pinned in reader-morph-guard.test.ts) rather than the raw .ts file,
+    // whose trust-boundary PROSE legitimately names those strings to explain their absence from the code.
+    expect(SCRIPT).toContain('skipTransition');
+    expect(SCRIPT).not.toContain('contentWindow');
+    expect(SCRIPT).not.toContain('allow-same-origin');
+    expect(SCRIPT).not.toContain('ARTIFACT_CSP');
+    expect(SCRIPT).not.toMatch(/getElementsByTagName\(['"]iframe/);
+    // and the guard shell renders no iframe boundary surface of its own.
+    expect(GUARD).not.toContain('<iframe');
   });
 
   it('the guard confirms the LIVE box, not just the branch claim — a real receiver-guarantee (AC4)', () => {
-    // `destinationBoxPresent` is re-checked against the live DOM (`getElementById('readerPanel')`), so a
-    // branch that claims a box but failed to render one still instant-swaps — a guarantee, not a promise.
-    expect(GUARD).toContain("document.getElementById('readerPanel')");
+    // Box presence is read from the live DOM (`getElementById('readerPanel')`) in the handler the script
+    // serializes, so a branch that claims a box but failed to render one still instant-swaps — a
+    // guarantee, not a promise. (The check moved from the .tsx into the inlined handler in the core.)
+    expect(CORE).toContain("getElementById('readerPanel')");
   });
 });
 
@@ -207,15 +231,16 @@ describe('TS-22 — the receiver-guard is mounted on BOTH reader branches and is
 // container-box geometry only — the lesson iframe's `sandbox="allow-scripts"` (no `allow-same-origin`)
 // and the `/artifact` route's `ARTIFACT_CSP` are byte-for-byte unchanged across them. TS-22 adds no code
 // path that varies the iframe by morph branch: the iframe lives in `reader-shell.tsx` (rendered only on
-// the `built` branch, byte-pinned above) and the receiver-guard is a behavior-only island that renders
-// nothing and never touches the frame. This guard pins that the receiver-guard introduced no iframe.
-describe('TS-22 AC6 — the receiver-guard introduces no iframe and renders nothing (box-only)', () => {
+// the `built` branch, byte-pinned above) and the receiver-guard is a behavior-only island that emits
+// only an inline registration script and never touches the frame. This pins that it introduced no iframe.
+describe('TS-22 AC6 — the receiver-guard introduces no iframe and emits only its registration script (box-only)', () => {
   const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
 
-  it('renders nothing (a behavior-only island) — it adds no second frame, no boundary surface', () => {
-    // The island returns null: it is wiring for the cross-doc VT receiver decision, not a render. So it
-    // cannot change the single iframe's attributes — the sandbox/CSP boundary stays exactly TS-20's.
-    expect(GUARD).toMatch(/return null;?\s*\n\}/);
+  it('renders only its inline registration script — no second frame, no boundary surface', () => {
+    // The island renders a single behavior-only inline `<script>` (the parser-time pagereveal
+    // registration), not UI. It cannot change the single iframe's attributes — the sandbox/CSP boundary
+    // stays exactly TS-20's. The ONLY element it renders is that script tag; never an iframe.
+    expect(GUARD).toContain('<script');
     expect(GUARD).not.toContain('<iframe');
   });
 });
