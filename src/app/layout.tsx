@@ -1,7 +1,7 @@
 import './globals.css';
 import type { ReactNode } from 'react';
 import { SessionNav } from './auth/session-nav';
-import { MorphReceiverGuard } from './curriculum/[id]/morph-receiver-guard';
+import { MorphReceiverGuard } from './curriculum/[id]/morph-receiver-guard'; // concept-drift-ok: retained route identifier (ADR-0003 deferred rename)
 
 export const metadata = {
   title: 'Topic Synthesis',
