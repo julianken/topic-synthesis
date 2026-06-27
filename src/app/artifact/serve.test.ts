@@ -42,13 +42,12 @@ describe('artifactResponse', () => {
     expect(artifactResponse(soon).status).toBe(404);
   });
 
-  // TS-13 trust-boundary regression pin (AC8): the predict-gate + postMessage land INSIDE the
-  // sandboxed HTML (Key-decision 1), never by widening the boundary. The CSP is pinned BYTE-FOR-BYTE
-  // here so any future relaxation (e.g. a `connect-src` to send progress over the network instead of
-  // in-frame postMessage) trips this test. postMessage is same-process, NOT a network load, so no CSP
-  // directive is needed for it — `default-src 'none'` stays complete. TS-19 adds a `<style>` to the
-  // BODY bytes only; this header assertion proves the policy is untouched (TS-19 AC4).
-  it('ARTIFACT_CSP is byte-for-byte the locked policy (TS-13/TS-19 add no relaxation — AC8/AC4)', () => {
+  // Trust-boundary regression pin: the sandboxed artifact CSP stays locked BYTE-FOR-BYTE so any
+  // future relaxation (e.g. a `connect-src` widening the boundary) trips this test. The reader-shell
+  // progress receiver (`lesson-message.ts`) validates same-process postMessage data, which is NOT a
+  // network load, so no CSP directive is needed for it — `default-src 'none'` stays complete. TS-19
+  // adds a `<style>` to the BODY bytes only; this header assertion proves the policy is untouched.
+  it('ARTIFACT_CSP is byte-for-byte the locked policy (injection + serve add no relaxation)', () => {
     expect(ARTIFACT_CSP).toBe(
       "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
         "img-src data: blob:; font-src data:; frame-ancestors 'self'; " +
@@ -179,41 +178,15 @@ describe('artifactResponse — serve-time §0 :root injection (TS-19)', () => {
     expect(ARTIFACT_ROOT_STYLE).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
 
-  // AC10 — the static superset assertion. The injected :root token NAMES must be a SUPERSET of the
-  // `var(--token, …)` reference names the `code` prompt pins as inline fallbacks. We extract the
-  // reference set FROM code.ts (the canonical source), so a future §0 rename that adds a token to the
-  // artifact but not to the injected block fails HERE rather than silently no-op'ing re-theming.
-  // The matcher captures the token name regardless of whether a fallback follows (NO comma required):
-  // code.ts also carries no-fallback refs in its prose (`var(--measure)`, `var(--panel-w)`,
-  // `var(--frame-max)`) — exactly the references that render BROKEN, not degraded, if injection omits
-  // the token, so the superset must cover them too. A comma-anchored matcher would silently skip them.
-  it('the injected :root names are a SUPERSET of the artifact var() reference names (AC10)', () => {
-    const codeSrc = readFileSync(
-      fileURLToPath(new URL('../../pipeline/code.ts', import.meta.url)),
-      'utf8',
-    );
-    const referenced = new Set(
-      [...codeSrc.matchAll(/var\(\s*(--[a-z][a-z0-9-]*)/gi)]
-        .map((m) => m[1])
-        .filter((name): name is string => name !== undefined),
-    );
-    // `--token` is the literal placeholder used in the prompt's prose ("var(--token, <fallback>)"),
-    // not a real design token — exclude it from the reference set.
-    referenced.delete('--token');
-    expect(referenced.size).toBeGreaterThan(0); // we actually found references
-    const injected = new Set(ARTIFACT_ROOT_TOKEN_NAMES);
-    const missing = [...referenced].filter((name) => !injected.has(name));
-    expect(missing).toEqual([]);
-  });
-
-  // VALUE-DRIFT guard — the strong complement to AC10's NAME-superset. The §0 manifest now has THREE
-  // copies (globals.css SoT, code.ts inline `var()` fallbacks, this file's ARTIFACT_ROOT_TOKENS). The
-  // name-superset catches a RENAME; it does NOT catch a value edit. The precise re-theme mistake TS-19
-  // exists to prevent is: a future §0 retoken edits globals.css (and code.ts fallbacks) but forgets
-  // serve.ts — injection would then silently serve the OLD theme to every already-generated lesson.
-  // This parses globals.css's resolved :root and asserts ARTIFACT_ROOT_TOKENS[name] equals the
-  // globals.css value for EVERY shared token (full set, not a sample), so any value drift is a CI
-  // failure here. globals.css is the source of truth; the injected block is its reconciled mirror.
+  // VALUE-DRIFT + name guard against globals.css (the §0 source of truth). After the v11 pipeline
+  // revert the generated lesson no longer carries inline `var()` fallbacks, so the §0 manifest is now
+  // TWO copies: globals.css (SoT) ↔ this file's ARTIFACT_ROOT_TOKENS (the serve-time injection mirror).
+  // The precise re-theme mistake TS-19 exists to prevent is: a future §0 retoken edits globals.css but
+  // forgets serve.ts — injection would then silently serve the OLD theme to every already-generated
+  // lesson. This parses globals.css's resolved :root and asserts (a) every injected token NAME exists
+  // in globals.css (a rename catch) and (b) ARTIFACT_ROOT_TOKENS[name] equals the globals.css value for
+  // EVERY injected token (full set, not a sample), so any value drift is a CI failure here. globals.css
+  // is the source of truth; the injected block is its reconciled mirror.
   it('every injected token VALUE equals the resolved globals.css §0 value (value-drift guard)', () => {
     const cssSrc = readFileSync(
       fileURLToPath(new URL('../globals.css', import.meta.url)),

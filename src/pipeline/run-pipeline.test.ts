@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  CRITIC_PASS_THRESHOLD,
   CriticVerdictSchema,
   FindingsSchema,
-  GradedCriticVerdictSchema,
-  type LearningEfficacy,
-  type LedgerConformance,
   LessonBriefSchema,
   PageSpecSchema,
   PlanSchema,
@@ -17,7 +13,6 @@ import type { StageModel } from '../llm/models';
 import type { Engine } from '../engine/engine';
 import { InlineEngine } from '../engine/inline-engine';
 import { SpanCollector } from '../trace/span';
-import { gradedCritique } from './critic';
 import type { StageDeps } from './deps';
 import { defaultStages, type StageBundle } from './ports';
 import { runLesson, runPipeline } from './run-pipeline';
@@ -343,107 +338,5 @@ describe('runLesson (single-lesson path)', () => {
     expect(calls.filter(([o]) => o.schema === LessonBriefSchema)).toHaveLength(1);
     expect(calls.filter(([o]) => o.schema === CriticVerdictSchema)).toHaveLength(1);
     expect((deps.complete as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
-  });
-});
-
-// ── the v11 arm: gate the lesson via the StageBundle.critic SWAP (TS-8) ───────
-// The arm is realized by injecting `gradedCritique` into StageBundle.critic — NOT a RunOptions flag,
-// NOT a gate branch. The gate line (`synth.artifact?.passed`) is read UNCHANGED: the graded fn derives
-// `passed` from its sub-scores and the gate treats it exactly as the binary fn's self-asserted boolean.
-// `defaultStages.critic` stays the binary `critique` (the blob arm — the reachable R10 kill-switch; the
-// live path now runs `LIVE_ARM`, the v11-graded arm — TS-15b/#107), so a mis-calibrated graded critic
-// can only degrade the arm it is swapped into, and the blob kill-switch stays a one-line revert away.
-const lessonSub = (score: number): { score: number; note: string } => ({ score, note: 'n' });
-const lessonVerdictAt = (
-  score: number,
-): { learningEfficacy: LearningEfficacy; ledgerConformance: LedgerConformance } => ({
-  learningEfficacy: {
-    misconceptionHook: lessonSub(score),
-    retrievalCheck: lessonSub(score),
-    findingsGrounded: lessonSub(score),
-    apparatusAddsBeyondProse: lessonSub(score),
-  },
-  ledgerConformance: {
-    namedGridPresent: lessonSub(score),
-    perSectionSubgrid: lessonSub(score),
-    collapseQueryPresent: lessonSub(score),
-    noRootLiteralOverride: lessonSub(score),
-    predictGateStructure: lessonSub(score),
-  },
-});
-
-/** Lesson deps whose critic arm answers the GRADED schema with canned sub-scores at one level. The
- *  model self-asserts `passed: !shouldPass` so the test proves `built` is driven by the DERIVED value,
- *  not the model's boolean — exactly as the binary arm's `passed` drives it. */
-function gradedLessonDeps(allAxesScore: number): StageDeps {
-  const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string; model: StageModel }) => {
-    if (opts.schema === PlanSchema) {
-      return { object: { scope: 'S', subtopics: ['a'], researchQuestions: ['q1'] }, record: mkRec() };
-    }
-    if (opts.schema === FindingsSchema) {
-      return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
-    }
-    if (opts.schema === LessonBriefSchema) {
-      return {
-        object: {
-          learningGoal: 'g',
-          keyPoints: ['k'],
-          findings: [{ claim: 'c', source: { url: 'https://s.example', title: 'S' } }],
-          audience: 'a',
-        },
-        record: mkRec(),
-      };
-    }
-    if (opts.schema === PageSpecSchema) {
-      return {
-        object: { nodeSlug: 'lesson', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
-        record: mkRec(),
-      };
-    }
-    if (opts.schema === GradedCriticVerdictSchema) {
-      // derivePassed ignores this `passed` and recomputes it from the floor of the sub-scores.
-      const passes = allAxesScore >= CRITIC_PASS_THRESHOLD;
-      return { object: { passed: !passes, critique: 'graded', ...lessonVerdictAt(allAxesScore) }, record: mkRec() };
-    }
-    throw new Error('unexpected schema');
-  });
-  const searchWeb = vi.fn(async () => ({
-    text: 'synthesis',
-    sources: [{ url: 'https://s.example', title: 'S' }],
-    record: mkRec(),
-  }));
-  const complete = vi.fn(async () => ({ text: '<!doctype html><html></html>', record: mkRec() }));
-  return { complete, completeObject, searchWeb } as unknown as StageDeps;
-}
-
-describe('runLesson — gated by the v11 graded-critic arm (StageBundle.critic swap)', () => {
-  const v11 = (): StageBundle => ({ ...defaultStages, critic: gradedCritique });
-
-  it('all-axes-high sub-scores → derived passed → built (same gate as the binary pass)', async () => {
-    const out = await runLesson(req, new InlineEngine(), gradedLessonDeps(0.9), {}, v11());
-    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
-    expect(out.result.pages[0]?.passed).toBe(true); // derived from the floor of the sub-scores
-    expect(hubPages[0]?.built).toBe(true); // the gate read `synth.artifact?.passed` unchanged
-    // the swapped arm carries the sub-scores end-to-end onto the artifact (the write-path source)
-    expect(out.result.pages[0]?.scores?.learningEfficacy.retrievalCheck.score).toBe(0.9);
-  });
-
-  it('a single below-threshold axis → derived NOT passed → soon (gate degrades the arm, not the line)', async () => {
-    const out = await runLesson(req, new InlineEngine(), gradedLessonDeps(0.3), {}, v11());
-    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
-    expect(out.result.pages[0]?.passed).toBe(false);
-    expect(hubPages[0]?.status).toBe('soon');
-    expect(hubPages[0]?.built).toBe(false);
-  });
-
-  it('the blob arm is the runLesson StageBundle default — no override uses the binary critic', async () => {
-    // The binary arm answers CriticVerdictSchema and carries NO sub-scores; `defaultStages` is the
-    // reachable kill-switch arm, and it is still `runLesson`'s default StageBundle param when no bundle
-    // is passed. (The deployed entrypoints now pass `LIVE_ARM` explicitly — TS-15b/#107.)
-    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1'], true));
-    expect(out.result.pages[0]?.scores).toBeUndefined(); // binary verdict → no graded sub-scores
-    expect(out.result.pages[0]?.passed).toBe(true); // the binary verdict's passed drives the gate
-    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
-    expect(hubPages[0]?.built).toBe(true);
   });
 });
