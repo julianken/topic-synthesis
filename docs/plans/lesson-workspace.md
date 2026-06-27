@@ -1,6 +1,6 @@
 # Plan — The v11 lesson-workspace epic
 
-> **Status: Phase 0 (Foundation) + Phase 1 (MEASURE) IMPLEMENTED + MERGED (TS-1…TS-9, incl. TS-5b); Phases 2–4 (PRODUCE / FRAME / MOTION) pending.** This doc is
+> **Status: Phase 0 (Foundation) + Phase 1 (MEASURE) + Phase 2 (PRODUCE) IMPLEMENTED + MERGED (TS-1…TS-15b, incl. TS-5b — #81 closed; the v11-graded arm is the PROMOTED live default via `LIVE_ARM`, TS-15b/#107); Phases 3–4 (FRAME / MOTION) pending.** This doc is
 > **self-contained**: the binding architecture decisions (the *why* + the as-built calls) live inline
 > in **Key decisions** below — the direction is adopted; spike-gated/owner-confirmable items are
 > flagged provisional inline. This program doc is updated as each phase lands (the status above tracks which). It is the **program
