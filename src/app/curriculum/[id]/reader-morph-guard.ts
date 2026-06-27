@@ -153,12 +153,14 @@ export function handleReaderPageReveal(
 /**
  * The parser-time inline-script SOURCE that registers {@link handleReaderPageReveal} for `pagereveal`.
  *
- * Rendered as `<script dangerouslySetInnerHTML={{ __html: MORPH_RECEIVER_SCRIPT }} />` at the top of the
- * reader route's tree, this executes during the reader document's HTML PARSE — before hydration and
+ * Rendered as `<script dangerouslySetInnerHTML={{ __html: MORPH_RECEIVER_SCRIPT }} />` as a child of the
+ * document `<head>` in the root layout (a classic parser-blocking script, per Chrome's cross-document
+ * View-Transition guidance), this executes during the document's HTML PARSE — before hydration and
  * before the first rendering opportunity — so the `pagereveal` listener is attached in time to actually
- * call `skipTransition()` on the box-absent degraded path (the active AC4 guarantee a `useEffect` could
- * never deliver). The handler's source is interpolated via `.toString()`, so the shipped script and the
- * unit-tested function are byte-identical by construction. The string contains only this code (no
- * untrusted interpolation), so it is safe inline JS — it never reflects request data into the page.
+ * call `skipTransition()` on the box-absent degraded path (the active AC4 guarantee a `useEffect`, or a
+ * body-positioned script, could never reliably deliver). The handler's source is interpolated via
+ * `.toString()`, so the shipped script and the unit-tested function are byte-identical by construction.
+ * The string contains only this code (no untrusted interpolation), so it is safe inline JS — it never
+ * reflects request data into the page.
  */
 export const MORPH_RECEIVER_SCRIPT = `(function(){var h=${handleReaderPageReveal.toString()};window.addEventListener('pagereveal',function(e){h(e,window);});})();`;

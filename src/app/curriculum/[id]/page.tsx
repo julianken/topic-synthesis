@@ -2,7 +2,6 @@ import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { getCurriculum, ownsRun } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 import { GeneratingPoller } from './generating';
-import { MorphReceiverGuard } from './morph-receiver-guard';
 import { ReaderShell } from './reader-shell';
 
 const STATUS_LABEL = { built: 'Built', soon: 'Soon', text: 'Text' } as const;
@@ -42,15 +41,15 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   return (
     <main className="wrap wrap--wide">
       {/*
-        RECEIVER-GUARANTEE (TS-22): mounted ONCE on the reader route. It emits a parser-time inline
-        script that registers the `pagereveal` listener synchronously — before hydration, so it actually
-        fires for the navigation that loaded this document (a `useEffect` would register too late and
-        miss it). The handler reads the destination box from the LIVE DOM, so one mount decides correctly
-        on EITHER branch: the `built` shell renders `#readerPanel.morph-box` (→ the card→reader box-FLIP
-        runs when the cross-doc VT is supported and reduced-motion is off), and the degraded `soon`/`text`
-        state below renders NO box (→ the handler skips the cross-doc VT → a clean instant-swap; AC4).
+        RECEIVER-GUARANTEE (TS-22): the `pagereveal` listener is registered from a parser-blocking inline
+        script in the document <head> (mounted site-wide in `src/app/layout.tsx`), NOT here in the body —
+        Chrome requires the listener to register before the first rendering opportunity, which a body
+        script can race. The head-mounted handler reads the destination box from the LIVE DOM, so it
+        decides correctly on EITHER branch of this reader page: the `built` shell renders
+        `#readerPanel.morph-box` (→ the card→reader box-FLIP runs when the cross-doc VT is supported and
+        reduced-motion is off), and the degraded `soon`/`text` state below renders NO box (→ the handler
+        skips the cross-doc VT → a clean instant-swap; AC4).
       */}
-      <MorphReceiverGuard />
       <p className="eyebrow">{view.topic}</p>
       <h1>{page ? page.title : view.topic}</h1>
       <p className="lead">

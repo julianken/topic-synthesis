@@ -169,21 +169,31 @@ describe('TS-22 — the transport is scoped so reduced-motion never runs the cro
   });
 });
 
-describe('TS-22 — the receiver-guard registers BEFORE hydration and is box-only (AC3/AC4/AC6/AC7)', () => {
+describe('TS-22 — the receiver-guard registers in <head> BEFORE first paint and is box-only (AC3/AC4/AC6/AC7)', () => {
   const PAGE = readFileSync(fileURLToPath(new URL('./page.tsx', import.meta.url)), 'utf8');
+  const LAYOUT = readFileSync(fileURLToPath(new URL('../../layout.tsx', import.meta.url)), 'utf8');
   const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
   const CORE = readFileSync(fileURLToPath(new URL('./reader-morph-guard.ts', import.meta.url)), 'utf8');
   const SCRIPT = MORPH_RECEIVER_SCRIPT; // the runnable serialized inline-script the guard ships
 
-  it('mounts MorphReceiverGuard ONCE on the reader route (one mount, live-DOM-driven; AC3/AC4)', () => {
-    // The guard reads the destination box from the LIVE DOM, so a SINGLE prop-less mount decides
-    // correctly on either branch — the `built` shell renders `#readerPanel` (→ morph), the degraded
-    // branch does not (→ instant-swap). It is mounted once above the branch, never per-branch.
-    expect(PAGE).toContain('<MorphReceiverGuard />');
-    expect(PAGE.match(/<MorphReceiverGuard\b/g)?.length).toBe(1);
-    // The obsolete per-branch / prop-driven mounts must be gone (they implied a branch-claim, not a
+  it('mounts MorphReceiverGuard ONCE, inside the root layout <head> — not the page body (PR #143 fix; AC4)', () => {
+    // PR #143 review (2nd pass): Chrome requires the `pagereveal` listener to register in a classic
+    // parser-blocking script in the <head>, before the first rendering opportunity. A body-positioned
+    // mount (the 1st fix's `<main>` placement) can race that and register too late to skip the cross-doc
+    // VT on the box-absent path. So the single prop-less mount lives in the root layout's <head>, and is
+    // gone from the reader page body. (App Router owns <head> only in the root layout; the handler self-
+    // gates on the live `#readerPanel`, so a site-wide head mount decides correctly on every route.)
+    expect(LAYOUT).toContain('<MorphReceiverGuard />');
+    expect(LAYOUT.match(/<MorphReceiverGuard\b/g)?.length).toBe(1);
+    // The mount sits inside the document <head> (before the first rendering opportunity), not the <body>.
+    const headBlock = LAYOUT.match(/<head>[\s\S]*?<\/head>/m)?.[0] ?? '';
+    expect(headBlock).toContain('<MorphReceiverGuard />');
+    // It must NOT remain in (or return to) the reader page body — that was the raced 1st-pass placement.
+    expect(PAGE).not.toContain('<MorphReceiverGuard');
+    // The obsolete per-branch / prop-driven mounts must be gone too (they implied a branch-claim, not a
     // live-DOM guarantee, and the old form mounted the script twice).
     expect(PAGE).not.toContain('destinationBoxPresent');
+    expect(LAYOUT).not.toContain('destinationBoxPresent');
   });
 
   it('registers the pagereveal listener at PARSE time via an inline script, NOT a useEffect (AC4 fix)', () => {
