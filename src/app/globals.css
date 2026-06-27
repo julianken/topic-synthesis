@@ -128,6 +128,16 @@ h1 {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+
+  /* The View-Transition pseudo-elements (TS-21's card→reader morph) are on the `::view-transition` tree
+     at the document root — NOT descendants the `*` selector above reaches — so they need an explicit
+     reduced-motion override. Zeroing their animation degrades the morph to an INSTANT route change (no
+     geometry animation runs): motion is correctness, not polish (DESIGN.md §Motion / §Accessibility). */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+  }
 }
 
 /* ── Curriculum artifact detail + status ──────────────────────────────────── */
@@ -165,9 +175,9 @@ h1 {
 
 /* ── Reader shell (TS-20): reading-progress + the #readerPanel.morph-box FLIP destination ─────────
    Frames the unchanged opaque-origin lesson iframe. The morph-box is the card→reader FLIP
-   DESTINATION (TS-21 animates it); TS-20 only declares the destination box — its id-scoped
-   view-transition-name anchor is set INLINE in reader-shell.tsx (see the .morph-box note below), NOT
-   here (NO @view-transition rule, NO startViewTransition — that animation is TS-21). */
+   DESTINATION; its id-scoped view-transition-name anchor is set INLINE in reader-shell.tsx (see the
+   .morph-box note below), and the TS-21 cross-document transport + box-geometry tween that animate it
+   live in the dedicated block further down (NOT a static name here — the per-id name stays inline). */
 .reader {
   margin-top: var(--sp-4);
   display: flex;
@@ -208,13 +218,48 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-/* The card→reader morph DESTINATION box (`#readerPanel.morph-box`). Its `view-transition-name` is NOT
-   a static rule here — it is set INLINE per lesson id in `reader-shell.tsx` (`morphName(id)` =
-   `lesson-card-<id>`) so it equals the per-CARD name TS-17 stamps on the FLIP ORIGIN. A cross-document
-   View-Transition only pairs old/new snapshots when the two names are IDENTICAL, so a per-card origin
-   needs a per-id destination — a single global name would never pair. TS-21's cross-document
-   View-Transition then has both matching endpoints. BOX-ONLY per the TS-5b verdict: the container
-   geometry-FLIPs while the opaque iframe contents "jump in" at the final frame. No animation here. */
+/* ── Card→reader container-transform (TS-21, Phase 4 — MOTION) ─────────────────────────────────────
+   The signature box-only FLIP between the two App-Router routes. TS-17 + TS-20 already stamp the
+   value-locked per-id `view-transition-name` (`morphName(id)` = `lesson-card-<id>`) on BOTH endpoints —
+   the library `.poster__card` FLIP ORIGIN (`page.tsx`) and the reader `#readerPanel.morph-box` FLIP
+   DESTINATION (`reader-shell.tsx`). TS-21 supplies the missing transport + animation.
+
+   The destination/origin name itself is STILL set inline per-id in the TSX (NOT a static global rule
+   here — a single global `view-transition-name` could never pair a per-card origin with a per-id
+   destination, and the `page.test.ts` guard byte-pins that it stays absent). This block declares only
+   the route-level transport + the box-geometry tween keyed to those already-paired names. */
+
+/* The cross-document View-Transition TRANSPORT (decision 2 / TS-5b). `navigation: auto` makes a
+   same-origin MPA navigation between the library `/` and reader `/curriculum/[id]` routes run as a
+   cross-document VT — keeping them two INDEPENDENT App-Router routes (the same-document SPA shell is the
+   REJECTED option). The browser pairs the old (card) and new (reader panel) snapshots by their shared
+   `morphName(id)` and tweens the captured box from card geometry → reader panel geometry. */
+@view-transition {
+  navigation: auto;
+}
+
+/* The box-geometry tween at the DESIGN.md §0 motion tokens (§0 wins — NO literal duration/easing here):
+   `--dur-slow` (440ms — the §0 "longer slow tier for the card↔reader morph") + the single `--ease`.
+   `*` targets every paired group; the only per-id name in flight on a library↔reader navigation is the
+   morph pair, so the card↔reader box is what morphs. BOX-ONLY per the TS-5b verdict: this animates the
+   captured CONTAINER box (position + size) only. The opaque-origin sandboxed iframe (`default-src
+   'none'`, no `allow-same-origin`) is NOT snapshot-able by the VT spec, so its contents never
+   participate — they "jump in" at the final frame; the iframe attributes + `ARTIFACT_CSP` are
+   byte-unchanged (asserted by `serve.test.ts` / `page.test.ts`). */
+::view-transition-group(*) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease);
+}
+
+/* The card and reader panel surfaces differ in size, so let the box cross-fade its OWN snapshot rather
+   than the default which can ghost a stretched image — keep the morph a clean box geometry-FLIP at the
+   §0 tokens. (The geometry interpolation is the group above; this pins the captured-image fade to the
+   same tier so old/new don't desync.) */
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease);
+}
 
 /* The lesson's section list, posted via the decision-12 channel (absent until a valid message lands). */
 .reader-sections {
@@ -260,8 +305,8 @@ h1 {
   gap: var(--sp-4);
 }
 
-/* Each poster card is a BOUNDED BOX — the morph's FLIP ORIGIN (TS-21 names + animates it via the
-   per-card view-transition-name set inline in page.tsx; no animation runs here, TS-17 is box-only). */
+/* Each poster card is a BOUNDED BOX — the morph's FLIP ORIGIN. The per-card view-transition-name is set
+   inline in page.tsx; the TS-21 cross-document transport above box-FLIPs it into the reader panel box. */
 .poster {
   display: flex;
 }
