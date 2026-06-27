@@ -215,10 +215,21 @@ describe('artifactResponse — serve-time §0 :root injection (TS-19)', () => {
     };
     // Build a name → resolved-literal map for the whole globals.css :root.
     const resolved = new Map([...raw].map(([name, value]) => [name, resolve(value)]));
+    // The chrome font stacks (`--sans`/`--mono`) carry a next/font CSS var (`--font-inter` leads
+    // `--sans`; `--font-jetbrains-mono` sits mid-stack in `--mono`) that lives on the app <html>,
+    // OUTSIDE the opaque artifact sandbox — so the injected artifact stack legitimately drops every
+    // such loaded-font entry and falls to the system faces. Normalize that one allowed divergence away
+    // (strip ANY `var(--font-…), ` segment, wherever it sits) so the guard still locks the REST of each
+    // stack value-for-value. `--serif` carries no font var on either side and is unaffected.
+    const stripLoadedFontPrefix = (value: string) =>
+      value.replace(/var\(--font-[a-z-]+\),\s*/gi, '');
     // Assert: every injected token's value matches the resolved §0 value, for the FULL injected set.
     const drift = ARTIFACT_ROOT_TOKEN_NAMES.filter((name) => {
       expect(resolved.has(name)).toBe(true); // an injected token absent from globals.css is drift
-      return resolved.get(name) !== ARTIFACT_ROOT_TOKENS[name];
+      return (
+        stripLoadedFontPrefix(resolved.get(name) as string) !==
+        stripLoadedFontPrefix(ARTIFACT_ROOT_TOKENS[name] as string)
+      );
     });
     expect(drift).toEqual([]);
   });

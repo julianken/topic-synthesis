@@ -26,20 +26,22 @@ export const ARTIFACT_CSP = [
 
 /**
  * The canonical DESIGN.md §0 token values, transcribed VERBATIM from the locked OKLCH manifest
- * (`DESIGN.md ## 0. Token Manifest` — the single source of truth, materialized in `globals.css`
- * by TS-18). This is NOT a second source of truth: it is the artifact-injected copy of the §0
- * manifest (a reconciled value, not a fork — DESIGN.md wins on any design conflict). Every name
- * here is RESOLVED to its final literal (no `var()` indirection), because the artifact runs in an
- * opaque-origin sandbox with no cascade from the parent app's `globals.css`, so the injected block
- * must self-resolve. The set is a SUPERSET of the `var(--token, <fallback>)` names `code.ts` pins
- * as inline fallbacks (asserted in `serve.test.ts`), so a future §0 rename that touches only
- * `globals.css` cannot silently no-op serve-time re-theming.
+ * (`DESIGN.md ## 0. Token Manifest` — the single source of truth, materialized in `globals.css`).
+ * This is NOT a second source of truth: it is the artifact-injected copy of the §0 manifest (a
+ * reconciled value, not a fork — DESIGN.md wins on any design conflict). Every name here is RESOLVED
+ * to its final literal (no `var()` indirection), because the artifact runs in an opaque-origin
+ * sandbox with no cascade from the parent app's `globals.css`, so the injected block must
+ * self-resolve. Color values are OKLCH only — no sRGB hex (the serve.test guard forbids hex here).
  *
- * THREE copies of the §0 manifest exist — `globals.css` (the source of truth), `code.ts`'s inline
- * `var()` fallbacks, and this block. A §0 retoken MUST edit all three. `serve.test.ts` guards both
- * failure modes: the NAME-superset (a rename) and a VALUE-drift check that asserts each value here
- * equals the resolved `globals.css` value, so forgetting this copy is a CI failure, not a silent
- * old-theme serve. (DESIGN.md §0 / the Update-Triggers table also flags the all-three-copies rule.)
+ * TWO copies of the §0 manifest exist after the v11 pipeline revert dropped the third (`code.ts`'s
+ * inline `var()` fallbacks): `globals.css` (the source of truth) and this block. A §0 retoken MUST
+ * edit BOTH in the same PR. `serve.test.ts` is the CI guard: a NAME check (every injected token
+ * exists in `globals.css`) plus a VALUE-drift check that asserts each value here equals the resolved
+ * `globals.css` value — so forgetting this copy is a CI failure, not a silent old-theme serve. The
+ * one allowed divergence is the chrome font stacks (`--sans`/`--mono`), which globals.css leads with
+ * a next/font CSS var (`--font-inter`/`--font-jetbrains-mono`) the sandbox can't see; the artifact
+ * drops that loaded-font prefix and the test normalizes it away before comparing (the rest of each
+ * stack still locks). (DESIGN.md §0 "Two-copies invariant" / the Update-Triggers table flag this.)
  * Exported so the value-drift test can compare each literal against `globals.css`.
  */
 export const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
@@ -59,6 +61,46 @@ export const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
   '--kind-svg': 'oklch(0.80 0.13 295)',
   '--kind-canvas': 'oklch(0.82 0.13 50)',
   '--kind-html': 'oklch(0.80 0.12 175)',
+  // additional color primitives (Figma 1:2/6:2 frames — generated lessons cite sources + may render a
+  // pipeline-green accent; the badge-border tints back any in-artifact status chip). OKLCH only — the
+  // serve.test sRGB-hex guard forbids hex in the injected block. (The translucent/gradient SURFACE
+  // tokens are chrome-only and deliberately NOT injected — the artifact has no app cascade to float over.)
+  '--pipeline': 'oklch(0.762 0.154 159)',
+  '--source-link': 'oklch(0.697 0.160 258)',
+  '--faint': 'oklch(0.568 0.029 254)',
+  '--badge-border-ok': 'oklch(0.499 0.080 152)',
+  '--badge-border-warn': 'oklch(0.549 0.090 80)',
+  '--badge-border-neutral': 'oklch(0.401 0.019 248)',
+  // type scale + per-role line-heights + letter-spacing + radii (so a generated lesson can speak the
+  // §0 reading/heading/gloss type system; unitless/rem/em values carry no hex).
+  '--fs-hero': '2.5rem',
+  '--fs-h1': '1.875rem',
+  '--fs-title': '1.59375rem',
+  '--fs-h2': '1.5rem',
+  '--fs-card-title': '1.15625rem',
+  '--fs-lede': '1.1875rem',
+  '--fs-body': '1.0625rem',
+  '--fs-small': '0.875rem',
+  '--fs-mono': '0.9375rem',
+  '--fs-caption': '0.78125rem',
+  '--fs-micro': '0.625rem',
+  '--ls-display-tight': '-0.015em',
+  '--ls-display': '-0.01em',
+  '--ls-snug': '-0.005em',
+  '--ls-meta': '0.02em',
+  '--ls-eyebrow': '0.16em',
+  '--ls-eyebrow-wide': '0.2em',
+  '--lh-reading': '1.7',
+  '--lh-display': '1.06',
+  '--lh-heading': '1.18',
+  '--lh-gloss': '1.55',
+  '--r-sm': '6px',
+  '--r-md': '10px',
+  '--r-card': '12px',
+  '--r-card-lg': '14px',
+  '--r-lg': '16px',
+  '--r-pill': '999px',
+  '--r-kbd': '4px',
   // geometry (lesson-workspace spine/panel/frame metrics)
   '--measure': '33rem',
   '--panel-w': '23rem',
@@ -66,10 +108,16 @@ export const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
   '--edge-gap': 'clamp(1.6rem, 2.4vw, 3.2rem)',
   '--scrub-w': '1.1rem',
   '--frame-max': '1640px',
-  // type families (bind the roles correctly — sans body/chrome, serif headings, mono code)
+  // type families (bind the roles correctly — sans body/chrome, serif headings, mono code).
+  // These are deliberately the SELF-CONTAINED stacks: the opaque-origin artifact cannot reference the
+  // app's next/font CSS vars (`--font-inter` / `--font-jetbrains-mono` live on the app <html>, outside
+  // the sandbox), so the injected `--sans` / `--mono` drop the loaded-font prefix that globals.css
+  // leads with and fall straight to the system faces. The value-drift guard in serve.test.ts compares
+  // these against globals.css with that loaded-font prefix stripped, so the rest of each stack still
+  // stays in lockstep. (`--serif` carries no font var on either side, so it matches verbatim.)
   '--sans': 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-  '--serif': '"Iowan Old Style", "Charter", "Georgia", serif',
-  '--mono': 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace',
+  '--serif': '"Iowan Old Style", "Charter", Georgia, "Times New Roman", Times, serif',
+  '--mono': '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace',
 };
 
 /**

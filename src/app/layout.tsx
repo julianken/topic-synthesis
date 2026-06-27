@@ -1,7 +1,25 @@
 import './globals.css';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { SessionNav } from './auth/session-nav';
 import { MorphReceiverGuard } from './curriculum/[id]/morph-receiver-guard'; // concept-drift-ok: retained route identifier (ADR-0003 deferred rename)
+
+// Fonts are CHROME (DESIGN.md §Typography), loaded once here at the app boundary — the only place
+// next/font runs. `display: 'swap'` keeps text visible during load (FOUT over FOIT) and next/font
+// self-hosts the files + emits a size-adjusted system fallback, so the swap doesn't reflow (CLS).
+// Each exposes a CSS variable that the §0 `--sans` / `--mono` stacks in globals.css lead with.
+// Inter is the Figma sans proxy for the §0 system-UI stack; JetBrains Mono is the loaded half of the
+// SF-Mono/JetBrains-Mono mono split (it guarantees the mono voice on Linux / Cloud Run).
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jetbrains-mono',
+});
 
 export const metadata = {
   title: 'Topic Synthesis',
@@ -10,7 +28,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
         {/*
           RECEIVER-GUARANTEE (TS-22, PR #143 review fix). Chrome's cross-document View-Transition spec is

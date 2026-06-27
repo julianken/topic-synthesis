@@ -30,6 +30,24 @@
   --kind-canvas: oklch(0.82 0.13 50);
   --kind-html: oklch(0.80 0.12 175);
 
+  /* additional color primitives (DESIGN.md §0 — adopted from the Figma frames 1:2/6:2, hex→OKLCH).
+     --pipeline is the pipeline/generating green (Figma built/500 #3ecf8e, hue 159) — DISTINCT from
+     the slightly-cooler status --ok (hue 152): it colors the generating graph/timeline + finding ✓.
+     --source-link is the grounded-source link blue (#5b9dff); --faint is the finest meta/fine-print
+     ink (#6b7888, Figma fog/500). The brand cyans the gradient sweeps between are NOT new — #00dbfe
+     resolves to --accent and #35afc9 to --accent-dim (verified in OKLCH), so the brand gradient below
+     reuses them rather than introducing a fourth/fifth cyan. */
+  --pipeline: oklch(0.762 0.154 159);
+  --source-link: oklch(0.697 0.160 258);
+  --faint: oklch(0.568 0.029 254);
+
+  /* badge-border status tints (DESIGN.md §0 — the dim outlines on the library status chips, Figma 6:2):
+     a desaturated, darker step of each status hue used for the 1px badge border (the chip TEXT stays the
+     brighter status/pipeline color). neutral is the Text-badge / chrome-control outline. */
+  --badge-border-ok: oklch(0.499 0.080 152);
+  --badge-border-warn: oklch(0.549 0.090 80);
+  --badge-border-neutral: oklch(0.401 0.019 248);
+
   /* semantic — color (reference primitives, DESIGN.md §0) */
   --bg-app: var(--ink-950);
   --bg-surface: var(--ink-900);
@@ -44,13 +62,59 @@
   --status-soon: var(--warn);
   --status-error: var(--err);
 
-  /* type scale (rem) */
+  /* ── Translucent / gradient SURFACE system (DESIGN.md §0 — adopted from the Figma frames) ──────────
+     The Figma chrome floats over a radial app-bg behind frosted, semi-opaque surfaces (a header, the
+     research ledger, the pipeline-progress box) and column dividers — values transcribed from the
+     5:2/6:2/1:2 frames. These are CHROME-ONLY (the opaque-origin artifact does not cascade from here),
+     so they are not injected into ARTIFACT_ROOT_TOKENS. */
+  --app-bg: radial-gradient(ellipse 190% 96% at 50% -10%, #0f1821 0%, #080f16 55%);
+  --surface-header: oklch(0.205 0.020 250 / 0.6);
+  --surface-panel: oklch(0.205 0.020 250 / 0.5);
+  --surface-panel-strong: oklch(0.205 0.020 250 / 0.55);
+  --surface-pill: oklch(0.215 0.018 250 / 0.6);
+  --surface-ledger: oklch(0.205 0.020 250 / 0.55);
+  --surface-divider: oklch(0.245 0.020 250 / 0.55);
+
+  /* The brand mark gradient + glow (Figma: #00dbfe→#35afc9 ≈140deg). The cyans are --accent/--accent-dim
+     (OKLCH-verified equal), so the gradient reuses them; --brand-glow is the cyan halo behind the mark
+     and the reading-progress bar. */
+  --brand-gradient: linear-gradient(140deg, var(--accent), var(--accent-dim));
+  --brand-glow: 0 0 8px oklch(0.82 0.145 215 / 0.4);
+
+  /* type scale (rem) — DESIGN.md §0. The reading body is 17px (Figma lesson 3:2 / v11 mock
+     `.prose-flow p` — fixes the prior 16px `--fs-body`); H2 is 24px (Figma 3:2 `.prose-flow h2`,
+     supersedes the prior 22px). --fs-title (~25.5px) is the chrome page title ("Lessons", Figma 6:2 25px);
+     --fs-card-title (~18.5px) the library poster title (Figma 6:2 18.5px). The 12.5/10px caption/micro
+     tier carries glosses, fine-print, and uppercase mono eyebrows (Figma frames + v11 gloss/kicker). */
   --fs-hero: 2.5rem;
   --fs-h1: 1.875rem;
-  --fs-h2: 1.375rem;
-  --fs-body: 1rem;
-  --fs-small: 0.875rem;
-  --fs-mono: 0.9375rem;
+  --fs-title: 1.59375rem; /* 25.5px — chrome page title */
+  --fs-h2: 1.5rem; /* 24px — lesson H2 (serif) */
+  --fs-card-title: 1.15625rem; /* 18.5px — library poster title */
+  --fs-lede: 1.1875rem; /* 19px — lesson lede */
+  --fs-body: 1.0625rem; /* 17px — reading body */
+  --fs-small: 0.875rem; /* 14px */
+  --fs-mono: 0.9375rem; /* 15px — code/mono */
+  --fs-caption: 0.78125rem; /* 12.5px — gloss def / card description / fine-print */
+  --fs-micro: 0.625rem; /* 10px — uppercase mono eyebrows / kickers */
+
+  /* letter-spacing scale — DESIGN.md §0. Negative on tight display/headings; positive (in em, scales
+     with the §0 caption/micro sizes) on the uppercase mono eyebrows + fine-print (Figma tracking values:
+     card title -0.185px ≈ -0.01em; topic title -0.4px ≈ -0.014em; eyebrows +1.6..+2.2px on 10-11px ≈
+     +0.16..+0.2em; meta +0.21..+0.46px ≈ +0.02..+0.04em). */
+  --ls-display-tight: -0.015em; /* hero / serif h1 */
+  --ls-display: -0.01em; /* h2 / card title */
+  --ls-snug: -0.005em; /* page title */
+  --ls-meta: 0.02em; /* mono fine-print / card meta */
+  --ls-eyebrow: 0.16em; /* uppercase mono eyebrow / kicker */
+  --ls-eyebrow-wide: 0.2em; /* the widest stage-label / topic-eyebrow tracking */
+
+  /* per-role line-heights — DESIGN.md §0. ~1.7 reading prose, tight serif headings (1.06 display /
+     1.18 h2), ~1.55 the gloss/caption band (Figma 3:2 / v11 mock). */
+  --lh-reading: 1.7;
+  --lh-display: 1.06;
+  --lh-heading: 1.18;
+  --lh-gloss: 1.55;
 
   /* space (rem) */
   --sp-1: 0.25rem;
@@ -69,10 +133,16 @@
   --scrub-w: 1.1rem;
   --frame-max: 1640px;
 
-  /* radii + motion */
+  /* radii + motion — DESIGN.md §0. --r-card (12/14px) is the library poster + apparatus-panel corner
+     (Figma 6:2 cards rounded-14, panels rounded-12); --r-pill (999px) the user chip / status capsule;
+     --r-kbd (4px) the keyboard-hint key cap (v11 mock). */
   --r-sm: 6px;
   --r-md: 10px;
+  --r-card: 12px;
+  --r-card-lg: 14px;
   --r-lg: 16px;
+  --r-pill: 999px;
+  --r-kbd: 4px;
   --dur-fast: 120ms;
   --dur-base: 200ms;
   --dur-slow: 440ms;
@@ -92,10 +162,18 @@
   --tr-progress: width var(--dur-base) var(--ease);
   --tr-state: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
 
-  /* type families (DESIGN.md §0) */
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-  --serif: "Iowan Old Style", "Charter", "Georgia", serif;
+  /* type families (DESIGN.md §0). Fonts are CHROME — loaded once at the app boundary, not core code.
+     --sans leads with the LOADED Inter (next/font, exposed as --font-inter by src/app/layout.tsx) so the
+     chrome renders in the Figma's real sans on every platform, then falls back to the system UI sans
+     (FOUT/CLS controlled by next/font's `display: swap` + a metrics-matched system fallback). --mono is
+     ONE token spanning the SF-Mono/JetBrains-Mono split: SF Mono (the Figma eyebrow/fine-print face) is
+     used where present (Apple), and the LOADED JetBrains Mono (--font-jetbrains-mono, the Figma timeline
+     face) guarantees the mono voice on Linux / Cloud Run where SF Mono is absent. --serif keeps the
+     Apple reading serifs first and resolves the Linux/Cloud-Run gap with an EXPLICIT fallback chain
+     (Georgia → Times) rather than a webfont — lesson headings stay a serif voice everywhere. */
+  --sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "SF Mono", ui-monospace, var(--font-jetbrains-mono), "JetBrains Mono", Menlo, monospace;
+  --serif: "Iowan Old Style", "Charter", Georgia, "Times New Roman", Times, serif;
 }
 
 html,
@@ -103,7 +181,7 @@ body {
   background: var(--bg-app);
   color: var(--text);
   font-family: var(--sans);
-  line-height: 1.5;
+  line-height: var(--lh-reading);
 }
 
 .wrap {
