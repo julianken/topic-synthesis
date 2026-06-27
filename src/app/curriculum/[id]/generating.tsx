@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import {
   STAGE_RAIL,
   deriveRail,
@@ -81,8 +81,8 @@ export function GeneratingPoller({ id }: { id: string }) {
   return (
     <div role="status" aria-live="polite">
       <ol className="rail" aria-label={`Generation progress — ${STAGE_RAIL.length} stages`}>
-        {rail.map((stage) => (
-          <RailStageRow key={stage.name} stage={stage} />
+        {rail.map((stage, i) => (
+          <RailStageRow key={stage.name} stage={stage} index={i} />
         ))}
       </ol>
       <div className="generating">
@@ -103,12 +103,17 @@ export function GeneratingPoller({ id }: { id: string }) {
  * §Accessibility) — pending → no time; running → the live ticking timer; done → the frozen duration;
  * error → the `· failed` tag (and a partial duration if it timed an end before failing).
  */
-function RailStageRow({ stage }: { stage: RailStage }) {
+function RailStageRow({ stage, index }: { stage: RailStage; index: number }) {
   const { icon, word } = RAIL_AFFORDANCE[stage.state];
   const running = stage.state === 'running';
   const errored = stage.state === 'error';
   return (
-    <li className={`rail__stage rail__stage--${stage.state}`}>
+    // `--rail-i` drives the catalog's token-driven staggered reveal in globals.css (delay =
+    // index × --dur-fast); under prefers-reduced-motion the global reset zeroes it (TS-24, DESIGN.md §Motion).
+    <li
+      className={`rail__stage rail__stage--${stage.state}`}
+      style={{ '--rail-i': index } as CSSProperties}
+    >
       <span className="rail__icon" aria-hidden="true">
         {icon}
       </span>
