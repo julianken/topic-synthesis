@@ -219,6 +219,85 @@ describe('code — the TS-13 predict-gate + postMessage emission contract', () =
   });
 });
 
+// ── TS-15 judge fix: §0-faithful inline fallbacks + correct font roles + no-overflow/stable-spine ──
+// The live no-injection path (TS-19 serve-time injection is unbuilt) renders the inline `var()`
+// FALLBACKS, so a wrong fallback ships the wrong palette. These assert the prompt embeds the canonical
+// DESIGN.md §0 dark-OKLCH values verbatim, binds the font roles correctly, and reinforces the
+// no-overflow / stable-spine rules. Prompt-text assertions over the emitted system prompt; no live LLM.
+describe('code — §0-faithful fallbacks + font roles + no-overflow (TS-15 judge)', () => {
+  it('embeds the canonical §0 dark-OKLCH color fallbacks verbatim (the decisive fix)', async () => {
+    const { system } = await promptFor(pageSpec);
+    // The fallback for each color token is the EXACT DESIGN.md §0 OKLCH value — dark on dark, NOT
+    // the light-parchment/forest-green (#f4f3f0 / #4a7c59) inversion the judge rendered.
+    expect(system).toContain('var(--bg-app, oklch(0.165 0.018 250))');
+    expect(system).toContain('var(--bg-surface, oklch(0.205 0.020 250))');
+    expect(system).toContain('var(--bg-raised, oklch(0.215 0.018 250))');
+    expect(system).toContain('var(--border, oklch(0.32 0.020 250))');
+    expect(system).toContain('var(--text, oklch(0.95 0.008 250))');
+    expect(system).toContain('var(--text-muted, oklch(0.74 0.015 250))');
+    expect(system).toContain('var(--text-faint, oklch(0.65 0.016 250))');
+    expect(system).toContain('var(--accent, oklch(0.82 0.145 215))');
+    expect(system).toContain('var(--accent-dim, oklch(0.70 0.11 215))');
+    expect(system).toContain('var(--ok, oklch(0.78 0.15 152))');
+    expect(system).toContain('var(--warn, oklch(0.82 0.13 80))');
+    expect(system).toContain('var(--err, oklch(0.66 0.17 25))');
+    expect(system).toContain('var(--kind-svg, oklch(0.80 0.13 295))');
+    expect(system).toContain('var(--kind-canvas, oklch(0.82 0.13 50))');
+    expect(system).toContain('var(--kind-html, oklch(0.80 0.12 175))');
+  });
+
+  it('forbids the light/sRGB-hex inversion the judge found', async () => {
+    const { system } = await promptFor(pageSpec);
+    // Defensive: the canonical fallbacks are OKLCH, so the prompt must not seed sRGB hex or the
+    // observed light-parchment/forest-green literals (#f4f3f0 / #4a7c59). The prompt names the
+    // anti-pattern explicitly so the model doesn't re-invent it.
+    expect(system).not.toContain('#f4f3f0');
+    expect(system).not.toContain('#4a7c59');
+    expect(system).toMatch(/do NOT invent light\/parchment colors, sRGB hex, or serif\s*\n?\s*body type/);
+    expect(system).toMatch(/cyan-blue, NOT green/); // the accent is OKLCH cyan-blue, not green
+  });
+
+  it('embeds the canonical §0 geometry + font-family fallbacks verbatim', async () => {
+    const { system } = await promptFor(pageSpec);
+    expect(system).toContain('var(--measure, 33rem)');
+    expect(system).toContain('var(--panel-w, 23rem)');
+    expect(system).toContain('var(--col-gap, clamp(1.6rem, 2.6vw, 3.4rem))');
+    expect(system).toContain('var(--edge-gap, clamp(1.6rem, 2.4vw, 3.2rem))');
+    expect(system).toContain('var(--scrub-w, 1.1rem)');
+    expect(system).toContain('var(--frame-max, 1640px)');
+    expect(system).toContain('var(--sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif)');
+    expect(system).toContain('var(--serif, "Iowan Old Style", "Charter", "Georgia", serif)');
+    expect(system).toContain('var(--mono, ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace)');
+  });
+
+  it('binds the font ROLES correctly — sans body/chrome, serif headings only, mono code', async () => {
+    const { system } = await promptFor(pageSpec);
+    // Corrects the observed inversion (serif on body, sans on headings).
+    expect(system).toMatch(/BODY \+ ALL CHROME[\s\S]*SANS stack/);
+    expect(system).toMatch(/body is NEVER serif/);
+    expect(system).toMatch(/LESSON \+ SECTION HEADINGS ONLY[\s\S]*SERIF stack/);
+    expect(system).toMatch(/Serif is for headings ONLY/);
+    expect(system).toMatch(/CODE \/ TOKENS[\s\S]*MONO stack/);
+  });
+
+  it('reinforces no horizontal overflow at 390px (wrap or scroll, never overflowing nowrap)', async () => {
+    const { system } = await promptFor(pageSpec);
+    expect(system).toContain('NO HORIZONTAL OVERFLOW at 390px');
+    expect(system).toContain('overflow-wrap: anywhere');
+    expect(system).toContain('overflow-x: auto');
+    expect(system).toMatch(/NEVER `white-space: nowrap` on content that\s*\n?\s*then overflows/);
+    expect(system).toContain('`.math`'); // long formulas / .math must wrap
+  });
+
+  it('reinforces the STABLE-SPINE HARD rule (identical left edge + width, lone centers text)', async () => {
+    const { system } = await promptFor(pageSpec);
+    expect(system).toMatch(/STABLE SPINE \(HARD rule, restated/);
+    expect(system).toMatch(/IDENTICAL\s*\n?\s*left edge and width across ALL sections/);
+    expect(system).toMatch(/apparatus-paired sections and lone[\s\S]*sections alike/);
+    expect(system).toMatch(/centers its TEXT inside that fixed column[\s\S]*NEVER moves or narrows the column/);
+  });
+});
+
 describe('stripCodeFence', () => {
   it('removes a ```html or ``` fence and passes plain HTML through unchanged', () => {
     expect(stripCodeFence('```html\n<p>x</p>\n```')).toBe('<p>x</p>');
