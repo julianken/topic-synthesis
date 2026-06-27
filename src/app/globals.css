@@ -78,6 +78,20 @@
   --dur-slow: 440ms;
   --ease: cubic-bezier(.2, .75, .2, 1);
 
+  /* ── transitions-dev motion catalog (DESIGN.md §Motion — TS-24) ───────────────────────────────────
+     ONE source for the chrome's motion vocabulary. DESIGN.md §Motion names the `transitions-dev`
+     copy-paste catalog (no runtime dependency) and §0 as the duration SoT — these named transition
+     primitives compose ONLY `var(--dur-*)` + `var(--ease)`, so every animated surface references a
+     primitive by name and the value lives in exactly ONE place. NO raw ms/easing literal appears in any
+     primitive (grep-verifiable). Surfaces apply `transition: var(--tr-*)`; the loop spinner + the
+     timeline reveal reuse the §0 tiers + `--ease` directly (an `animation` can't be a `transition`
+     shorthand). The card→reader morph reads `--dur-slow`/`--ease` in its View-Transition block below. */
+  --tr-color: color var(--dur-fast) var(--ease);
+  --tr-bg: background var(--dur-fast) var(--ease);
+  --tr-hover: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  --tr-progress: width var(--dur-base) var(--ease);
+  --tr-state: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+
   /* type families (DESIGN.md §0) */
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -127,6 +141,11 @@ h1 {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    /* TS-24: also zero animation-DELAY — the catalog's staggered timeline reveal (`rail-reveal`) carries
+       a per-row `animation-delay`, and a `both` fill mode holds the row's `from` (hidden) state during
+       that delay. Zeroing only the duration would still leave the rows staggered-in over the delay; the
+       reveal must be INSTANT under reduced motion (no stagger), so the delay is zeroed too (§Motion). */
+    animation-delay: 0ms !important;
   }
 
   /* The View-Transition pseudo-elements (TS-21's card→reader morph) are on the `::view-transition` tree
@@ -207,7 +226,8 @@ h1 {
   height: 100%;
   background: var(--interactive);
   border-radius: var(--r-sm);
-  transition: width var(--dur-base) var(--ease);
+  /* TS-24: sourced from the catalog's progress primitive (width @ --dur-base/--ease) — one value site. */
+  transition: var(--tr-progress);
 }
 
 .reading-progress__label {
@@ -251,6 +271,9 @@ h1 {
 
 /* The box-geometry tween at the DESIGN.md §0 motion tokens (§0 wins — NO literal duration/easing here):
    `--dur-slow` (440ms — the §0 "longer slow tier for the card↔reader morph") + the single `--ease`.
+   TS-24: this is the morph's seat in the UNIFIED motion catalog above — it reads the SAME §0 `--dur-slow`
+   + `--ease` the catalog's transition primitives compose from, so the card→reader morph speaks the same
+   motion language as every hover/reveal/state change (no local literal — verified by page.test.ts).
    `*` targets every paired group; the only per-id name in flight on a library↔reader navigation is the
    morph pair, so the card↔reader box is what morphs. BOX-ONLY per the TS-5b verdict: this animates the
    captured CONTAINER box (position + size) only. The opaque-origin sandboxed iframe (`default-src
@@ -335,9 +358,8 @@ h1 {
   border-radius: var(--r-md);
   color: var(--text);
   text-decoration: none;
-  transition:
-    border-color var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease);
+  /* TS-24: sourced from the catalog's hover primitive (border-color + background @ --dur-fast/--ease). */
+  transition: var(--tr-hover);
 }
 
 .poster__card:hover {
@@ -437,7 +459,8 @@ h1 {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease);
+  /* TS-24: sourced from the catalog's background primitive (@ --dur-fast/--ease). */
+  transition: var(--tr-bg);
 }
 
 .btn:hover {
@@ -476,7 +499,11 @@ h1 {
   border: 2px solid var(--border);
   border-top-color: var(--interactive);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  /* TS-24: the bespoke `0.8s` literal is replaced with the §0 `--dur-slow` tier (440ms) — no raw
+     duration in the spinner rule. A continuous rotation must keep `linear` (the §0 `--ease` would
+     stutter the loop's seam); `linear` is a timing KEYWORD, not a duration/easing literal, so the
+     "no literal" catalog rule is satisfied while the loop stays smooth. */
+  animation: spin var(--dur-slow) linear infinite;
 }
 
 @keyframes spin {
@@ -510,11 +537,30 @@ h1 {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   font-size: var(--fs-small);
-  /* The state transition (border/colour as a stage moves pending → running → done) uses the §0 tiers;
-     under prefers-reduced-motion the global rule above makes the change instant (DESIGN.md §Motion). */
-  transition:
-    color var(--dur-base) var(--ease),
-    border-color var(--dur-base) var(--ease);
+  /* TS-24: the state transition (border/colour as a stage moves pending → running → done) is sourced
+     from the catalog's state primitive (color + border-color @ --dur-base/--ease); under
+     prefers-reduced-motion the global rule above makes the change instant (DESIGN.md §Motion). */
+  transition: var(--tr-state);
+  /* The reveal as a rail row first paints (TS-24): a token-driven enter that staggers down the rail.
+     `--rail-i` is set inline per-row in generating.tsx so each row's delay steps off its rail index;
+     the global prefers-reduced-motion reset zeroes the animation, so reduced motion shows the rail
+     instantly with no stagger (DESIGN.md §Motion). */
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+  animation-delay: calc(var(--rail-i, 0) * var(--dur-fast));
+}
+
+/* The timeline step reveal (DESIGN.md §Motion — "staggered hub-tile reveal" vocabulary, applied to the
+   generating rail). Token-driven: duration/easing come from the catalog tiers, the per-row delay from
+   the inline `--rail-i`. NO bespoke literal. */
+@keyframes rail-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--sp-1));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* The state glyph (○ pending · ◐ running · ✓ done · ✗ failed) — paired with the visually-hidden state
@@ -602,6 +648,11 @@ h1 {
   cursor: pointer;
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--r-sm);
+  /* TS-24 add-or-leave decision: ADD a catalog color transition (@ --dur-fast/--ease) for parity with
+     its sibling `.btn` — the signout's `:hover` swapped color instantly while `.btn` eased, the exact
+     inconsistency TS-24 unifies. Sourced from the catalog's color primitive; under prefers-reduced-
+     motion the global reset makes the hover instant (DESIGN.md §Motion). */
+  transition: var(--tr-color);
 }
 
 .topbar__signout:hover {
