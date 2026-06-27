@@ -639,7 +639,19 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
     expect(cards.map((c) => c.id)).toEqual(['newer', 'older']);
     expect(cards[0]?.createdAt).toBe('2026-06-21T12:00:00.000Z'); // Date → ISO
     expect(cards[1]?.createdAt).toBe('2026-06-20T09:00:00.000Z'); // string → ISO
-    expect(sqlsOf(two.client.query).some((s) => s.includes('ORDER BY c.created_at DESC'))).toBe(true);
+    expect(sqlsOf(two.client.query).some((s) => s.includes('ORDER BY created_at DESC'))).toBe(true);
+  });
+
+  it('dedups to ONE card per curriculum in the QUERY: a multi-page curriculum (RETAINED runPipeline) can never emit N duplicate cards', async () => {
+    // The reader joins curriculum → curriculum_page → concept_page, which yields one row PER PAGE — a
+    // multi-page curriculum would emit N cards sharing one /curriculum/[id] href. The fix is structural:
+    // an inner DISTINCT ON (c.id) collapses each curriculum to its lowest-ordinal representative page.
+    // Assert the SQL carries that dedup (the fake pool can't execute it; the guarantee lives in the query).
+    const fp = fakePool([{ match: 'FROM curriculum c', rows: [cardRow()] }]);
+    await listLessons('owner-1', fp.deps);
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM curriculum c'));
+    expect(sql).toContain('DISTINCT ON (c.id)'); // one representative row per curriculum
+    expect(sql).toContain('ORDER BY c.id, cp.ordinal'); // representative = lowest ordinal (DISTINCT ON requires c.id first)
   });
 });
 

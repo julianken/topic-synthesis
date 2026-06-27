@@ -349,9 +349,19 @@ export interface LessonCard {
 /** List one poster-card descriptor per lesson the caller owns, newest-first — the reader the library
  *  home (TS-17) builds its card grid on. OWNER-SCOPED (ADR 0002 §5): scoped on `curriculum.owner_sub`,
  *  so a caller with no owned lessons AND an unknown/foreign `ownerSub` both get `[]` — no existence
- *  oracle. ONE owner-scoped query joining `curriculum` → its single `concept_page` (the one-page
- *  single-lesson row, ADR-0003), projecting only the card fields — NOT a per-lesson `getCurriculum`
- *  loop (which would be N+1 and over-fetch the tiered hub).
+ *  oracle. ONE owner-scoped query joining `curriculum` → a single representative `concept_page`,
+ *  projecting only the card fields — NOT a per-lesson `getCurriculum` loop (which would be N+1 and
+ *  over-fetch the tiered hub).
+ *
+ *  ONE CARD PER CURRICULUM — enforced by the QUERY, not by a single-page coincidence. Today every
+ *  persisted curriculum is single-page (ADR-0003: every entrypoint drives `runLesson`), but `persistRun`
+ *  is general (one `curriculum_page` per page in `flattenHub`) and the multi-page curriculum path
+ *  (`runPipeline`) is RETAINED for the curriculum-wrapper milestone. A naïve `curriculum JOIN
+ *  curriculum_page JOIN concept_page` yields one row PER PAGE, so a multi-page curriculum would emit N
+ *  duplicate cards sharing one `/curriculum/[id]` href. The inner `DISTINCT ON (c.id) ... ORDER BY c.id,
+ *  cp.ordinal` collapses each curriculum to its lowest-ordinal page (the representative card), and the
+ *  outer query re-orders newest-first — so the one-card-per-curriculum contract holds even once the
+ *  wrapper milestone lands a multi-page curriculum in the DB.
  *
  *  MIXED-ARM TOLERANT (library Key decision §13 — "old lessons stay old," no backfill): the library
  *  durably holds blob-arm rows (a flat `PageSpec` with `interactionKind`), v11-arm rows (a sectioned
@@ -372,13 +382,23 @@ export async function listLessons(
     status: PageStatus;
     interaction_kind: string | null;
   }>(
-    `SELECT c.id, c.created_at, p.concept_slug, p.title, p.status,
-            p.spec_json ->> 'interactionKind' AS interaction_kind
-       FROM curriculum c
-       JOIN curriculum_page cp ON cp.curriculum_id = c.id
-       JOIN concept_page p ON p.id = cp.page_id
-      WHERE c.owner_sub = $1
-      ORDER BY c.created_at DESC`,
+    // ONE card per curriculum, newest-first. The inner DISTINCT ON (c.id) ... ORDER BY c.id, cp.ordinal
+    // collapses each curriculum to its lowest-ordinal (representative) page — so a multi-page curriculum
+    // (the RETAINED runPipeline path) emits ONE card, not N duplicates sharing one /curriculum/[id] href
+    // (today every curriculum is single-page per ADR-0003, but the query enforces it regardless). The
+    // outer query re-orders the representatives newest-first (DISTINCT ON forces ORDER BY c.id first).
+    `SELECT id, created_at, concept_slug, title, status, interaction_kind
+       FROM (
+         SELECT DISTINCT ON (c.id)
+                c.id, c.created_at, p.concept_slug, p.title, p.status,
+                p.spec_json ->> 'interactionKind' AS interaction_kind
+           FROM curriculum c
+           JOIN curriculum_page cp ON cp.curriculum_id = c.id
+           JOIN concept_page p ON p.id = cp.page_id
+          WHERE c.owner_sub = $1
+          ORDER BY c.id, cp.ordinal
+       ) cards
+      ORDER BY created_at DESC`,
     [ownerSub],
   );
   return res.rows.map((r) => ({
