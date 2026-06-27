@@ -90,6 +90,87 @@
         </div>
         <aside class="panel">
           <figure>
+            <svg
+              viewBox="0 0 220 200"
+              role="img"
+              aria-labelledby="cycle-title cycle-desc"
+              style="width: 100%; height: auto"
+            >
+              <title id="cycle-title">One full turn around the unit circle</title>
+              <desc id="cycle-desc">
+                A point sweeps a full 2π turn counter-clockwise around the unit circle and lands back
+                on its starting position, so its height (the dashed line) is identical to where it
+                began.
+              </desc>
+              <!-- axes -->
+              <line
+                x1="20"
+                y1="100"
+                x2="200"
+                y2="100"
+                stroke="var(--border, oklch(0.32 0.02 250))"
+                stroke-width="1"
+              />
+              <line
+                x1="110"
+                y1="20"
+                x2="110"
+                y2="180"
+                stroke="var(--border, oklch(0.32 0.02 250))"
+                stroke-width="1"
+              />
+              <!-- unit circle -->
+              <circle
+                cx="110"
+                cy="100"
+                r="60"
+                fill="none"
+                stroke="var(--kind-svg, oklch(0.80 0.13 295))"
+                stroke-width="2"
+              />
+              <!-- sweep arrow: a nearly-full counter-clockwise turn, arrowhead just shy of the start -->
+              <defs>
+                <marker
+                  id="arrow"
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent, oklch(0.82 0.145 215))" />
+                </marker>
+              </defs>
+              <path
+                d="M 168 90 A 60 60 0 1 0 165 122"
+                fill="none"
+                stroke="var(--accent, oklch(0.82 0.145 215))"
+                stroke-width="2"
+                marker-end="url(#arrow)"
+              />
+              <!-- the start/end height: a dashed horizontal line at the point's y, with the point on it -->
+              <line
+                x1="110"
+                y1="100"
+                x2="170"
+                y2="100"
+                stroke="var(--text-faint, oklch(0.65 0.016 250))"
+                stroke-width="1"
+                stroke-dasharray="4 3"
+              />
+              <circle cx="170" cy="100" r="5" fill="var(--accent, oklch(0.82 0.145 215))" />
+              <text
+                x="110"
+                y="195"
+                text-anchor="middle"
+                font-family="var(--mono, ui-monospace, monospace)"
+                font-size="11"
+                fill="var(--text-muted, oklch(0.74 0.015 250))"
+              >
+                start = end after 2π
+              </text>
+            </svg>
             <figcaption>Mini-figure: one full turn returns the point to its starting height.</figcaption>
           </figure>
         </aside>
