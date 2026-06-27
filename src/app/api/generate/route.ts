@@ -3,11 +3,8 @@ import type { Level } from '../../../domain/settings';
 import type { TopicRequest } from '../../../domain/stages';
 import { InlineEngine } from '../../../engine/inline-engine';
 import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../../../llm/models';
-import { gradedCritique } from '../../../pipeline/critic';
 import { defaultDeps } from '../../../pipeline/deps';
-import { defaultStages, type StageBundle } from '../../../pipeline/ports';
 import { runLesson } from '../../../pipeline/run-pipeline';
-import { specV11 } from '../../../pipeline/spec';
 import { persistRun, recordRunOwner } from '../../../store/repo';
 import { getSessionIdentity } from '../../auth/require-session';
 import { isSameOrigin } from '../../auth/session';
@@ -27,13 +24,6 @@ export const dynamic = 'force-dynamic';
 // pipeline behind the Cloud Run Job; the lean local path runs it in-process here — see ADR 0001.)
 const CHEAP_MODELS: Record<Stage, StageModel> = cheapModels();
 const APP_RUN = { models: CHEAP_MODELS, maxNodes: 4, maxQuestions: 4 } as const;
-
-// The LIVE-DEFAULT arm, kept identical to the deployed Job's (TS-15b arm-promotion, issue #107): the
-// v11-graded arm (sectioned `specV11` synthesis + the `gradedCritique` named-sub-score critic). The
-// local-dev in-process fallback must match the deployed Job so `npm run dev` exercises the same arm
-// the Service dispatches. It's a `StageBundle` swap over `defaultStages` (the blob-binary arm stays
-// REACHABLE — swap back here + in run-job.ts to re-arm the R10 kill-switch).
-const LIVE_ARM: StageBundle = { ...defaultStages, spec: specV11, critic: gradedCritique };
 
 const LEVELS: readonly string[] = ['intro', 'intermediate', 'advanced'];
 
@@ -59,9 +49,8 @@ function startRun(runId: string, request: TopicRequest, ownerSub: string): void 
     // SINGLE-LESSON path (runLesson) — matches the deployed Cloud Run Job (run-job.ts) + the
     // single-lesson UI (#49), so `npm run dev` generates one lesson locally instead of a full
     // curriculum. `maxNodes` in APP_RUN is inert on this path (it builds exactly one page), kept only
-    // so the cheap+capped knobs read identically to the curriculum-era config. `LIVE_ARM` is the
-    // promoted v11-graded arm (TS-15b) — the SAME arm the deployed Job runs, so local dev exercises it.
-    const run = await runLesson(request, new InlineEngine(), defaultDeps, APP_RUN, LIVE_ARM);
+    // so the cheap+capped knobs read identically to the curriculum-era config.
+    const run = await runLesson(request, new InlineEngine(), defaultDeps, APP_RUN);
     const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...CHEAP_MODELS };
     await persistRun({ runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots, ownerSub });
   })();

@@ -3,11 +3,9 @@ import type { Level } from '../domain/settings';
 import type { TopicRequest } from '../domain/stages';
 import { GcpEngine } from '../engine/gcp-engine';
 import { cheapModels } from '../llm/models';
-import { gradedCritique } from '../pipeline/critic';
 import { defaultDeps } from '../pipeline/deps';
-import { defaultStages, noopSink, type StageBundle } from '../pipeline/ports';
+import { defaultStages, noopSink } from '../pipeline/ports';
 import { runLesson, type RunOptions } from '../pipeline/run-pipeline';
-import { specV11 } from '../pipeline/spec';
 import { closePool } from '../store/db';
 import { persistRun } from '../store/repo';
 import { persistInput } from './run-skeleton';
@@ -21,20 +19,6 @@ import { persistInput } from './run-skeleton';
  */
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
-
-/**
- * The LIVE-DEFAULT arm the deployed Job runs (TS-15b arm-promotion, issue #107). PROMOTED from the
- * blob-binary arm to the **v11-graded** arm: the SYNTHESIS spec is `specV11` (the sectioned
- * `LessonSpec` emission) and the critic is `gradedCritique` (named learning-efficacy +
- * ledger-conformance sub-scores, `passed` derived against `CRITIC_PASS_THRESHOLD`). The flip is the
- * moment the kill-switch is deliberately disarmed — owner-signed, riding `CRITIC_PASS_THRESHOLD = 0.6`
- * confirmed against REAL v11 emissions (clean 3/3 calibration; the fixture corpus still derives its
- * expected buckets). It is realized through the existing `StageBundle` swap — NOT a new runtime flag —
- * so `defaultStages` (the blob-binary arm) stays REACHABLE: this constant is the ONE-LINE-revertible
- * R10 kill-switch (swap back to `defaultStages` to re-disarm). See docs/plans/lesson-workspace.md
- * (Key decisions §3/§5/§7, R10) + AGENTS.md "Working in the tree".
- */
-const LIVE_ARM: StageBundle = { ...defaultStages, spec: specV11, critic: gradedCritique };
 
 function required(name: string): string {
   const value = process.env[name];
@@ -79,9 +63,7 @@ async function main(): Promise<void> {
     // NOT InlineEngine. persist is unconditional: the curriculum IS the deliverable + the app's
     // status-poll target. noopSink: no trace in the Job. `MAX_NODES` is inert here (the path builds
     // exactly one page) but stays in the env contract (dispatch.ts) so no Terraform change is needed.
-    // The live arm is `LIVE_ARM` (the v11-graded arm — TS-15b promotion); swap it back to
-    // `defaultStages` to re-arm the blob-binary kill-switch.
-    const run = await runLesson(request, new GcpEngine(runId), defaultDeps, options, LIVE_ARM, noopSink);
+    const run = await runLesson(request, new GcpEngine(runId), defaultDeps, options, defaultStages, noopSink);
     // The owning user's sub — set by the Service as the RUN_OWNER override at gated dispatch (the Job
     // has no session to re-verify; it trusts the override, which is set only AFTER the spend gate). §5.
     const base = persistInput(runId, request, run, options);
