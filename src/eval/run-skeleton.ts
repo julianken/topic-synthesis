@@ -80,7 +80,8 @@ export function buildOptions(args: string[]): RunOptions {
  *  - `--v11`    swaps `spec → specV11` (the v11 SECTIONED `LessonSpec` emission, TS-11/TS-12; `code`
  *               already narrows the `PageSpec | LessonSpec` union, so a v11 spec is rendered into the
  *               v11 workspace). Default (no flag) keeps `defaultStages.spec` — the blob flat-`PageSpec`
- *               emission, the live default / R10 kill-switch. (Promoted to the default later by TS-15b.)
+ *               emission, now the reachable R10 kill-switch (TS-15b/#107 promoted `specV11` to the live
+ *               default via `LIVE_ARM`; this CLI no-flag bench arm is still the blob emission).
  *               This replaces the throwaway `--v11` used by hand in TS-12b verification with a real,
  *               tested arm selector — the SYNTHESIS half of the A/B axis.
  *  - `--graded` swaps `critic → gradedCritique` (the v11 named-sub-score critic, the arm whose `built`
@@ -91,7 +92,8 @@ export function buildOptions(args: string[]): RunOptions {
  * substitution over `defaultStages`. Running the blob arm, then a `--graded`/`--v11` arm, over
  * `--trace <path> --baseline <blobRunId>` produces the paired `_analysis` rows that are the queryable
  * A/B substrate (TS-9 AC4 / TS-14 AC6). This is the ONLY CLI path that swaps an arm; the deployed Job
- * (`run-job.ts`) always runs `defaultStages` — the A/B record is CLI-offline, never live telemetry.
+ * (`run-job.ts`) runs `LIVE_ARM` (the v11-graded arm — TS-15b/#107), not a CLI flag — the A/B record
+ * is CLI-offline, never live telemetry.
  */
 export function selectArm(args: string[]): StageBundle {
   const stages: StageBundle = { ...defaultStages };
@@ -104,7 +106,8 @@ export function selectArm(args: string[]): StageBundle {
  * The human-readable ARM TAG that rides each run's trace `label` (TS-9 AC4 / TS-14 AC6) so the paired
  * `_analysis` rows are distinguishable in one eleatic store. It names BOTH composable axes
  * `selectArm` swaps — the SYNTHESIS spec arm (`blob`/`v11`) and the CRITIC arm (`binary`/`graded`) —
- * e.g. `blob-binary` (the deployed default), `v11-graded` (the full v11 arm), `blob-graded`,
+ * e.g. `blob-binary` (the kill-switch arm; the CLI no-flag default), `v11-graded` (the full v11 arm —
+ * the PROMOTED live default, TS-15b/#107), `blob-graded`,
  * `v11-binary`. Pure over `args` so it stays in lockstep with `selectArm` and is unit-testable.
  */
 export function armLabel(args: string[]): string {
@@ -140,8 +143,9 @@ export function formatSummary(run: PipelineRunResult): string {
  * `result.brief` (the `runLesson` Analysis product), so a `--trace` run now FIRES the #51 eval judge
  * over that brief (see `reduceRunTrace`). `deps` defaults to the live client, so a real run needs a
  * provider API key in the env (ANTHROPIC_API_KEY / OPENAI_API_KEY / …); tests inject fakes. `stages`
- * is the A/B arm (TS-9/TS-14): `defaultStages` (the blob arm — blob spec + binary critic, the deployed
- * default) unless `selectArm` swaps in the v11 SYNTHESIS spec (`--v11`) and/or the graded critic
+ * is the A/B arm (TS-9/TS-14): `defaultStages` (the blob arm — blob spec + binary critic, the reachable
+ * kill-switch / CLI no-flag default; the deployed Job runs `LIVE_ARM` — TS-15b/#107) unless `selectArm`
+ * swaps in the v11 SYNTHESIS spec (`--v11`) and/or the graded critic
  * (`--graded`) — the two composable `StageBundle` field swaps the offline bench pairs.
  */
 export async function runSkeleton(

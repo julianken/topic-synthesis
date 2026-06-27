@@ -56,7 +56,9 @@ export interface RunOptions {
  * so the sectioned `LessonSpec` is no longer flattened to a blob here. The brief carries no slug
  * (it is the single-lesson contract), so each call site overrides `nodeSlug` for its node/lesson;
  * spreading the union preserves either arm's shape (`isLessonSpec` discriminates downstream in
- * `code`). On the live deployed path `spec` is always a `PageSpec`, so this is identity there.
+ * `code`). On the live deployed path (`LIVE_ARM` — the PROMOTED v11-graded arm, TS-15b/#107)
+ * `spec` is a `LessonSpec`; the blob/`PageSpec` shape only flows through here on the reachable
+ * kill-switch arm (`defaultStages`). Either way this just pins the slug — the arm is preserved.
  */
 function specForCode(spec: PageSpec | LessonSpec, nodeSlug: string): PageSpec | LessonSpec {
   return { ...spec, nodeSlug };
@@ -183,7 +185,9 @@ async function synthesizeNode(
     // to the topic-derived slug instead — see synthesizeLesson.)
     // `specced.spec` is the arm-scoped `PageSpec | LessonSpec` union (TS-10/TS-11); `code` narrows
     // it internally (TS-12) and renders either arm into the v11 workspace — `specForCode` just pins
-    // the slug, preserving the arm. The live default (`defaultStages.spec`) only emits a `PageSpec`.
+    // the slug, preserving the arm. The live default is now the v11-graded arm (`LIVE_ARM.spec` =
+    // `specV11`, emitting a `LessonSpec` — TS-15b/#107); the blob `PageSpec` only flows on the
+    // reachable kill-switch arm (`defaultStages.spec`).
     const nodeSpec = specForCode(specced.spec, node.slug);
     const coded = await engine.step('code', key, () => stages.code(nodeSpec, lessonBrief.learningGoal, deps, models.code));
     records.push(...coded.records);
@@ -377,8 +381,9 @@ async function synthesizeLesson(
     emitNode('spec', specced.records);
     // The brief carries no slug; pin the artifact to the topic-derived slug here. `code` narrows the
     // arm-scoped `PageSpec | LessonSpec` union internally (TS-12) and renders either arm into the v11
-    // workspace; `specForCode` just pins the slug, preserving the arm (the live blob arm only emits
-    // a `PageSpec`, so this is identity on the default path).
+    // workspace; `specForCode` just pins the slug, preserving the arm. The live default is the
+    // v11-graded arm (`LIVE_ARM.spec` = `specV11`, emitting a `LessonSpec` — TS-15b/#107); the blob
+    // `PageSpec` only flows on the reachable kill-switch arm (`defaultStages.spec`).
     const nodeSpec = specForCode(specced.spec, slug);
     const coded = await engine.step('code', key, () => stages.code(nodeSpec, brief.learningGoal, deps, models.code));
     records.push(...coded.records);

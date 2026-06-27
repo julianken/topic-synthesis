@@ -350,8 +350,9 @@ describe('runLesson (single-lesson path)', () => {
 // The arm is realized by injecting `gradedCritique` into StageBundle.critic — NOT a RunOptions flag,
 // NOT a gate branch. The gate line (`synth.artifact?.passed`) is read UNCHANGED: the graded fn derives
 // `passed` from its sub-scores and the gate treats it exactly as the binary fn's self-asserted boolean.
-// `defaultStages.critic` stays the binary `critique` (the live blob default — the R10 kill-switch), so a
-// mis-calibrated graded critic can only degrade the arm it is swapped into, never the live path.
+// `defaultStages.critic` stays the binary `critique` (the blob arm — the reachable R10 kill-switch; the
+// live path now runs `LIVE_ARM`, the v11-graded arm — TS-15b/#107), so a mis-calibrated graded critic
+// can only degrade the arm it is swapped into, and the blob kill-switch stays a one-line revert away.
 const lessonSub = (score: number): { score: number; note: string } => ({ score, note: 'n' });
 const lessonVerdictAt = (
   score: number,
@@ -435,9 +436,10 @@ describe('runLesson — gated by the v11 graded-critic arm (StageBundle.critic s
     expect(hubPages[0]?.built).toBe(false);
   });
 
-  it('the blob arm stays the live default — runLesson with no override uses the binary critic', async () => {
-    // The binary arm answers CriticVerdictSchema and carries NO sub-scores; this is the kill-switch
-    // default the deployed entrypoints run, untouched by the graded arm.
+  it('the blob arm is the runLesson StageBundle default — no override uses the binary critic', async () => {
+    // The binary arm answers CriticVerdictSchema and carries NO sub-scores; `defaultStages` is the
+    // reachable kill-switch arm, and it is still `runLesson`'s default StageBundle param when no bundle
+    // is passed. (The deployed entrypoints now pass `LIVE_ARM` explicitly — TS-15b/#107.)
     const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1'], true));
     expect(out.result.pages[0]?.scores).toBeUndefined(); // binary verdict → no graded sub-scores
     expect(out.result.pages[0]?.passed).toBe(true); // the binary verdict's passed drives the gate

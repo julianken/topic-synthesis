@@ -115,7 +115,7 @@ export async function persistRun(
           // The graded critic's named sub-scores (TS-8). Present whenever the artifact carries them
           // (the v11 graded-critic arm sets `artifact.scores`) — including a graded-arm FAIL, whose
           // non-null artifact routes to a 'soon' row that STILL keeps its sub-scores. NULL for the
-          // live blob arm (no `scores`) and for a degraded soon/text row that has NO artifact (a
+          // blob arm (no `scores`) and for a degraded soon/text row that has NO artifact (a
           // synthesis failure). This INSERT sits between BEGIN (above) and the transient-table prune
           // (below) — inside the same transaction, BEFORE the deletes — so a persist failure rolls the
           // score write back with the prune, keeping the run resumable (program-doc "Consequences" (b)).

@@ -333,7 +333,7 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
 // ── the graded sub-score write-path (TS-8) ───────────────────────────────────
 // The graded v11 critic arm sets `artifact.scores`; persistRun writes them into the new
 // concept_page.critic_scores JSONB column, inside the same BEGIN/COMMIT as the prune, BEFORE the
-// DELETEs — so the score write rolls back with them. The live blob arm carries NO `scores`, so it
+// DELETEs — so the score write rolls back with them. The blob arm carries NO `scores`, so it
 // (and any degraded soon/text row with no artifact) writes NULL.
 const sub = (score: number): { score: number; note: string } => ({ score, note: 'n' });
 const gradedScores: { learningEfficacy: LearningEfficacy; ledgerConformance: LedgerConformance } = {
@@ -400,7 +400,7 @@ describe('persistRun — graded critic sub-scores write-path (TS-8)', () => {
     expect(JSON.parse(params?.[CRITIC_SCORES_PARAM_IDX] as string)).toEqual(gradedScores);
   });
 
-  it('writes NULL critic_scores for a blob-arm artifact (no scores) — the live default never persists scores', async () => {
+  it('writes NULL critic_scores for a blob-arm artifact (no scores) — the kill-switch arm never persists scores', async () => {
     const { deps, client } = fakePool();
     // `lessonResult`'s artifact is the binary-arm shape: passed/critique only, no `scores`.
     await persistRun(

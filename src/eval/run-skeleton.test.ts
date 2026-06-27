@@ -165,11 +165,11 @@ describe('buildOptions', () => {
 });
 
 describe('selectArm (the offline A/B bench arm — TS-9, TS-14)', () => {
-  it('defaults to the blob arm (blob spec + binary critic, the deployed default)', () => {
+  it('defaults to the blob arm (blob spec + binary critic, the CLI no-flag default / kill-switch arm)', () => {
     const arm = selectArm(['--topic', 'x']);
     // selectArm returns a fresh copy (it composes swaps), so assert FIELD equality, not reference.
     expect(arm).toEqual(defaultStages);
-    expect(arm.spec).toBe(defaultStages.spec); // the blob spec — the live default / kill-switch
+    expect(arm.spec).toBe(defaultStages.spec); // the blob spec — the reachable kill-switch (`LIVE_ARM` is the live default)
     expect(arm.critic).toBe(defaultStages.critic); // the binary critic
   });
 
@@ -208,10 +208,10 @@ describe('selectArm (the offline A/B bench arm — TS-9, TS-14)', () => {
   });
 
   it('armLabel names BOTH axes so the paired _analysis rows are distinguishable (TS-14 AC6)', () => {
-    expect(armLabel(['--topic', 'x'])).toBe('blob-binary'); // the deployed default
+    expect(armLabel(['--topic', 'x'])).toBe('blob-binary'); // the CLI no-flag default / kill-switch arm
     expect(armLabel(['--topic', 'x', '--graded'])).toBe('blob-graded');
     expect(armLabel(['--topic', 'x', '--v11'])).toBe('v11-binary');
-    expect(armLabel(['--topic', 'x', '--v11', '--graded'])).toBe('v11-graded'); // the full v11 arm
+    expect(armLabel(['--topic', 'x', '--v11', '--graded'])).toBe('v11-graded'); // the full v11 arm — the promoted live default
   });
 
   it('runSkeleton threads the selected v11 arm end-to-end (graded sub-scores reach the page)', async () => {

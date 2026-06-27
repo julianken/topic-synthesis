@@ -161,8 +161,9 @@ function gradedCriticPrompt(artifact: PageArtifact): string {
 /**
  * The GRADED critic arm fn (program decision 7). Same `(artifact, deps, model) =>
  * Promise<CriticOutput>` signature as `critique`, so it is a drop-in `StageBundle.critic`
- * override for the v11 arm; `defaultStages.critic` stays the binary `critique` (the blob
- * arm is the live default — the decision-3/7 kill-switch). It requests the v2 graded schema,
+ * override for the v11 arm — now the PROMOTED live default (`LIVE_ARM.critic`, TS-15b/#107);
+ * `defaultStages.critic` stays the binary `critique` (the blob arm — the reachable
+ * decision-3/7 kill-switch, no longer the live default). It requests the v2 graded schema,
  * DERIVES `passed` from the sub-scores (overwriting the model's self-asserted boolean — the
  * gate stays computed, not LLM-asserted), and returns a `CritiquedArtifact` carrying the
  * sub-scores under `scores`.

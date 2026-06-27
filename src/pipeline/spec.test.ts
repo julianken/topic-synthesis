@@ -545,10 +545,10 @@ describe('specV11 (the v11 sectioned arm)', () => {
 
   it('AC8 — wires as a StageBundle.spec arm OVERRIDE, not a mutation of defaultStages.spec', () => {
     // The v11 spec is a valid `StageBundle.spec` override (same signature, LessonSpec ⊆ the union),
-    // and the live default arm still points at the blob `spec`. Building the arm does NOT mutate it.
+    // and `defaultStages.spec` still points at the blob `spec`. Building the arm does NOT mutate it.
     const v11Arm: StageBundle = { ...defaultStages, spec: specV11 };
     expect(v11Arm.spec).toBe(specV11);
-    expect(defaultStages.spec).toBe(spec); // the blob spec stays the live default / kill-switch
+    expect(defaultStages.spec).toBe(spec); // the blob spec stays `defaultStages.spec` (the reachable kill-switch arm — `LIVE_ARM` is the live default)
     expect(defaultStages.spec).not.toBe(specV11);
   });
 });

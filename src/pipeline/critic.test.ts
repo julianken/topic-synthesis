@@ -49,7 +49,9 @@ describe('critique', () => {
     expect(out.artifact.critique).toBe('not interactive');
   });
 
-  it('the blob arm stays the live default (defaultStages.critic === binary critique)', () => {
+  it('the blob arm is the kill-switch arm (defaultStages.critic === binary critique)', () => {
+    // `defaultStages.critic` is the binary `critique` — the RETAINED, reachable kill-switch (no longer
+    // the live default; `LIVE_ARM.critic` = `gradedCritique` is, TS-15b/#107).
     expect(defaultStages.critic).toBe(critique);
   });
 });
