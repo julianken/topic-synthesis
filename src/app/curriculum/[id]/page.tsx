@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { getCurriculum, ownsRun } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 import { GeneratingPoller } from './generating';
+import { MorphReceiverGuard } from './morph-receiver-guard';
 import { ReaderShell } from './reader-shell';
 
 const STATUS_LABEL = { built: 'Built', soon: 'Soon', text: 'Text' } as const;
@@ -54,19 +55,32 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
         // /artifact route (page.href → src/app/artifact/serve.ts), authorized through the owning row
         // (the same-origin GET carries the session cookie — ADR-0002 §5). The shell never reads the
         // iframe DOM and never relaxes the sandbox/CSP. concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
-        <ReaderShell id={id} href={page.href} title={page.title} />
+        //
+        // RECEIVER-GUARANTEE (TS-22): the morph-box destination IS present on this `built` branch, so the
+        // guard (told `destinationBoxPresent`) lets the card→reader box-FLIP run when the browser supports
+        // the cross-doc VT and the user hasn't asked for reduced motion — else it instant-swaps (AC3).
+        <>
+          <MorphReceiverGuard destinationBoxPresent />
+          <ReaderShell id={id} href={page.href} title={page.title} />
+        </>
       ) : (
-        <div className="lesson-degraded" role="status">
-          <span className={`badge badge--${page ? page.status : 'soon'}`}>
-            <span className="badge__icon" aria-hidden="true">
-              {STATUS_ICON[page ? page.status : 'soon']}
-            </span>{' '}
-            {STATUS_LABEL[page ? page.status : 'soon']}
-          </span>
-          <p className="lead">
-            This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
-          </p>
-        </div>
+        // RECEIVER-GUARANTEE (TS-22): the degraded state renders NO `#readerPanel.morph-box`, so the
+        // morph would try to pair a missing endpoint. The guard (told `destinationBoxPresent={false}`)
+        // skips the cross-doc View-Transition → a clean instant-swap to this usable degraded page (AC4).
+        <>
+          <MorphReceiverGuard destinationBoxPresent={false} />
+          <div className="lesson-degraded" role="status">
+            <span className={`badge badge--${page ? page.status : 'soon'}`}>
+              <span className="badge__icon" aria-hidden="true">
+                {STATUS_ICON[page ? page.status : 'soon']}
+              </span>{' '}
+              {STATUS_LABEL[page ? page.status : 'soon']}
+            </span>
+            <p className="lead">
+              This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
+            </p>
+          </div>
+        </>
       )}
     </main>
   );

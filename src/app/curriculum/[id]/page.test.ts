@@ -137,3 +137,85 @@ describe('TS-20/TS-21 — the morph transport lives in globals.css; the per-id n
     expect(rm).toMatch(/::view-transition-group\(\*\)[\s\S]*animation-duration:\s*0\.01ms\s*!important/m);
   });
 });
+
+// ── TS-22: the morph robustness paths (capability / receiver-guarantee / reduced-motion) ─────────────
+// TS-22 hardens TS-21's happy-path morph so EVERY degraded path is a clean instant-swap, never a broken
+// or half-applied transition. The pure decision logic is unit-tested in `reader-morph-guard.test.ts`;
+// these guards byte-pin the two SURFACES that wire it: (1) the `globals.css` transport is scoped so
+// reduced-motion never declares the cross-doc VT (AC5) and a no-API engine drops the at-rule (AC2), and
+// (2) the receiver-guard is mounted on BOTH reader branches (AC3/AC4) and stays box-only (AC6/AC7).
+describe('TS-22 — the transport is scoped so reduced-motion never runs the cross-doc VT (AC2/AC5)', () => {
+  const CSS = readFileSync(fileURLToPath(new URL('../../globals.css', import.meta.url)), 'utf8');
+
+  it('declares `@view-transition { navigation: auto }` ONLY inside prefers-reduced-motion: no-preference (AC5)', () => {
+    // Under `prefers-reduced-motion: reduce` the at-rule must be ABSENT entirely — the cross-doc VT never
+    // starts (not merely a zeroed duration). So the transport rule lives inside a `no-preference` @media
+    // block; a regression that hoists it back to top-level (running the morph regardless of preference)
+    // trips this. We assert the transport at-rule sits within a `no-preference` media block.
+    const noPref =
+      CSS.match(/@media \(prefers-reduced-motion: no-preference\)\s*\{[\s\S]*?\n\}/m)?.[0] ?? '';
+    expect(noPref).toMatch(/@view-transition\s*\{[^}]*navigation\s*:\s*auto/m);
+    // and the transport must NOT also exist at top level (un-scoped) — every @view-transition occurrence
+    // is the one inside the no-preference block.
+    expect(CSS.match(/@view-transition\s*\{/g)?.length).toBe(1);
+  });
+
+  it('the no-API instant-swap is inherent: nothing forces the transport on a non-supporting engine (AC2)', () => {
+    // The cross-doc VT fallback is "the at-rule simply does not activate" — an engine without the API
+    // drops the unknown `@view-transition` rule and does a plain navigation. There is no scripted
+    // `startViewTransition` forcing a transition in the stylesheet, so a no-API browser instant-swaps.
+    expect(CSS).not.toContain('startViewTransition');
+  });
+});
+
+describe('TS-22 — the receiver-guard is mounted on BOTH reader branches and is box-only (AC3/AC4/AC6/AC7)', () => {
+  const PAGE = readFileSync(fileURLToPath(new URL('./page.tsx', import.meta.url)), 'utf8');
+  const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
+
+  it('mounts MorphReceiverGuard on the built branch with the destination box present (AC3)', () => {
+    // The `built` branch renders the morph-box, so the guard is told the destination is present — the
+    // morph runs when the browser supports the cross-doc VT and reduced motion is off.
+    expect(PAGE).toContain('<MorphReceiverGuard destinationBoxPresent />');
+  });
+
+  it('mounts MorphReceiverGuard on the degraded branch with the destination box ABSENT (AC4)', () => {
+    // The `soon`/`text` degraded state renders NO `#readerPanel.morph-box`, so the guard is told the
+    // destination is absent — it instant-swaps rather than pairing a missing endpoint.
+    expect(PAGE).toContain('<MorphReceiverGuard destinationBoxPresent={false} />');
+  });
+
+  it('the guard instant-swaps by skipping the View-Transition, never by touching the iframe (AC6/AC7)', () => {
+    // The receiver-guarantee cancels the morph via the VT's own `skipTransition()` — box-only. The guard
+    // must NEVER read/mutate the opaque-origin iframe, its sandbox, or the CSP: no `contentWindow`, no
+    // `allow-same-origin`, no `iframe` access, no `ARTIFACT_CSP`. It decides over the CONTAINER box only.
+    expect(GUARD).toContain('skipTransition');
+    expect(GUARD).not.toContain('contentWindow');
+    expect(GUARD).not.toContain('allow-same-origin');
+    expect(GUARD).not.toContain('ARTIFACT_CSP');
+    expect(GUARD).not.toMatch(/getElementsByTagName\(['"]iframe/);
+  });
+
+  it('the guard confirms the LIVE box, not just the branch claim — a real receiver-guarantee (AC4)', () => {
+    // `destinationBoxPresent` is re-checked against the live DOM (`getElementById('readerPanel')`), so a
+    // branch that claims a box but failed to render one still instant-swaps — a guarantee, not a promise.
+    expect(GUARD).toContain("document.getElementById('readerPanel')");
+  });
+});
+
+// ── TS-22 AC6: the iframe attributes are byte-identical across EVERY morph path ───────────────────────
+// The morph (happy path) and all three fallbacks (no-API, degraded-receiver, reduced-motion) are
+// container-box geometry only — the lesson iframe's `sandbox="allow-scripts"` (no `allow-same-origin`)
+// and the `/artifact` route's `ARTIFACT_CSP` are byte-for-byte unchanged across them. TS-22 adds no code
+// path that varies the iframe by morph branch: the iframe lives in `reader-shell.tsx` (rendered only on
+// the `built` branch, byte-pinned above) and the receiver-guard is a behavior-only island that renders
+// nothing and never touches the frame. This guard pins that the receiver-guard introduced no iframe.
+describe('TS-22 AC6 — the receiver-guard introduces no iframe and renders nothing (box-only)', () => {
+  const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
+
+  it('renders nothing (a behavior-only island) — it adds no second frame, no boundary surface', () => {
+    // The island returns null: it is wiring for the cross-doc VT receiver decision, not a render. So it
+    // cannot change the single iframe's attributes — the sandbox/CSP boundary stays exactly TS-20's.
+    expect(GUARD).toMatch(/return null;?\s*\n\}/);
+    expect(GUARD).not.toContain('<iframe');
+  });
+});

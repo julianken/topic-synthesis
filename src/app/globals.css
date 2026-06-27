@@ -233,9 +233,20 @@ h1 {
    same-origin MPA navigation between the library `/` and reader `/curriculum/[id]` routes run as a
    cross-document VT — keeping them two INDEPENDENT App-Router routes (the same-document SPA shell is the
    REJECTED option). The browser pairs the old (card) and new (reader panel) snapshots by their shared
-   `morphName(id)` and tweens the captured box from card geometry → reader panel geometry. */
-@view-transition {
-  navigation: auto;
+   `morphName(id)` and tweens the captured box from card geometry → reader panel geometry.
+
+   TS-22 ROBUSTNESS — the transport is scoped INSIDE `@media (prefers-reduced-motion: no-preference)` so
+   it is DECLARED ONLY when the user has not asked for reduced motion. Under `prefers-reduced-motion:
+   reduce` the `@view-transition` at-rule is absent entirely, so the cross-document VT NEVER RUNS (not
+   merely a zeroed-duration animation — the morph is never started; AC5). On a browser with no
+   cross-document VT API the at-rule is an unknown rule the engine drops, so the card→reader click is a
+   plain cross-document navigation with no animation (the INSTANT-SWAP fallback; AC2). Both degrade to
+   the same clean navigation — the JS receiver-guard (`morph-receiver-guard.tsx`) is the belt-and-
+   suspenders confirmation of the same decision against the live receiver + capability. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
 }
 
 /* The box-geometry tween at the DESIGN.md §0 motion tokens (§0 wins — NO literal duration/easing here):
