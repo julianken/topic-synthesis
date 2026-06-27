@@ -9,14 +9,18 @@ catalogue of instance facts (product, slug, design file, merge/review infra) is
 
 ## Agents
 
-**The seed ships with no agents.** Agents are opt-in: this index is empty until you
-add one. Add a row to the table below as you create each agent file.
+Add a row to the table below as you create each agent file.
 
 | Agent | Purpose | When to dispatch |
 |---|---|---|
-| _(none yet)_ | — | — |
+| [`design-reviewer`](design-reviewer.md) | Review a design-surface change against the `DESIGN.md` design system (§0 OKLCH tokens, color/contrast, type, spacing/radius, motion, the lesson-workspace layout, a11y); Playwright screenshot pass at the DESIGN.md viewports (390 mobile + 1440×900 desktop) once a UI exists, comparing the render to the read-only Figma reference frame screenshot (it reports findings — it does NOT approve PRs) | "review the design surface", "does this match the spec and the Figma frame", "design-system review pass" on any token/UI diff |
 
-The most common agent to add first is an **optional review bot** that posts the
+The design-reviewer runs **alongside** the correctness review, not instead of it; it reports
+findings by severity and does not approve PRs (the gating verdict is the review-bot's). It is
+the pre/post-build counterpart of the repo-local `reviewing-figma-designs` skill, which gates
+the read-only Figma reference frames *before* code is written.
+
+The most common agent to add next is an **optional review bot** that posts the
 gating PR verdict under a machine-user identity. That module — whether to adopt it,
 the credential split, and how the bot loads its token — is documented in
 [`docs/optional/review-bot.md`](../../docs/optional/review-bot.md). The **review
