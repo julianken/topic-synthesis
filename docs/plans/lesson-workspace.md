@@ -1,6 +1,6 @@
 # Plan — The v11 lesson-workspace epic
 
-> **Status: Phase 0 (Foundation) + Phase 1 (MEASURE) + Phase 2 (PRODUCE) IMPLEMENTED + MERGED (TS-1…TS-15b, incl. TS-5b — #81 closed; the v11-graded arm is the PROMOTED live default via `LIVE_ARM`, TS-15b/#107); Phases 3–4 (FRAME / MOTION) pending.** This doc is
+> **Status: Phase 0 (Foundation) + Phase 1 (MEASURE) + Phase 2 (PRODUCE) + Phase 3 (FRAME) IMPLEMENTED + MERGED (TS-1…TS-20, TS-26, incl. TS-5b — #81 + #82 closed; the v11-graded arm is the PROMOTED live default via `LIVE_ARM`, TS-15b/#107; the FRAME chrome — library home FLIP origin (TS-17), reader-shell `#readerPanel.morph-box` FLIP destination (TS-20), OKLCH retoken + serve-time injection (TS-18/TS-19) — is on `main`); Phase 4 (MOTION, #83 — TS-21…TS-25) next.** This doc is
 > **self-contained**: the binding architecture decisions (the *why* + the as-built calls) live inline
 > in **Key decisions** below — the direction is adopted; spike-gated/owner-confirmable items are
 > flagged provisional inline. This program doc is updated as each phase lands (the status above tracks which). It is the **program
@@ -190,12 +190,12 @@ TS-22 + TS-23 ──┴─▶ TS-24 └─▶ TS-25(HIL — terminal)
 | TS-14 | Land v11 synthesis as a new `workflow_version` arm + A/B vs the blob (offline CLI bench) | 2 | TS-13 | the swappable v11 arm + the quantitative A/B record (CLI-offline `_analysis` row) |
 | TS-15 | Honesty checkpoint: one real v11 lesson in the existing iframe, OWNER sign-off | 2 | TS-14 | a real v11 lesson + the code-owner `HIL:` visual acceptance |
 | TS-15b | Real-run calibration + arm-promotion (live spend, non-CI) — **DONE (#107)** | 2 | TS-15 | `CRITIC_PASS_THRESHOLD = 0.6` CONFIRMED against real v11 emissions (clean 3/3, no fixture regression); live default arm FLIPPED blob-binary → v11-graded (`LIVE_ARM`) under owner `HIL:` sign-off; blob arm kept reachable as the one-line-revert kill-switch |
-| TS-16 | `listLessons` owner-scoped store reader (JSONB-extracting `interactionKind`; tolerates null/mixed-shape rows) | 3 | TS-8 | the store reader the library needs (tolerates mixed arms incl. degraded `spec_json`-null rows) |
-| TS-17 | Library home route: card grid of lesson posters (sole generation entry) | 3 | TS-16, TS-3, TS-5b | the library home (FLIP origin) — routing model shaped by TS-5b's morph verdict |
-| TS-18 | OKLCH retoken of `globals.css` | 3 | TS-3 | the chrome re-themed to the `## 0`-decided tokens |
-| TS-19 | Serve-time token injection so re-themes reach already-generated lessons (injection-safety AC) | 3 | TS-18, TS-12 | a **fixed server-side-constant `:root`** injected at a deterministic anchor (CSP/sandbox byte-unchanged; no per-lesson/user value; served bytes stay one parseable doc) |
-| TS-20 | Reader shell: topbar + reading-progress + `#readerPanel.morph-box` wrapper | 3 | TS-19, TS-15 | the reader shell (FLIP destination), consuming decision-12; parent validates `event.source === readerIframe.contentWindow` (never an origin string), treats the payload as untrusted coordinate-only DATA |
-| TS-26 | INSTANCE.md reconcile: canonical-surface stance + repo-description/tagline | 3 | TS-17 | the one drift-prone instance fact the new surface touches |
+| TS-16 | `listLessons` owner-scoped store reader (JSONB-extracting `interactionKind`; tolerates null/mixed-shape rows) — **DONE (#127)** | 3 | TS-8 | the store reader the library needs (tolerates mixed arms incl. degraded `spec_json`-null rows) |
+| TS-17 | Library home route: card grid of lesson posters (sole generation entry) — **DONE (#125)** | 3 | TS-16, TS-3, TS-5b | the library home (FLIP origin) — routing model shaped by TS-5b's morph verdict |
+| TS-18 | OKLCH retoken of `globals.css` — **DONE (#123)** | 3 | TS-3 | the chrome re-themed to the `## 0`-decided tokens |
+| TS-19 | Serve-time token injection so re-themes reach already-generated lessons (injection-safety AC) — **DONE (#124)** | 3 | TS-18, TS-12 | a **fixed server-side-constant `:root`** injected at a deterministic anchor (CSP/sandbox byte-unchanged; no per-lesson/user value; served bytes stay one parseable doc) |
+| TS-20 | Reader shell: topbar + reading-progress + `#readerPanel.morph-box` wrapper — **DONE (#126)** | 3 | TS-19, TS-15 | the reader shell (FLIP destination), consuming decision-12; parent validates `event.source === readerIframe.contentWindow` (never an origin string), treats the payload as untrusted coordinate-only DATA |
+| TS-26 | INSTANCE.md reconcile: canonical-surface stance + repo-description/tagline — **DONE (#122)** | 3 | TS-17 | the one drift-prone instance fact the new surface touches |
 | TS-21 | Card→reader **box-only** FLIP container-transform (animates the `morph-box` container ONLY; iframe contents render at the final frame — TS-5b verdict) + OWNER sign-off | 4 | TS-20, TS-17 | the signature morph, box-only per TS-5b (container geometry-FLIPs; iframe content "jumps in" — no prose crop) + the code-owner `HIL:` motion acceptance |
 | TS-22 | Receiver-guarantee checklist + instant-swap fallback + reduced-motion | 4 | TS-21 | the morph's robustness + reduced-motion paths |
 | TS-23 | Stage-rail + ledger generating view on the existing `getStepEvents` stream | 4 | TS-20 | the upgraded generating view (LIVE stages, no durable store) |
