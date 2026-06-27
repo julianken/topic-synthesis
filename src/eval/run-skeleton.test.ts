@@ -6,7 +6,10 @@ import {
   CriticVerdictSchema,
   FindingsSchema,
   GradedCriticVerdictSchema,
+  isLessonSpec,
   LessonBriefSchema,
+  LessonSpecSchema,
+  type LessonSpec,
   PageSpecSchema,
   PlanSchema,
   PrereqGraphSchema,
@@ -21,7 +24,9 @@ import { ANALYSIS_ROW_KEY } from '../trace/reduce';
 import { SpanCollector } from '../trace/span';
 import { gradedCritique } from '../pipeline/critic';
 import { defaultStages } from '../pipeline/ports';
+import { specV11 } from '../pipeline/spec';
 import {
+  armLabel,
   buildOptions,
   buildRequest,
   dumpPages,
@@ -159,18 +164,54 @@ describe('buildOptions', () => {
   });
 });
 
-describe('selectArm (the offline A/B bench arm — TS-9)', () => {
-  it('defaults to the blob arm (defaultStages: binary critic, the deployed default)', () => {
-    expect(selectArm(['--topic', 'x'])).toBe(defaultStages);
-    expect(selectArm(['--topic', 'x']).critic).toBe(defaultStages.critic);
+describe('selectArm (the offline A/B bench arm — TS-9, TS-14)', () => {
+  it('defaults to the blob arm (blob spec + binary critic, the deployed default)', () => {
+    const arm = selectArm(['--topic', 'x']);
+    // selectArm returns a fresh copy (it composes swaps), so assert FIELD equality, not reference.
+    expect(arm).toEqual(defaultStages);
+    expect(arm.spec).toBe(defaultStages.spec); // the blob spec — the live default / kill-switch
+    expect(arm.critic).toBe(defaultStages.critic); // the binary critic
   });
 
   it('--graded selects the v11 graded-critic arm via a StageBundle.critic swap (no RunOptions flag)', () => {
     const arm = selectArm(['--topic', 'x', '--graded']);
     expect(arm.critic).toBe(gradedCritique); // the only field that differs from the blob arm
+    expect(arm.spec).toBe(defaultStages.spec); // --graded alone leaves the blob spec untouched
     const { critic, ...rest } = arm;
     const { critic: _blob, ...blobRest } = defaultStages;
     expect(rest).toEqual(blobRest); // every other stage is identical — pure stage substitution
+  });
+
+  it('--v11 swaps the SYNTHESIS spec to specV11 (the sectioned LessonSpec emission), critic unchanged', () => {
+    const arm = selectArm(['--topic', 'x', '--v11']);
+    expect(arm.spec).toBe(specV11); // the v11 sectioned emission — the real arm flag (TS-14)
+    expect(arm.critic).toBe(defaultStages.critic); // --v11 alone keeps the binary blob critic
+    const { spec, ...rest } = arm;
+    const { spec: _blobSpec, ...blobRest } = defaultStages;
+    expect(rest).toEqual(blobRest); // only the spec field differs — pure stage substitution
+  });
+
+  it('--v11 --graded composes both swaps into the full v11 arm (sectioned emission + graded read)', () => {
+    const arm = selectArm(['--topic', 'x', '--v11', '--graded']);
+    expect(arm.spec).toBe(specV11); // SYNTHESIS swap
+    expect(arm.critic).toBe(gradedCritique); // CRITIC swap
+    const { spec, critic, ...rest } = arm;
+    const { spec: _s, critic: _c, ...blobRest } = defaultStages;
+    expect(rest).toEqual(blobRest); // exactly two fields differ; no RunOptions arm flag involved
+  });
+
+  it('RunOptions carries NO arm flag — the arm lives entirely in StageBundle (TS-14 AC1)', () => {
+    // buildOptions parses the cost-control flags only; an arm flag must NOT leak into RunOptions.
+    const opts = buildOptions(['--topic', 'x', '--v11', '--graded']);
+    expect(opts).toEqual({}); // {thresholds, maxNodes, models, maxQuestions} only — none set, none added
+    expect('arm' in opts).toBe(false);
+  });
+
+  it('armLabel names BOTH axes so the paired _analysis rows are distinguishable (TS-14 AC6)', () => {
+    expect(armLabel(['--topic', 'x'])).toBe('blob-binary'); // the deployed default
+    expect(armLabel(['--topic', 'x', '--graded'])).toBe('blob-graded');
+    expect(armLabel(['--topic', 'x', '--v11'])).toBe('v11-binary');
+    expect(armLabel(['--topic', 'x', '--v11', '--graded'])).toBe('v11-graded'); // the full v11 arm
   });
 
   it('runSkeleton threads the selected v11 arm end-to-end (graded sub-scores reach the page)', async () => {
@@ -238,6 +279,76 @@ describe('selectArm (the offline A/B bench arm — TS-9)', () => {
     );
     expect(run.result.pages[0]?.passed).toBe(true); // derived from the sub-score floor
     expect(run.result.pages[0]?.scores?.learningEfficacy.retrievalCheck.score).toBe(0.9); // arm ran
+  });
+
+  it('runSkeleton threads the --v11 SYNTHESIS arm end-to-end (the sectioned LessonSpec reaches code)', async () => {
+    // selectArm(['--v11']) swaps spec → specV11, which answers LessonSpecSchema (NOT PageSpecSchema):
+    // a fake that emits a valid sectioned spec proves the v11 spec stage actually ran (the spec swap is
+    // threaded, not just selected) and that `code` rendered the sectioned spec onto the built page.
+    const completeObject = vi.fn(async (opts: { schema: unknown }) => {
+      if (opts.schema === PlanSchema) {
+        return { object: { scope: 'S', subtopics: ['a'], researchQuestions: ['q1'] }, record: mkRec() };
+      }
+      if (opts.schema === FindingsSchema) {
+        return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
+      }
+      if (opts.schema === LessonBriefSchema) {
+        return {
+          object: {
+            learningGoal: 'g',
+            keyPoints: ['k'],
+            findings: [{ claim: 'c', source: { url: 'https://s.example', title: 'S' } }],
+            audience: 'a',
+          },
+          record: mkRec(),
+        };
+      }
+      if (opts.schema === LessonSpecSchema) {
+        // A valid sectioned spec: ≥ MIN_LESSON_SECTIONS sections carrying BOTH primitives (a
+        // predict-gate + a self-check, each with an answerable) so it parses the .superRefine.
+        const answerable = { prompt: 'q?', answer: 'a.' };
+        return {
+          object: {
+            nodeSlug: 't',
+            a11yContract: 'a',
+            citations: [{ url: 'https://s.example', title: 'S' }],
+            sections: [
+              { kind: 'hook', prose: 'hook prose' },
+              {
+                kind: 'concept',
+                prose: 'concept prose',
+                component: { kind: 'predict-gate', teachingPurpose: 'predict', answerable },
+              },
+              {
+                kind: 'self-check',
+                prose: 'check prose',
+                component: { kind: 'self-check', teachingPurpose: 'recall', answerable },
+              },
+              { kind: 'takeaways', prose: 'takeaways prose' },
+            ],
+          },
+          record: mkRec(),
+        };
+      }
+      if (opts.schema === CriticVerdictSchema) return { object: { passed: true, critique: 'ok' }, record: mkRec() };
+      throw new Error('unexpected schema');
+    });
+    const searchWeb = vi.fn(async () => ({ text: 's', sources: [{ url: 'https://s.example', title: 'S' }], record: mkRec() }));
+    const complete = vi.fn(async () => ({ text: '<!doctype html>', record: mkRec() }));
+    const deps = { complete, completeObject, searchWeb } as unknown as StageDeps;
+
+    const run = await runSkeleton(
+      { topic: 'T', settings: { level: 'intro', depth: 2, audience: 'a' } },
+      deps,
+      {},
+      undefined,
+      selectArm(['--v11']), // the SYNTHESIS arm — blob critic, v11 sectioned spec
+    );
+    const page = run.result.pages[0];
+    expect(page?.passed).toBe(true); // the binary blob critic still gates this arm (--v11 alone)
+    // The built page carries the v11 SECTIONED spec, proving specV11 (not the blob spec) ran end-to-end.
+    expect(isLessonSpec(page?.spec as LessonSpec)).toBe(true);
+    expect((page?.spec as LessonSpec).sections).toHaveLength(4);
   });
 });
 

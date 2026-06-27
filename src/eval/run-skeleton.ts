@@ -10,6 +10,7 @@ import { gradedCritique } from '../pipeline/critic';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
 import { defaultStages, noopSink, type StageBundle, type TraceSink } from '../pipeline/ports';
 import { runLesson, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
+import { specV11 } from '../pipeline/spec';
 import { persistRun, type PersistRunInput } from '../store/repo';
 import { writeTrace } from '../trace/eleatic-adapter';
 import { judgeBrief } from '../trace/judge';
@@ -42,7 +43,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--graded] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--baseline <runId>]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--v11] [--graded] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--baseline <runId>]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -72,16 +73,44 @@ export function buildOptions(args: string[]): RunOptions {
 }
 
 /**
- * Select the critic ARM for the offline A/B bench (TS-9). The arm is realized as a `StageBundle.critic`
- * SWAP (program decision 3/7 — there is no `RunOptions` arm flag): `--graded` runs the v11 graded-critic
- * fn (`gradedCritique`, the arm whose `built` gate this issue verifies on the live path), and the default
- * (no flag) is `defaultStages` — the binary `critique`, the blob arm that stays the live default / the
- * R10 kill-switch. Running the blob arm then `--graded` over `--trace <path> --baseline <blobRunId>`
- * produces the paired `_analysis` rows that are the queryable A/B substrate (AC4). This is the ONLY
- * code path that swaps the arm from the CLI; the deployed Job (`run-job.ts`) always runs `defaultStages`.
+ * Select the eval ARM for the offline A/B bench (TS-9, TS-14). An arm is realized purely as
+ * `StageBundle` field SWAPS (program decision 3/7 — there is NO `RunOptions` arm flag; `RunOptions`'s
+ * `{thresholds, maxNodes, models, maxQuestions}` shape is unchanged). Two independent, COMPOSABLE flags:
+ *
+ *  - `--v11`    swaps `spec → specV11` (the v11 SECTIONED `LessonSpec` emission, TS-11/TS-12; `code`
+ *               already narrows the `PageSpec | LessonSpec` union, so a v11 spec is rendered into the
+ *               v11 workspace). Default (no flag) keeps `defaultStages.spec` — the blob flat-`PageSpec`
+ *               emission, the live default / R10 kill-switch. (Promoted to the default later by TS-15b.)
+ *               This replaces the throwaway `--v11` used by hand in TS-12b verification with a real,
+ *               tested arm selector — the SYNTHESIS half of the A/B axis.
+ *  - `--graded` swaps `critic → gradedCritique` (the v11 named-sub-score critic, the arm whose `built`
+ *               gate the live path verifies). Default keeps the binary `critique` (the blob critic).
+ *
+ * They compose: `--v11 --graded` runs the full v11 arm (sectioned emission + graded read), `--graded`
+ * alone scores the BLOB emission with the graded critic, etc. — every combination is one pure stage
+ * substitution over `defaultStages`. Running the blob arm, then a `--graded`/`--v11` arm, over
+ * `--trace <path> --baseline <blobRunId>` produces the paired `_analysis` rows that are the queryable
+ * A/B substrate (TS-9 AC4 / TS-14 AC6). This is the ONLY CLI path that swaps an arm; the deployed Job
+ * (`run-job.ts`) always runs `defaultStages` — the A/B record is CLI-offline, never live telemetry.
  */
 export function selectArm(args: string[]): StageBundle {
-  return args.includes('--graded') ? { ...defaultStages, critic: gradedCritique } : defaultStages;
+  const stages: StageBundle = { ...defaultStages };
+  if (args.includes('--v11')) stages.spec = specV11; // SYNTHESIS arm: the sectioned LessonSpec emission
+  if (args.includes('--graded')) stages.critic = gradedCritique; // the graded named-sub-score critic
+  return stages;
+}
+
+/**
+ * The human-readable ARM TAG that rides each run's trace `label` (TS-9 AC4 / TS-14 AC6) so the paired
+ * `_analysis` rows are distinguishable in one eleatic store. It names BOTH composable axes
+ * `selectArm` swaps — the SYNTHESIS spec arm (`blob`/`v11`) and the CRITIC arm (`binary`/`graded`) —
+ * e.g. `blob-binary` (the deployed default), `v11-graded` (the full v11 arm), `blob-graded`,
+ * `v11-binary`. Pure over `args` so it stays in lockstep with `selectArm` and is unit-testable.
+ */
+export function armLabel(args: string[]): string {
+  const spec = args.includes('--v11') ? 'v11' : 'blob';
+  const critic = args.includes('--graded') ? 'graded' : 'binary';
+  return `${spec}-${critic}`;
 }
 
 /** Human-readable run summary: the synthesized lesson page(s) + the per-model cost breakdown.
@@ -111,8 +140,9 @@ export function formatSummary(run: PipelineRunResult): string {
  * `result.brief` (the `runLesson` Analysis product), so a `--trace` run now FIRES the #51 eval judge
  * over that brief (see `reduceRunTrace`). `deps` defaults to the live client, so a real run needs a
  * provider API key in the env (ANTHROPIC_API_KEY / OPENAI_API_KEY / …); tests inject fakes. `stages`
- * is the A/B arm (TS-9): `defaultStages` (the blob arm — binary critic, the deployed default) unless
- * `--graded` selects the v11 graded-critic arm via `selectArm`.
+ * is the A/B arm (TS-9/TS-14): `defaultStages` (the blob arm — blob spec + binary critic, the deployed
+ * default) unless `selectArm` swaps in the v11 SYNTHESIS spec (`--v11`) and/or the graded critic
+ * (`--graded`) — the two composable `StageBundle` field swaps the offline bench pairs.
  */
 export async function runSkeleton(
   request: TopicRequest,
@@ -216,15 +246,16 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const request = buildRequest(args);
   const options = buildOptions(args);
-  // The A/B arm (TS-9): the v11 graded-critic arm under `--graded`, else the blob arm (binary critic).
+  // The A/B arm (TS-9/TS-14): `--v11` swaps the SYNTHESIS spec to the sectioned `specV11` emission and
+  // `--graded` swaps the CRITIC to `gradedCritique`; they compose. Default = the blob-binary arm.
   const stages = selectArm(args);
-  const armLabel = args.includes('--graded') ? 'v11-graded' : 'blob-binary';
+  const label = armLabel(args); // names both axes, e.g. 'blob-binary' | 'v11-graded' (rides the trace label)
   // `--max-nodes` is deliberately absent from the mode line: the CLI drives `runLesson`, which builds
   // exactly one page, so the flag is inert here (see `buildOptions`).
   const mode = [
     options.models ? 'cheap/Haiku' : 'default models',
     options.maxQuestions !== undefined ? `≤${options.maxQuestions} questions` : 'all questions',
-    `${armLabel} arm`,
+    `${label} arm`,
   ].join(', ');
   console.log(
     `Generating a lesson for "${request.topic}" (${request.settings.level}, depth ${request.settings.depth}; ${mode})…\n`,
@@ -261,7 +292,7 @@ async function main(): Promise<void> {
         // The arm tag rides the label so the paired blob/v11 `_analysis` rows are distinguishable in
         // one eleatic store (TS-9 AC4); the v11 row also carries `baseline = <blobRunId>` (below).
         runId,
-        label: `${request.topic} [${armLabel}]`,
+        label: `${request.topic} [${label}]`,
         startedAt,
         config: { models: { ...STAGE_MODELS, ...(options.models ?? {}) }, settings: request.settings },
       },
