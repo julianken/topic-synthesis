@@ -100,8 +100,8 @@ export async function persistRun(
       });
       await client.query(
         `INSERT INTO concept_page
-           (id, concept_slug, title, settings_bucket, content_hash, status, spec_json, html, critic_scores, workflow_ver)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           (id, concept_slug, title, settings_bucket, content_hash, status, spec_json, html, workflow_ver)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO NOTHING`,
         [
           pageId,
@@ -112,14 +112,6 @@ export async function persistRun(
           page.status,
           artifact ? JSON.stringify(artifact.spec) : null,
           artifact?.html ?? null,
-          // The graded critic's named sub-scores (TS-8). Present whenever the artifact carries them
-          // (the v11 graded-critic arm sets `artifact.scores`) — including a graded-arm FAIL, whose
-          // non-null artifact routes to a 'soon' row that STILL keeps its sub-scores. NULL for the
-          // blob arm (no `scores`) and for a degraded soon/text row that has NO artifact (a
-          // synthesis failure). This INSERT sits between BEGIN (above) and the transient-table prune
-          // (below) — inside the same transaction, BEFORE the deletes — so a persist failure rolls the
-          // score write back with the prune, keeping the run resumable (program-doc "Consequences" (b)).
-          artifact?.scores ? JSON.stringify(artifact.scores) : null,
           workflowVer,
         ],
       );
@@ -328,9 +320,10 @@ export async function getStepEvents(
 /** One poster-card descriptor the library home (TS-17) renders a card grid from (TS-16). Thin by
  *  design — only the card fields, NOT the full tiered hub `getCurriculum` reads. `id` is the
  *  curriculum id (the card's `/curriculum/[id]` href target); `interactionKind` is best-effort: it
- *  is JSONB-extracted from `spec_json` and is `null` for v11-arm rows (the `LessonSpec` has no such
- *  key) and degraded soon/text rows (their `spec_json` is `NULL`). The card surfaces no per-arm
- *  badge by default (library Key decision §13), so `null` simply means "no flat kind to show". */
+ *  is JSONB-extracted from `spec_json` and is `null` for historical v11-arm rows (a sectioned spec
+ *  with no `interactionKind` key) and degraded soon/text rows (their `spec_json` is `NULL`). The card
+ *  surfaces no per-arm badge by default (library Key decision §13), so `null` simply means "no flat
+ *  kind to show". */
 export interface LessonCard {
   /** The curriculum id — the card's href target, `/curriculum/[id]`. */
   id: string;
@@ -363,13 +356,13 @@ export interface LessonCard {
  *  outer query re-orders newest-first — so the one-card-per-curriculum contract holds even once the
  *  wrapper milestone lands a multi-page curriculum in the DB.
  *
- *  MIXED-ARM TOLERANT (library Key decision §13 — "old lessons stay old," no backfill): the library
- *  durably holds blob-arm rows (a flat `PageSpec` with `interactionKind`), v11-arm rows (a sectioned
- *  `LessonSpec`, no `interactionKind` — the live default, `LIVE_ARM`, TS-15b/#107), AND degraded
- *  soon/text rows (a synthesis failure wrote no artifact → `spec_json` is `NULL`). `spec_json ->>
- *  'interactionKind'` yields the field for blob rows and `NULL` for the other two — the desired
- *  tri-state, with no Zod re-parse of a column that may legitimately hold either union arm or be NULL.
- *  So a malformed/absent spec can never crash the library home. */
+ *  MIXED-ARM TOLERANT (library Key decision §13 — "old lessons stay old," no backfill): the live
+ *  pipeline writes blob-arm rows (a flat spec with `interactionKind`), but the library may durably
+ *  hold HISTORICAL rows persisted before the v11 pipeline was reverted — a sectioned spec with no
+ *  `interactionKind` key — AND degraded soon/text rows (a synthesis failure wrote no artifact →
+ *  `spec_json` is `NULL`). `spec_json ->> 'interactionKind'` yields the field for blob rows and `NULL`
+ *  for the other two — the desired tri-state, with no Zod re-parse of a column that may legitimately
+ *  hold either shape or be NULL. So a malformed/absent spec can never crash the library home. */
 export async function listLessons(
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
