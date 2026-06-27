@@ -34,8 +34,15 @@ export const ARTIFACT_CSP = [
  * must self-resolve. The set is a SUPERSET of the `var(--token, <fallback>)` names `code.ts` pins
  * as inline fallbacks (asserted in `serve.test.ts`), so a future §0 rename that touches only
  * `globals.css` cannot silently no-op serve-time re-theming.
+ *
+ * THREE copies of the §0 manifest exist — `globals.css` (the source of truth), `code.ts`'s inline
+ * `var()` fallbacks, and this block. A §0 retoken MUST edit all three. `serve.test.ts` guards both
+ * failure modes: the NAME-superset (a rename) and a VALUE-drift check that asserts each value here
+ * equals the resolved `globals.css` value, so forgetting this copy is a CI failure, not a silent
+ * old-theme serve. (DESIGN.md §0 / the Update-Triggers table also flags the all-three-copies rule.)
+ * Exported so the value-drift test can compare each literal against `globals.css`.
  */
-const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
+export const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
   // color (OKLCH — dark instrument aesthetic, never light)
   '--bg-app': 'oklch(0.165 0.018 250)',
   '--bg-surface': 'oklch(0.205 0.020 250)',

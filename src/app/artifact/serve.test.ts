@@ -6,6 +6,7 @@ import {
   ARTIFACT_CSP,
   ARTIFACT_ROOT_STYLE,
   ARTIFACT_ROOT_TOKEN_NAMES,
+  ARTIFACT_ROOT_TOKENS,
   artifactResponse,
 } from './serve';
 
@@ -182,13 +183,17 @@ describe('artifactResponse — serve-time §0 :root injection (TS-19)', () => {
   // `var(--token, …)` reference names the `code` prompt pins as inline fallbacks. We extract the
   // reference set FROM code.ts (the canonical source), so a future §0 rename that adds a token to the
   // artifact but not to the injected block fails HERE rather than silently no-op'ing re-theming.
+  // The matcher captures the token name regardless of whether a fallback follows (NO comma required):
+  // code.ts also carries no-fallback refs in its prose (`var(--measure)`, `var(--panel-w)`,
+  // `var(--frame-max)`) — exactly the references that render BROKEN, not degraded, if injection omits
+  // the token, so the superset must cover them too. A comma-anchored matcher would silently skip them.
   it('the injected :root names are a SUPERSET of the artifact var() reference names (AC10)', () => {
     const codeSrc = readFileSync(
       fileURLToPath(new URL('../../pipeline/code.ts', import.meta.url)),
       'utf8',
     );
     const referenced = new Set(
-      [...codeSrc.matchAll(/var\((--[a-z][a-z0-9-]*)\s*,/gi)]
+      [...codeSrc.matchAll(/var\(\s*(--[a-z][a-z0-9-]*)/gi)]
         .map((m) => m[1])
         .filter((name): name is string => name !== undefined),
     );
@@ -199,5 +204,49 @@ describe('artifactResponse — serve-time §0 :root injection (TS-19)', () => {
     const injected = new Set(ARTIFACT_ROOT_TOKEN_NAMES);
     const missing = [...referenced].filter((name) => !injected.has(name));
     expect(missing).toEqual([]);
+  });
+
+  // VALUE-DRIFT guard — the strong complement to AC10's NAME-superset. The §0 manifest now has THREE
+  // copies (globals.css SoT, code.ts inline `var()` fallbacks, this file's ARTIFACT_ROOT_TOKENS). The
+  // name-superset catches a RENAME; it does NOT catch a value edit. The precise re-theme mistake TS-19
+  // exists to prevent is: a future §0 retoken edits globals.css (and code.ts fallbacks) but forgets
+  // serve.ts — injection would then silently serve the OLD theme to every already-generated lesson.
+  // This parses globals.css's resolved :root and asserts ARTIFACT_ROOT_TOKENS[name] equals the
+  // globals.css value for EVERY shared token (full set, not a sample), so any value drift is a CI
+  // failure here. globals.css is the source of truth; the injected block is its reconciled mirror.
+  it('every injected token VALUE equals the resolved globals.css §0 value (value-drift guard)', () => {
+    const cssSrc = readFileSync(
+      fileURLToPath(new URL('../globals.css', import.meta.url)),
+      'utf8',
+    );
+    // The :root block is the document's first { … } body after `:root`.
+    const rootBody = /:root\s*\{([\s\S]*?)\}/.exec(cssSrc)?.[1];
+    expect(rootBody).toBeDefined();
+    // Parse `--name: value;` declarations into a raw map (value still possibly a `var(--other)` ref).
+    const raw = new Map<string, string>();
+    for (const m of (rootBody as string).matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
+      raw.set(m[1] as string, (m[2] as string).trim());
+    }
+    expect(raw.size).toBeGreaterThan(0);
+    // Resolve a value to its literal: a `var(--other)` (no fallback, the globals.css indirection form,
+    // e.g. `--bg-app: var(--ink-950)`) dereferences to its primitive; a literal returns as-is. A small
+    // depth cap defends against an accidental reference cycle without hanging the test.
+    const resolve = (value: string, depth = 0): string => {
+      const ref = /^var\(\s*(--[a-z0-9-]+)\s*\)$/i.exec(value);
+      if (ref && depth < 8) {
+        const target = raw.get(ref[1] as string);
+        expect(target).toBeDefined(); // a dangling var() reference in globals.css is itself a bug
+        return resolve(target as string, depth + 1);
+      }
+      return value;
+    };
+    // Build a name → resolved-literal map for the whole globals.css :root.
+    const resolved = new Map([...raw].map(([name, value]) => [name, resolve(value)]));
+    // Assert: every injected token's value matches the resolved §0 value, for the FULL injected set.
+    const drift = ARTIFACT_ROOT_TOKEN_NAMES.filter((name) => {
+      expect(resolved.has(name)).toBe(true); // an injected token absent from globals.css is drift
+      return resolved.get(name) !== ARTIFACT_ROOT_TOKENS[name];
+    });
+    expect(drift).toEqual([]);
   });
 });
