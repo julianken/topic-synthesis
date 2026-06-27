@@ -462,8 +462,12 @@ export type GradedCriticVerdict = z.infer<typeof GradedCriticVerdictSchema>;
  * An all-axes floor (not a mean) is chosen so a single failing named axis — e.g. a vapid
  * lesson with no real retrieval check — sinks the verdict instead of being averaged away
  * (that all-axes-floor is the whole point of decomposing the teaching score). The literal
- * 0.6 is a documented starting value; its REAL-RUN calibration is TS-15b's job, not this
- * schema's. Change the const, not scattered comparisons.
+ * 0.6 was the documented starting value; TS-15b (issue #107) CONFIRMED it against REAL v11
+ * emissions — a clean 3/3 calibration (the owner-accepted real lesson(s) derived `passed = true`
+ * and a deliberately-degraded one derived `false` at this threshold) with no fixture-corpus
+ * regression — so 0.6 is RETAINED by the real-run evidence, not left as-is by omission. The
+ * live default arm is now the v11-graded arm (run-job.ts `LIVE_ARM`). Change the const, not
+ * scattered comparisons.
  */
 export const CRITIC_PASS_THRESHOLD = 0.6 as const;
 
