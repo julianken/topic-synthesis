@@ -93,6 +93,89 @@ describe('deriveRail — folds the poll onto the fixed six-stage rail (TS-23 AC3
   });
 });
 
+// ── research fan-out — N concurrent 'research' events collapse to ONE correct rail entry ──────────────
+// The ANALYSIS prelude fans the researchers out via `Promise.all(... engine.step('research', …))`
+// (src/pipeline/run-pipeline.ts), so a single poll carries N `research` rows, all `name: 'research'`
+// with distinct step_keys. deriveRail must aggregate them into one phase rather than last-wins collapse.
+describe('deriveRail — aggregates the research FAN-OUT into one rail entry', () => {
+  it('collapses N research rows to ONE rail position', () => {
+    const rail = deriveRail([
+      ev('research', { stepKey: 'research:a' }),
+      ev('research', { stepKey: 'research:b' }),
+      ev('research', { stepKey: 'research:c' }),
+    ]);
+    expect(rail.filter((r) => r.name === 'research')).toHaveLength(1);
+    expect(rail).toHaveLength(6);
+  });
+
+  it('stays RUNNING while ANY researcher is still in-flight (not "done" off one early finisher)', () => {
+    // One researcher already finished, two still running — a last-wins collapse keyed on started_at
+    // ORDER could show this phase "done"; aggregation must keep it running with NO finishedAt.
+    const rail = deriveRail([
+      ev('research', {
+        stepKey: 'research:a',
+        startedAt: '2026-06-21T00:00:01.000Z',
+        finishedAt: '2026-06-21T00:00:03.000Z',
+        status: 'done',
+      }),
+      ev('research', {
+        stepKey: 'research:b',
+        startedAt: '2026-06-21T00:00:01.500Z',
+        finishedAt: null,
+        status: 'running',
+      }),
+      ev('research', {
+        stepKey: 'research:c',
+        startedAt: '2026-06-21T00:00:02.000Z',
+        finishedAt: null,
+        status: 'running',
+      }),
+    ]);
+    const research = rail.find((r) => r.name === 'research')!;
+    expect(research.state).toBe('running');
+    expect(research.event?.finishedAt).toBeNull();
+    // The phase timer starts at the EARLIEST researcher, not the last by started_at.
+    expect(research.event?.startedAt).toBe('2026-06-21T00:00:01.000Z');
+  });
+
+  it('is DONE only when ALL researchers finished, spanning earliest start → latest finish', () => {
+    const rail = deriveRail([
+      ev('research', {
+        stepKey: 'research:a',
+        startedAt: '2026-06-21T00:00:01.000Z',
+        finishedAt: '2026-06-21T00:00:04.000Z',
+        status: 'done',
+      }),
+      ev('research', {
+        stepKey: 'research:b',
+        startedAt: '2026-06-21T00:00:02.000Z',
+        finishedAt: '2026-06-21T00:00:06.000Z',
+        status: 'done',
+      }),
+    ]);
+    const research = rail.find((r) => r.name === 'research')!;
+    expect(research.state).toBe('done');
+    expect(research.event?.startedAt).toBe('2026-06-21T00:00:01.000Z');
+    expect(research.event?.finishedAt).toBe('2026-06-21T00:00:06.000Z');
+  });
+
+  it('is ERROR if ANY researcher errored, even when others finished cleanly', () => {
+    const rail = deriveRail([
+      ev('research', {
+        stepKey: 'research:a',
+        finishedAt: '2026-06-21T00:00:03.000Z',
+        status: 'done',
+      }),
+      ev('research', {
+        stepKey: 'research:b',
+        finishedAt: '2026-06-21T00:00:02.000Z',
+        status: 'error',
+      }),
+    ]);
+    expect(rail.find((r) => r.name === 'research')?.state).toBe('error');
+  });
+});
+
 // ── formatDuration — the ledger's compact duration readout ──────────────────────────────────────────
 describe('formatDuration — compact ledger durations', () => {
   it('formats milliseconds as fixed-1 seconds', () => {

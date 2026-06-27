@@ -64,32 +64,71 @@ export const STAGE_RAIL: ReadonlyArray<{ name: string; label: string }> = [
  * Fold the poll's `steps` onto the FIXED six-stage rail, preserving canonical order.
  *
  * PURE: it reads only its arg and `STAGE_RAIL`, and returns a fresh `RailStage[]` (one per canonical
- * stage). For each rail position it matches the LATEST event with the same `name` (the engine writes one
- * `step_event` per stage `name`; a resumed run never duplicates a name — issue #61), then derives:
- *   - `error`   — the matched event's status is `'error'` (failed; may carry a partial duration);
- *   - `running` — matched, no `finishedAt`, status `'running'` (the one in-flight stage → live timer);
- *   - `done`    — matched and finished (→ frozen duration);
+ * stage). For each rail position it AGGREGATES every event with the same `name` into one position — most
+ * stages emit a single `step_event`, but `research` is a fan-out: `runPipeline`/`runLesson`'s ANALYSIS
+ * prelude runs the researchers with `Promise.all(... engine.step('research', contentHash(question), …))`
+ * (`src/pipeline/run-pipeline.ts`), so one poll carries N concurrent `research` rows (N = capped unique
+ * research questions), all `name: 'research'` with distinct `step_key`. A last-wins collapse would let
+ * the rail's `research` position read "done" off one finished researcher while others were still running
+ * — misrepresenting progress — so {@link aggregateEvents} folds the N rows into one phase:
+ *   - `error`   — ANY matched event failed (status `'error'`);
+ *   - `running` — else ANY matched event is still in-flight (no `finishedAt`, status `'running'`) → live timer;
+ *   - `done`    — else ALL matched events finished (→ frozen duration spanning the whole phase);
  *   - `pending` — no matching event in this poll (not started yet → no timer, no duration).
- * This is the SAME per-event state the flat-list `TimelineStep` computed, re-homed onto the fixed rail so
- * not-yet-started positions show up front (the "step 3 of 6" sense TS-23 adds). No new data, no graph.
+ * The aggregated `event` carries the EARLIEST `startedAt` and the LATEST `finishedAt` across the matched
+ * rows, so the ledger's timing readout reflects the whole phase (start of the first researcher → end of
+ * the last), not an arbitrary single researcher. Single-event stages aggregate to themselves. Not-yet-
+ * started positions still show up front (the "step 3 of 6" sense TS-23 adds). No new data, no graph.
  */
 export function deriveRail(steps: ReadonlyArray<StepEvent>): RailStage[] {
   return STAGE_RAIL.map(({ name, label }) => {
-    // The engine emits at most one event per stage `name`; if a poll somehow carries more (it doesn't
-    // today), the last in poll order wins so a freshly-started/finished state isn't masked by an older one.
-    let event: StepEvent | null = null;
-    for (const s of steps) {
-      if (s.name === name) event = s;
-    }
-    return { name, label, state: deriveState(event), event };
+    const matched = steps.filter((s) => s.name === name);
+    const event = aggregateEvents(matched);
+    return { name, label, state: deriveState(event, matched), event };
   });
 }
 
-/** Derive a single rail position's state from its matched event (null ⇒ the stage hasn't started). */
-function deriveState(event: StepEvent | null): RailState {
+/**
+ * Fold all events matching one rail position into a single representative `StepEvent`, or null when none
+ * matched. For the common single-event stage this returns that event unchanged. For the `research`
+ * fan-out it spans the whole phase: earliest `startedAt`, latest `finishedAt` (null while ANY is still
+ * in-flight, so the timer keeps ticking until the last researcher lands), and a status that surfaces the
+ * worst lifecycle — `error` if any errored, else `running` if any is unfinished, else `done`.
+ */
+function aggregateEvents(matched: ReadonlyArray<StepEvent>): StepEvent | null {
+  if (matched.length === 0) return null;
+  if (matched.length === 1) return matched[0]!;
+  const earliestStart = matched.reduce((a, b) => (a.startedAt <= b.startedAt ? a : b)).startedAt;
+  const anyUnfinished = matched.some((s) => s.finishedAt === null);
+  // The phase ends only when every researcher has finished; until then keep finishedAt null so the
+  // running timer reflects the whole phase rather than the first researcher to land.
+  const latestFinish = anyUnfinished
+    ? null
+    : matched.reduce((a, b) => ((a.finishedAt ?? '') >= (b.finishedAt ?? '') ? a : b)).finishedAt;
+  const status = matched.some((s) => s.status === 'error')
+    ? 'error'
+    : anyUnfinished
+      ? 'running'
+      : 'done';
+  return {
+    name: matched[0]!.name,
+    // The fan-out has no single step_key; expose the count so the ledger can read the phase, not a row.
+    stepKey: `${matched[0]!.name}:×${matched.length}`,
+    startedAt: earliestStart,
+    finishedAt: latestFinish,
+    status,
+  };
+}
+
+/**
+ * Derive a rail position's state from its aggregated event + the raw matched rows (null event ⇒ the
+ * stage hasn't started). The matched rows let a fan-out report `error`/`running` even when its aggregated
+ * `finishedAt` was synthesized; for a single-event stage the two agree.
+ */
+function deriveState(event: StepEvent | null, matched: ReadonlyArray<StepEvent>): RailState {
   if (event === null) return 'pending';
-  if (event.status === 'error') return 'error';
-  if (event.finishedAt === null && event.status === 'running') return 'running';
+  if (matched.some((s) => s.status === 'error')) return 'error';
+  if (matched.some((s) => s.finishedAt === null && s.status === 'running')) return 'running';
   return 'done';
 }
 
