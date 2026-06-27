@@ -1,11 +1,11 @@
 import { contentHash } from '../domain/identity';
 import { BRIEF_SYSTEM } from './brief';
 import { CODE_SYSTEM } from './code';
-import { CRITIC_SYSTEM, GRADED_CRITIC_SYSTEM } from './critic';
+import { CRITIC_SYSTEM } from './critic';
 import { GRAPH_SYSTEM } from './graph';
 import { PLANNER_SYSTEM } from './planner';
 import { RESEARCH_SYSTEM, STRUCTURE_SYSTEM } from './researcher';
-import { SPEC_SYSTEM, SPEC_V11_SYSTEM } from './spec';
+import { SPEC_SYSTEM } from './spec';
 
 /**
  * A stable, content-DERIVED version anchor for the stage system prompts — one of the two
@@ -31,19 +31,8 @@ const SYSTEM_PROMPTS: ReadonlyArray<readonly [name: string, text: string]> = [
   ['graph', GRAPH_SYSTEM],
   ['brief', BRIEF_SYSTEM],
   ['spec', SPEC_SYSTEM],
-  // The v11 SECTIONED spec (the v11 arm's `StageBundle.spec`, TS-11) is a distinct stage prompt from
-  // the blob `SPEC_SYSTEM`; folding it in means the v11 arm self-distinguishes by `workflow_version`
-  // exactly as the graded critic does. The blob `SPEC_SYSTEM` is the reachable kill-switch / fallback
-  // (no longer the live default — `SPEC_V11_SYSTEM` is, via `LIVE_ARM`, TS-15b/#107).
-  ['spec-v11', SPEC_V11_SYSTEM],
   ['code', CODE_SYSTEM],
   ['critic', CRITIC_SYSTEM],
-  // The GRADED critic (the v11 `StageBundle.critic` arm — program decision 7) is a distinct stage
-  // prompt from the binary `critic`; folding it in means a graded-arm rubric edit (TS-7's
-  // ledger-aware rewrite) yields a distinct `workflow_version` eval arm, exactly as the binary
-  // `critic` does. The binary `CRITIC_SYSTEM` is the blob-arm prompt — the reachable kill-switch /
-  // fallback (no longer the live default — `GRADED_CRITIC_SYSTEM` is, via `LIVE_ARM`, TS-15b/#107).
-  ['graded-critic', GRADED_CRITIC_SYSTEM],
 ];
 
 /** The content hash of every stage system prompt (name-keyed, sorted for order-independence). */

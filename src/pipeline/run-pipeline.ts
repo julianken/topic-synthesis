@@ -1,17 +1,15 @@
 import { contentHash, slugify } from '../domain/identity';
 import { bucketize } from '../domain/settings';
 import type { SitemapHub } from '../domain/sitemap';
-import {
-  type CritiquedArtifact,
-  type GatedNode,
-  type LessonBrief,
-  type LessonSpec,
-  type PageSpec,
-  type PipelineResult,
-  type Plan,
-  type Research,
-  type Source,
-  type TopicRequest,
+import type {
+  CritiquedArtifact,
+  GatedNode,
+  LessonBrief,
+  PipelineResult,
+  Plan,
+  Research,
+  Source,
+  TopicRequest,
 } from '../domain/stages';
 import type { Engine } from '../engine/engine';
 import type { LlmCallRecord } from '../llm/client';
@@ -47,21 +45,6 @@ export interface RunOptions {
   models?: Partial<Record<Stage, StageModel>>;
   /** Cap on research questions fanned out — each drives a web search, the run's main cost driver. */
   maxQuestions?: number;
-}
-
-/**
- * Pin the arm-scoped `spec` (TS-10's `PageSpec | LessonSpec` union) to a `nodeSlug` without
- * collapsing the arm: `code` now narrows the union internally (TS-12 — per the TS-10 review note,
- * `code` renders BOTH arms into the v11 workspace rather than the caller pre-throwing a v11 spec),
- * so the sectioned `LessonSpec` is no longer flattened to a blob here. The brief carries no slug
- * (it is the single-lesson contract), so each call site overrides `nodeSlug` for its node/lesson;
- * spreading the union preserves either arm's shape (`isLessonSpec` discriminates downstream in
- * `code`). On the live deployed path (`LIVE_ARM` — the PROMOTED v11-graded arm, TS-15b/#107)
- * `spec` is a `LessonSpec`; the blob/`PageSpec` shape only flows through here on the reachable
- * kill-switch arm (`defaultStages`). Either way this just pins the slug — the arm is preserved.
- */
-function specForCode(spec: PageSpec | LessonSpec, nodeSlug: string): PageSpec | LessonSpec {
-  return { ...spec, nodeSlug };
 }
 
 /**
@@ -183,12 +166,7 @@ async function synthesizeNode(
     // The brief carries no slug (it's the single-lesson contract); on this curriculum path each
     // lesson IS a gated node, so pin the artifact to node.slug here. (The single-lesson path pins
     // to the topic-derived slug instead — see synthesizeLesson.)
-    // `specced.spec` is the arm-scoped `PageSpec | LessonSpec` union (TS-10/TS-11); `code` narrows
-    // it internally (TS-12) and renders either arm into the v11 workspace — `specForCode` just pins
-    // the slug, preserving the arm. The live default is now the v11-graded arm (`LIVE_ARM.spec` =
-    // `specV11`, emitting a `LessonSpec` — TS-15b/#107); the blob `PageSpec` only flows on the
-    // reachable kill-switch arm (`defaultStages.spec`).
-    const nodeSpec = specForCode(specced.spec, node.slug);
+    const nodeSpec = { ...specced.spec, nodeSlug: node.slug };
     const coded = await engine.step('code', key, () => stages.code(nodeSpec, lessonBrief.learningGoal, deps, models.code));
     records.push(...coded.records);
     emitNode('code', coded.records);
@@ -379,12 +357,8 @@ async function synthesizeLesson(
     const specced = await engine.step('spec', key, () => stages.spec({ brief, settings: req.settings }, deps, models.spec));
     records.push(...specced.records);
     emitNode('spec', specced.records);
-    // The brief carries no slug; pin the artifact to the topic-derived slug here. `code` narrows the
-    // arm-scoped `PageSpec | LessonSpec` union internally (TS-12) and renders either arm into the v11
-    // workspace; `specForCode` just pins the slug, preserving the arm. The live default is the
-    // v11-graded arm (`LIVE_ARM.spec` = `specV11`, emitting a `LessonSpec` — TS-15b/#107); the blob
-    // `PageSpec` only flows on the reachable kill-switch arm (`defaultStages.spec`).
-    const nodeSpec = specForCode(specced.spec, slug);
+    // The brief carries no slug; pin the artifact to the topic-derived slug here.
+    const nodeSpec = { ...specced.spec, nodeSlug: slug };
     const coded = await engine.step('code', key, () => stages.code(nodeSpec, brief.learningGoal, deps, models.code));
     records.push(...coded.records);
     emitNode('code', coded.records);
