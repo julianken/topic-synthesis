@@ -30,7 +30,7 @@ Docs drift silently; updating them in the same PR is cheaper than catching it la
 
 | If your change touches…                          | Update…                                                                 |
 | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| design tokens, motion, layout, or any UI surface | `DESIGN.md` (it wins on design conflicts) — reconcile it in the same PR  |
+| design tokens, motion, layout, or any UI surface | `DESIGN.md` (it wins on design conflicts) — reconcile it in the same PR. A **§0 token retoken** must edit all THREE manifest copies in the same PR (`src/app/globals.css` SoT · `src/pipeline/code.ts` inline `var()` fallbacks · `src/app/artifact/serve.ts` `ARTIFACT_ROOT_TOKENS`); `serve.test.ts` CI-guards both name-superset and value-drift (DESIGN.md §0 "Three-copies invariant") |
 | the product identity, GitHub slug, Figma file/node map, or merge/review infra | `INSTANCE.md` (the instance source of truth) — reconcile it in the same PR |
 | the product's public tagline or the GitHub repo description (live metadata) | `INSTANCE.md` → "GitHub repository description" — reconcile in the same PR; the **orchestrator** syncs the live value via `scripts/sync-repo-description.sh` (the reviewer flags drift, never runs the write) |
 | the Figma file's page or screen node-ids change   | the Design/Figma node map in `INSTANCE.md` — reconcile it in the same PR  |
