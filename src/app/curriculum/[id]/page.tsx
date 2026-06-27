@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { getCurriculum, ownsRun } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 import { GeneratingPoller } from './generating';
+import { ReaderShell } from './reader-shell';
 
 const STATUS_LABEL = { built: 'Built', soon: 'Soon', text: 'Text' } as const;
 const STATUS_ICON = { built: '✓', soon: '◷', text: '≡' } as const;
@@ -46,16 +47,14 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
       </p>
 
       {page && page.status === 'built' ? (
-        // sandbox="allow-scripts" WITHOUT allow-same-origin → opaque origin: the lesson runs its own
-        // canvas/SVG scripts but can't reach this app's origin/cookies/storage. The strict CSP is set
-        // by the /artifact route (page.href → src/app/artifact/serve.ts), authorized through the
-        // owning curriculum row (the same-origin GET carries the session cookie — ADR-0002 §5). concept-drift-ok: persisted-entity identifier, deferred rename (ADR-0003)
-        <iframe
-          className="artifact-frame"
-          title={page.title}
-          src={page.href}
-          sandbox="allow-scripts"
-        />
+        // The v11 reader shell (TS-20) frames the UNCHANGED opaque-origin lesson iframe: a
+        // reading-progress affordance + section list driven by the decision-12 postMessage channel,
+        // inside the `#readerPanel.morph-box` card→reader FLIP destination. The iframe stays
+        // sandbox="allow-scripts" WITHOUT allow-same-origin (opaque origin) with src at the strict-CSP
+        // /artifact route (page.href → src/app/artifact/serve.ts), authorized through the owning row
+        // (the same-origin GET carries the session cookie — ADR-0002 §5). The shell never reads the
+        // iframe DOM and never relaxes the sandbox/CSP. concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
+        <ReaderShell href={page.href} title={page.title} />
       ) : (
         <div className="lesson-degraded" role="status">
           <span className={`badge badge--${page ? page.status : 'soon'}`}>
