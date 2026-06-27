@@ -48,7 +48,7 @@ function specPrompt(input: SpecInput): string {
 
 export interface SpecOutput {
   /**
-   * The Synthesis spec is the ARM-SCOPED union (TS-10): the live blob `spec` emits the flat
+   * The Synthesis spec is the ARM-SCOPED union (TS-10): the blob `spec` emits the flat
    * `PageSpec`; the v11 `specV11` (below) emits the sectioned `LessonSpec`. Typing both stages'
    * output to the union keeps a single `StageBundle.spec` signature, so `specV11` is a valid
    * arm OVERRIDE without mutating `defaultStages.spec`. `isLessonSpec` narrows it downstream.
@@ -253,9 +253,11 @@ function errorToFeedback(err: unknown): string {
 
 /**
  * Spec v11 (Sonnet): a LessonBrief → the typed sectioned `LessonSpec` (TS-10's contract). The v11
- * ARM's spec stage — it is NOT `defaultStages.spec` (the blob `spec` above stays the live default);
- * it is wired as a `StageBundle.spec` arm override, selected from the CLI by `--v11` (the `selectArm`
- * SYNTHESIS swap, TS-14, composing with the `--graded` critic arm). It shares the blob arm's
+ * ARM's spec stage — it is NOT `defaultStages.spec` (the blob `spec` above is now the reachable
+ * kill-switch / fallback, no longer the live default). It is wired as a `StageBundle.spec` arm
+ * override: the PROMOTED live default via `LIVE_ARM` (TS-15b/#107 — the deployed Job + the
+ * local-dev fallback) and, from the CLI, selected by `--v11` (the `selectArm` SYNTHESIS swap,
+ * TS-14, composing with the `--graded` critic arm). It shares the blob arm's
  * anti-fabrication citation filter. The ≤1-component-per-section invariant is enforced
  * by `LessonSpecSchema` itself (path B: TS-10's `Section.component` is singular and `SectionSchema`
  * strips an off-schema over-fill on parse); the deterministic clamp below is belt-and-suspenders for

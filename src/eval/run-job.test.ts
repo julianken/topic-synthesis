@@ -77,11 +77,12 @@ describe('buildJobInput', () => {
 });
 
 // ── TS-9: the graded critic gates `built` on the LIVE/Job path (AC1/AC2) ──────────────────────
-// The Job's run call is `runLesson(request, new GcpEngine(runId), defaultDeps, options, defaultStages,
-// noopSink)` (run-job.ts:66). The `built` gate is the pure `synth.artifact?.passed` line in `runLesson`
-// — engine-agnostic (the engine only memoizes; it never touches the gate), so this exercises the gate
-// with the EXACT non-engine arguments the Job uses (fake deps shaped like `defaultDeps`, the live
-// `defaultStages` for the blob default, the v11 critic SWAP for the graded arm, `noopSink`) over an
+// The Job's run call is `runLesson(request, new GcpEngine(runId), defaultDeps, options, LIVE_ARM,
+// noopSink)` (run-job.ts:84) — `LIVE_ARM` is the v11-graded arm, the PROMOTED live default (TS-15b/#107).
+// The `built` gate is the pure `synth.artifact?.passed` line in `runLesson` — engine-agnostic (the
+// engine only memoizes; it never touches the gate), so this exercises the gate with the EXACT
+// non-engine arguments the Job uses (fake deps shaped like `defaultDeps`, the v11 graded critic for the
+// LIVE arm, `defaultStages` for the RETAINED blob-binary kill-switch, `noopSink`) over an
 // `InlineEngine` — `GcpEngine` would need a live Postgres (`getPool()` at construction). The arm is the
 // `StageBundle.critic` swap (program decision 3/7), NOT a `RunOptions` flag; the gate reads `passed`
 // unchanged either way.
@@ -186,8 +187,9 @@ describe('TS-9 — graded critic gates `built` on the live/Job path', () => {
     expect(builtPages(run)[0]?.built).toBe(false);
   });
 
-  it('AC2 — kill-switch: the Job default (defaultStages) runs the BINARY critic and gates unchanged', async () => {
-    // The Job passes `defaultStages` literally; its critic is the binary `critique` (the live default).
+  it('AC2 — kill-switch: the RETAINED blob arm (defaultStages) runs the BINARY critic and gates unchanged', async () => {
+    // The blob arm is the reachable kill-switch (no longer the live default — `LIVE_ARM` is, TS-15b/#107).
+    // Swapping `LIVE_ARM` back to `defaultStages` re-arms this binary `critique` path; this test pins it.
     const run = await runLesson(req, new InlineEngine(), jobLessonDeps({ binaryPassed: true }), {}, defaultStages, noopSink);
     expect(run.result.pages[0]?.scores).toBeUndefined(); // binary verdict → no graded sub-scores
     expect(run.result.pages[0]?.passed).toBe(true); // the binary boolean drives the gate
@@ -205,12 +207,12 @@ describe('TS-9 — graded critic gates `built` on the live/Job path', () => {
     const { critic: v11Critic, ...v11Rest } = v11;
     expect(v11Rest).toEqual(blobRest); // all non-critic stages identical
     expect(v11Critic).not.toBe(blobCritic); // only the critic differs
-    expect(blobCritic).toBe(defaultStages.critic); // blob arm = the live default
+    expect(blobCritic).toBe(defaultStages.critic); // blob arm = `defaultStages` (the RETAINED kill-switch arm)
   });
 });
 
 // ── TS-9 AC3: the Job emits NO live trace/judge telemetry (revision 7's no-telemetry contract) ────────
-// run-job.ts:66 passes `noopSink` and the Job never constructs a SpanCollector nor calls judgeBrief — so
+// run-job.ts:84 passes `noopSink` and the Job never constructs a SpanCollector nor calls judgeBrief — so
 // the live path emits gating decisions + persisted sub-scores but NO eleatic `_analysis` row / judge
 // scores. Pinning it on the SOURCE (not just runtime) so a future edit can't silently start charging
 // judge spend on every production run; the A/B record is the CLI-offline bench's job, not the Job's.
@@ -218,8 +220,14 @@ describe('TS-9 AC3 — the Job collects no trace/judge telemetry', () => {
   const SOURCE = readFileSync(fileURLToPath(new URL('./run-job.ts', import.meta.url)), 'utf8');
 
   it('passes `noopSink` as the runLesson TraceSink (the trailing arg)', () => {
-    // `noopSink` is the LAST argument of the runLesson(...) call (after the GcpEngine + defaultStages).
+    // `noopSink` is the LAST argument of the runLesson(...) call (after the GcpEngine + LIVE_ARM).
     expect(SOURCE).toMatch(/runLesson\(.*?,\s*noopSink\s*\)/s);
+  });
+
+  it('passes `LIVE_ARM` (the promoted v11-graded arm) as the runLesson StageBundle — guards the TS-15b flip', () => {
+    // The bundle arg is `LIVE_ARM`, not `defaultStages`; pinning it on the SOURCE catches a future
+    // un-flip back to the blob kill-switch (TS-15b/#107) that the runtime gate tests wouldn't surface.
+    expect(SOURCE).toMatch(/runLesson\(.*?,\s*LIVE_ARM\s*,\s*noopSink\s*\)/s);
   });
 
   it('does NOT construct a SpanCollector (no live trace store in the Job)', () => {

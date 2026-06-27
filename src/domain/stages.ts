@@ -152,7 +152,8 @@ export type InteractionKind = (typeof INTERACTION_KINDS)[number];
  *  teach"; the spec owns "how to present it").
  *
  *  This is the FLAT spec shape — the BLOB arm's contract (`defaultStages.spec`, the
- *  live default / kill-switch). It is RETAINED unchanged so the blob path is byte-for-
+ *  reachable kill-switch / fallback — no longer the live default; the live default is now the
+ *  v11-graded arm via `LIVE_ARM`, TS-15b/#107). It is RETAINED unchanged so the blob path is byte-for-
  *  byte the same; the v11 arm's richer pedagogy descriptor is `LessonSpecSchema` below
  *  (TS-10), a SECTIONED contract the v11 `spec` prompt (TS-11) fills. The two coexist as
  *  the two arms of `PageArtifact.spec` — neither is the other's pedagogy descriptor. */
@@ -355,7 +356,7 @@ export type LessonSpec = z.infer<typeof LessonSpecSchema>;
  *  and critic stages — which generate/judge against the goal — keep it without re-reading
  *  the brief; the goal's sole declaration site stays `LessonBrief`.
  *
- *  `spec` is the ARM-SCOPED union: the live blob arm carries the flat `PageSpec`, the v11
+ *  `spec` is the ARM-SCOPED union: the blob arm carries the flat `PageSpec`, the v11
  *  arm (TS-11+) carries the sectioned `LessonSpec`. `a11yContract` is on BOTH arms; the
  *  flat `interactionKind` is blob-only and the `sections` array is v11-only — `isLessonSpec`
  *  narrows between them. (TS-10 is contract-only: no entrypoint emits a `LessonSpec` yet,
@@ -378,7 +379,8 @@ export function isLessonSpec(spec: PageSpec | LessonSpec): spec is LessonSpec {
 /** Critic (Opus, one pass): a binary rubric verdict over an artifact.
  *  RETAINED as the blob arm's verdict shape (`defaultStages.critic` = `critique`); the
  *  graded v11 arm uses `GradedCriticVerdictSchema` below (program decision 7 — the v11
- *  graded critic is a `StageBundle.critic` swap, the binary fn stays the live default). */
+ *  graded critic is a `StageBundle.critic` swap, the PROMOTED live default via `LIVE_ARM`,
+ *  TS-15b/#107; the binary fn stays the reachable kill-switch). */
 export const CriticVerdictSchema = z.object({
   passed: z.boolean(),
   critique: z.string(),

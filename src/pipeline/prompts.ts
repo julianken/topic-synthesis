@@ -33,14 +33,16 @@ const SYSTEM_PROMPTS: ReadonlyArray<readonly [name: string, text: string]> = [
   ['spec', SPEC_SYSTEM],
   // The v11 SECTIONED spec (the v11 arm's `StageBundle.spec`, TS-11) is a distinct stage prompt from
   // the blob `SPEC_SYSTEM`; folding it in means the v11 arm self-distinguishes by `workflow_version`
-  // exactly as the graded critic does. The blob `SPEC_SYSTEM` stays the live default (kill-switch).
+  // exactly as the graded critic does. The blob `SPEC_SYSTEM` is the reachable kill-switch / fallback
+  // (no longer the live default — `SPEC_V11_SYSTEM` is, via `LIVE_ARM`, TS-15b/#107).
   ['spec-v11', SPEC_V11_SYSTEM],
   ['code', CODE_SYSTEM],
   ['critic', CRITIC_SYSTEM],
   // The GRADED critic (the v11 `StageBundle.critic` arm — program decision 7) is a distinct stage
   // prompt from the binary `critic`; folding it in means a graded-arm rubric edit (TS-7's
   // ledger-aware rewrite) yields a distinct `workflow_version` eval arm, exactly as the binary
-  // `critic` does. The binary `CRITIC_SYSTEM` stays the live blob-arm default (decision 3).
+  // `critic` does. The binary `CRITIC_SYSTEM` is the blob-arm prompt — the reachable kill-switch /
+  // fallback (no longer the live default — `GRADED_CRITIC_SYSTEM` is, via `LIVE_ARM`, TS-15b/#107).
   ['graded-critic', GRADED_CRITIC_SYSTEM],
 ];
 
