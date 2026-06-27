@@ -40,6 +40,16 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="wrap wrap--wide">
+      {/*
+        RECEIVER-GUARANTEE (TS-22): the `pagereveal` listener is registered from a parser-blocking inline
+        script in the document <head> (mounted site-wide in `src/app/layout.tsx`), NOT here in the body —
+        Chrome requires the listener to register before the first rendering opportunity, which a body
+        script can race. The head-mounted handler reads the destination box from the LIVE DOM, so it
+        decides correctly on EITHER branch of this reader page: the `built` shell renders
+        `#readerPanel.morph-box` (→ the card→reader box-FLIP runs when the cross-doc VT is supported and
+        reduced-motion is off), and the degraded `soon`/`text` state below renders NO box (→ the handler
+        skips the cross-doc VT → a clean instant-swap; AC4).
+      */}
       <p className="eyebrow">{view.topic}</p>
       <h1>{page ? page.title : view.topic}</h1>
       <p className="lead">
@@ -54,8 +64,15 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
         // /artifact route (page.href → src/app/artifact/serve.ts), authorized through the owning row
         // (the same-origin GET carries the session cookie — ADR-0002 §5). The shell never reads the
         // iframe DOM and never relaxes the sandbox/CSP. concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
+        //
+        // RECEIVER-GUARANTEE (TS-22): the morph-box destination IS present on this `built` branch, so the
+        // route-level guard above (which reads the live `#readerPanel`) lets the card→reader box-FLIP run
+        // when the browser supports the cross-doc VT and the user hasn't asked for reduced motion (AC3).
         <ReaderShell id={id} href={page.href} title={page.title} />
       ) : (
+        // RECEIVER-GUARANTEE (TS-22): the degraded state renders NO `#readerPanel.morph-box`, so the
+        // morph would try to pair a missing endpoint. The route-level guard above reads the live DOM,
+        // finds no box, and skips the cross-doc View-Transition → a clean instant-swap to this page (AC4).
         <div className="lesson-degraded" role="status">
           <span className={`badge badge--${page ? page.status : 'soon'}`}>
             <span className="badge__icon" aria-hidden="true">

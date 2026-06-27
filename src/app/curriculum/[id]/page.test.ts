@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { MORPH_RECEIVER_SCRIPT } from './reader-morph-guard';
 
 // ── TS-13 AC8 / TS-20 AC2 trust-boundary regression pin: the iframe sandbox is unchanged ────────────
 // The sandbox attribute is the PRIMARY trust boundary for the generated lesson (more load-bearing than
@@ -135,5 +136,121 @@ describe('TS-20/TS-21 — the morph transport lives in globals.css; the per-id n
     const rm = CSS.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/m)?.[0] ?? '';
     expect(rm).toContain('::view-transition-group(*)');
     expect(rm).toMatch(/::view-transition-group\(\*\)[\s\S]*animation-duration:\s*0\.01ms\s*!important/m);
+  });
+});
+
+// ── TS-22: the morph robustness paths (capability / receiver-guarantee / reduced-motion) ─────────────
+// TS-22 hardens TS-21's happy-path morph so EVERY degraded path is a clean instant-swap, never a broken
+// or half-applied transition. The pure decision logic is unit-tested in `reader-morph-guard.test.ts`;
+// these guards byte-pin the two SURFACES that wire it: (1) the `globals.css` transport is scoped so
+// reduced-motion never declares the cross-doc VT (AC5) and a no-API engine drops the at-rule (AC2), and
+// (2) the receiver-guard is mounted on BOTH reader branches (AC3/AC4) and stays box-only (AC6/AC7).
+describe('TS-22 — the transport is scoped so reduced-motion never runs the cross-doc VT (AC2/AC5)', () => {
+  const CSS = readFileSync(fileURLToPath(new URL('../../globals.css', import.meta.url)), 'utf8');
+
+  it('declares `@view-transition { navigation: auto }` ONLY inside prefers-reduced-motion: no-preference (AC5)', () => {
+    // Under `prefers-reduced-motion: reduce` the at-rule must be ABSENT entirely — the cross-doc VT never
+    // starts (not merely a zeroed duration). So the transport rule lives inside a `no-preference` @media
+    // block; a regression that hoists it back to top-level (running the morph regardless of preference)
+    // trips this. We assert the transport at-rule sits within a `no-preference` media block.
+    const noPref =
+      CSS.match(/@media \(prefers-reduced-motion: no-preference\)\s*\{[\s\S]*?\n\}/m)?.[0] ?? '';
+    expect(noPref).toMatch(/@view-transition\s*\{[^}]*navigation\s*:\s*auto/m);
+    // and the transport must NOT also exist at top level (un-scoped) — every @view-transition occurrence
+    // is the one inside the no-preference block.
+    expect(CSS.match(/@view-transition\s*\{/g)?.length).toBe(1);
+  });
+
+  it('the no-API instant-swap is inherent: nothing forces the transport on a non-supporting engine (AC2)', () => {
+    // The cross-doc VT fallback is "the at-rule simply does not activate" — an engine without the API
+    // drops the unknown `@view-transition` rule and does a plain navigation. There is no scripted
+    // `startViewTransition` forcing a transition in the stylesheet, so a no-API browser instant-swaps.
+    expect(CSS).not.toContain('startViewTransition');
+  });
+});
+
+describe('TS-22 — the receiver-guard registers in <head> BEFORE first paint and is box-only (AC3/AC4/AC6/AC7)', () => {
+  const PAGE = readFileSync(fileURLToPath(new URL('./page.tsx', import.meta.url)), 'utf8');
+  const LAYOUT = readFileSync(fileURLToPath(new URL('../../layout.tsx', import.meta.url)), 'utf8');
+  const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
+  const CORE = readFileSync(fileURLToPath(new URL('./reader-morph-guard.ts', import.meta.url)), 'utf8');
+  const SCRIPT = MORPH_RECEIVER_SCRIPT; // the runnable serialized inline-script the guard ships
+
+  it('mounts MorphReceiverGuard ONCE, inside the root layout <head> — not the page body (PR #143 fix; AC4)', () => {
+    // PR #143 review (2nd pass): Chrome requires the `pagereveal` listener to register in a classic
+    // parser-blocking script in the <head>, before the first rendering opportunity. A body-positioned
+    // mount (the 1st fix's `<main>` placement) can race that and register too late to skip the cross-doc
+    // VT on the box-absent path. So the single prop-less mount lives in the root layout's <head>, and is
+    // gone from the reader page body. (App Router owns <head> only in the root layout; the handler self-
+    // gates on the live `#readerPanel`, so a site-wide head mount decides correctly on every route.)
+    expect(LAYOUT).toContain('<MorphReceiverGuard />');
+    expect(LAYOUT.match(/<MorphReceiverGuard\b/g)?.length).toBe(1);
+    // The mount sits inside the document <head> (before the first rendering opportunity), not the <body>.
+    const headBlock = LAYOUT.match(/<head>[\s\S]*?<\/head>/m)?.[0] ?? '';
+    expect(headBlock).toContain('<MorphReceiverGuard />');
+    // It must NOT remain in (or return to) the reader page body — that was the raced 1st-pass placement.
+    expect(PAGE).not.toContain('<MorphReceiverGuard');
+    // The obsolete per-branch / prop-driven mounts must be gone too (they implied a branch-claim, not a
+    // live-DOM guarantee, and the old form mounted the script twice).
+    expect(PAGE).not.toContain('destinationBoxPresent');
+    expect(LAYOUT).not.toContain('destinationBoxPresent');
+  });
+
+  it('registers the pagereveal listener at PARSE time via an inline script, NOT a useEffect (AC4 fix)', () => {
+    // `pagereveal` fires on the new document BEFORE its first rendering opportunity, so a `useEffect`
+    // (post-hydration) listener registers too late and misses it — the active receiver-guarantee then
+    // never fires. The guard must emit a parser-time inline script that adds the listener synchronously.
+    // Byte-pin: the guard wires the listener via the inline-script source, and uses no React effect.
+    expect(GUARD).toContain('MORPH_RECEIVER_SCRIPT');
+    expect(GUARD).toContain('dangerouslySetInnerHTML');
+    // No effect-based registration (the bug) and no client directive — it is a SERVER island that emits a
+    // parse-time script. We pin the runnable forms (`useEffect(` call, the `'use client'` directive on
+    // its own line) so the explanatory prose that NAMES the rejected approach doesn't trip the guard.
+    expect(GUARD).not.toContain('useEffect(');
+    expect(GUARD).not.toMatch(/^'use client';/m);
+    expect(GUARD).not.toContain("from 'react'");
+    // The script source itself attaches the listener synchronously (no effect indirection).
+    expect(CORE).toContain("addEventListener('pagereveal'");
+  });
+
+  it('the guard instant-swaps by skipping the View-Transition, never by touching the iframe (AC6/AC7)', () => {
+    // The receiver-guarantee cancels the morph via the VT's own `skipTransition()` — box-only. The
+    // SHIPPED handler source (the serialized inline script that actually runs in the browser) must NEVER
+    // read/mutate the opaque-origin iframe, its sandbox, or the CSP. We assert against the runnable script
+    // source (MORPH_RECEIVER_SCRIPT, pinned in reader-morph-guard.test.ts) rather than the raw .ts file,
+    // whose trust-boundary PROSE legitimately names those strings to explain their absence from the code.
+    expect(SCRIPT).toContain('skipTransition');
+    expect(SCRIPT).not.toContain('contentWindow');
+    expect(SCRIPT).not.toContain('allow-same-origin');
+    expect(SCRIPT).not.toContain('ARTIFACT_CSP');
+    expect(SCRIPT).not.toMatch(/getElementsByTagName\(['"]iframe/);
+    // and the guard shell renders no iframe boundary surface of its own.
+    expect(GUARD).not.toContain('<iframe');
+  });
+
+  it('the guard confirms the LIVE box, not just the branch claim — a real receiver-guarantee (AC4)', () => {
+    // Box presence is read from the live DOM (`getElementById('readerPanel')`) in the handler the script
+    // serializes, so a branch that claims a box but failed to render one still instant-swaps — a
+    // guarantee, not a promise. (The check moved from the .tsx into the inlined handler in the core.)
+    expect(CORE).toContain("getElementById('readerPanel')");
+  });
+});
+
+// ── TS-22 AC6: the iframe attributes are byte-identical across EVERY morph path ───────────────────────
+// The morph (happy path) and all three fallbacks (no-API, degraded-receiver, reduced-motion) are
+// container-box geometry only — the lesson iframe's `sandbox="allow-scripts"` (no `allow-same-origin`)
+// and the `/artifact` route's `ARTIFACT_CSP` are byte-for-byte unchanged across them. TS-22 adds no code
+// path that varies the iframe by morph branch: the iframe lives in `reader-shell.tsx` (rendered only on
+// the `built` branch, byte-pinned above) and the receiver-guard is a behavior-only island that emits
+// only an inline registration script and never touches the frame. This pins that it introduced no iframe.
+describe('TS-22 AC6 — the receiver-guard introduces no iframe and emits only its registration script (box-only)', () => {
+  const GUARD = readFileSync(fileURLToPath(new URL('./morph-receiver-guard.tsx', import.meta.url)), 'utf8');
+
+  it('renders only its inline registration script — no second frame, no boundary surface', () => {
+    // The island renders a single behavior-only inline `<script>` (the parser-time pagereveal
+    // registration), not UI. It cannot change the single iframe's attributes — the sandbox/CSP boundary
+    // stays exactly TS-20's. The ONLY element it renders is that script tag; never an iframe.
+    expect(GUARD).toContain('<script');
+    expect(GUARD).not.toContain('<iframe');
   });
 });
