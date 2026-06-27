@@ -38,6 +38,12 @@ export const colorPrimitiveTokens = [
   '--kind-svg',
   '--kind-canvas',
   '--kind-html',
+  '--pipeline',
+  '--source-link',
+  '--faint',
+  '--badge-border-ok',
+  '--badge-border-warn',
+  '--badge-border-neutral',
 ] as const;
 
 /** Semantic color tokens — alias a primitive, name its job (DESIGN.md §0). */
@@ -56,14 +62,54 @@ export const colorSemanticTokens = [
   '--status-error',
 ] as const;
 
+/**
+ * Translucent / gradient SURFACE system — CHROME-ONLY frosted surfaces, the
+ * radial app-bg, column dividers, and the brand mark gradient + glow (DESIGN.md
+ * §0 — adopted from the Figma frames). Not injected into ARTIFACT_ROOT_TOKENS.
+ */
+export const surfaceTokens = [
+  '--app-bg',
+  '--surface-header',
+  '--surface-panel',
+  '--surface-panel-strong',
+  '--surface-pill',
+  '--surface-ledger',
+  '--surface-divider',
+  '--brand-gradient',
+  '--brand-glow',
+] as const;
+
 /** Type scale — rem, fixed per role, non-modular (DESIGN.md §0 / §Typography). */
 export const typeScaleTokens = [
   '--fs-hero',
   '--fs-h1',
+  '--fs-title',
   '--fs-h2',
+  '--fs-card-title',
+  '--fs-lede',
   '--fs-body',
   '--fs-small',
   '--fs-mono',
+  '--fs-caption',
+  '--fs-micro',
+] as const;
+
+/** Letter-spacing scale — em (DESIGN.md §0 / §Typography). */
+export const letterSpacingTokens = [
+  '--ls-display-tight',
+  '--ls-display',
+  '--ls-snug',
+  '--ls-meta',
+  '--ls-eyebrow',
+  '--ls-eyebrow-wide',
+] as const;
+
+/** Per-role line-heights — unitless (DESIGN.md §0 / §Typography). */
+export const lineHeightTokens = [
+  '--lh-reading',
+  '--lh-display',
+  '--lh-heading',
+  '--lh-gloss',
 ] as const;
 
 /** Spacing scale — rem (DESIGN.md §0). */
@@ -88,7 +134,15 @@ export const geometryTokens = [
 ] as const;
 
 /** Radius scale (DESIGN.md §0). */
-export const radiusTokens = ['--r-sm', '--r-md', '--r-lg'] as const;
+export const radiusTokens = [
+  '--r-sm',
+  '--r-md',
+  '--r-card',
+  '--r-card-lg',
+  '--r-lg',
+  '--r-pill',
+  '--r-kbd',
+] as const;
 
 /** Motion durations + the single easing (DESIGN.md §0 / §Motion). */
 export const motionTokens = ['--dur-fast', '--dur-base', '--dur-slow', '--ease'] as const;
@@ -113,7 +167,10 @@ export const typeFamilyTokens = ['--sans', '--mono', '--serif'] as const;
 export const allTokens = [
   ...colorPrimitiveTokens,
   ...colorSemanticTokens,
+  ...surfaceTokens,
   ...typeScaleTokens,
+  ...letterSpacingTokens,
+  ...lineHeightTokens,
   ...spaceTokens,
   ...geometryTokens,
   ...radiusTokens,
@@ -128,7 +185,10 @@ export type TokenName = (typeof allTokens)[number];
 /** Tier-scoped token-name unions, for consumers that want to constrain by tier. */
 export type ColorPrimitiveToken = (typeof colorPrimitiveTokens)[number];
 export type ColorSemanticToken = (typeof colorSemanticTokens)[number];
+export type SurfaceToken = (typeof surfaceTokens)[number];
 export type TypeScaleToken = (typeof typeScaleTokens)[number];
+export type LetterSpacingToken = (typeof letterSpacingTokens)[number];
+export type LineHeightToken = (typeof lineHeightTokens)[number];
 export type SpaceToken = (typeof spaceTokens)[number];
 export type GeometryToken = (typeof geometryTokens)[number];
 export type RadiusToken = (typeof radiusTokens)[number];
