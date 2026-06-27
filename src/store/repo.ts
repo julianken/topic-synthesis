@@ -324,3 +324,72 @@ export async function getStepEvents(
     status: r.status,
   }));
 }
+
+/** One poster-card descriptor the library home (TS-17) renders a card grid from (TS-16). Thin by
+ *  design — only the card fields, NOT the full tiered hub `getCurriculum` reads. `id` is the
+ *  curriculum id (the card's `/curriculum/[id]` href target); `interactionKind` is best-effort: it
+ *  is JSONB-extracted from `spec_json` and is `null` for v11-arm rows (the `LessonSpec` has no such
+ *  key) and degraded soon/text rows (their `spec_json` is `NULL`). The card surfaces no per-arm
+ *  badge by default (library Key decision §13), so `null` simply means "no flat kind to show". */
+export interface LessonCard {
+  /** The curriculum id — the card's href target, `/curriculum/[id]`. */
+  id: string;
+  /** The single lesson page's `concept_slug`. */
+  slug: string;
+  /** The lesson title (the `concept_page.title` NOT NULL column, NOT JSONB). */
+  title: string;
+  status: PageStatus;
+  /** ISO string from `curriculum.created_at`, for newest-first ordering. */
+  createdAt: string;
+  /** Best-effort flat `interactionKind` from `spec_json` — present on blob-arm rows, `null` on
+   *  v11-arm rows (no such key) and degraded rows (`spec_json` is `NULL`). */
+  interactionKind: string | null;
+}
+
+/** List one poster-card descriptor per lesson the caller owns, newest-first — the reader the library
+ *  home (TS-17) builds its card grid on. OWNER-SCOPED (ADR 0002 §5): scoped on `curriculum.owner_sub`,
+ *  so a caller with no owned lessons AND an unknown/foreign `ownerSub` both get `[]` — no existence
+ *  oracle. ONE owner-scoped query joining `curriculum` → its single `concept_page` (the one-page
+ *  single-lesson row, ADR-0003), projecting only the card fields — NOT a per-lesson `getCurriculum`
+ *  loop (which would be N+1 and over-fetch the tiered hub).
+ *
+ *  MIXED-ARM TOLERANT (library Key decision §13 — "old lessons stay old," no backfill): the library
+ *  durably holds blob-arm rows (a flat `PageSpec` with `interactionKind`), v11-arm rows (a sectioned
+ *  `LessonSpec`, no `interactionKind` — the live default, `LIVE_ARM`, TS-15b/#107), AND degraded
+ *  soon/text rows (a synthesis failure wrote no artifact → `spec_json` is `NULL`). `spec_json ->>
+ *  'interactionKind'` yields the field for blob rows and `NULL` for the other two — the desired
+ *  tri-state, with no Zod re-parse of a column that may legitimately hold either union arm or be NULL.
+ *  So a malformed/absent spec can never crash the library home. */
+export async function listLessons(
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<LessonCard[]> {
+  const res = await deps.pool.query<{
+    id: string;
+    created_at: string | Date;
+    concept_slug: string;
+    title: string;
+    status: PageStatus;
+    interaction_kind: string | null;
+  }>(
+    `SELECT c.id, c.created_at, p.concept_slug, p.title, p.status,
+            p.spec_json ->> 'interactionKind' AS interaction_kind
+       FROM curriculum c
+       JOIN curriculum_page cp ON cp.curriculum_id = c.id
+       JOIN concept_page p ON p.id = cp.page_id
+      WHERE c.owner_sub = $1
+      ORDER BY c.created_at DESC`,
+    [ownerSub],
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    slug: r.concept_slug,
+    title: r.title,
+    status: r.status,
+    // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string (same as getStepEvents).
+    createdAt: new Date(r.created_at).toISOString(),
+    // pg returns the JSONB `->>` extraction as string | null straight through — no TS null-guard
+    // needed: NULL on v11-arm rows (no key) and degraded rows (NULL spec_json).
+    interactionKind: r.interaction_kind,
+  }));
+}

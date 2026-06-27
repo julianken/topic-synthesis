@@ -17,6 +17,7 @@ import {
   getCurriculum,
   getOwnedPage,
   getStepEvents,
+  listLessons,
   ownsRun,
   persistRun,
   rebuildHub,
@@ -550,6 +551,95 @@ describe('getStepEvents (issue #61 — the live timeline read)', () => {
 
   it('returns [] for a run with no recorded steps', async () => {
     expect(await getStepEvents('absent', fakePool().deps)).toEqual([]);
+  });
+});
+
+// ── listLessons — the owner-scoped library-card reader (TS-16) ────────────────
+// One thin card row per owned lesson, newest-first. Mixed-arm tolerant (library Key decision §13,
+// no backfill): it lists blob-arm rows (flat interactionKind), v11-arm rows (sectioned, no
+// interactionKind — the live default LIVE_ARM), AND degraded soon/text rows (spec_json NULL). The
+// `spec_json ->> 'interactionKind'` JSONB extraction is done IN Postgres, so the fake pool returns
+// the already-extracted `interaction_kind` column (string | null) exactly as pg would.
+describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
+  // The card row shape the SQL `SELECT ... AS interaction_kind` projects (pre-extracted by Postgres).
+  const cardRow = (over: Partial<Record<string, unknown>> = {}) => ({
+    id: 'cur-1',
+    created_at: new Date('2026-06-21T00:00:00.000Z'),
+    concept_slug: 'fourier',
+    title: 'Fourier',
+    status: 'built',
+    interaction_kind: 'canvas',
+    ...over,
+  });
+
+  it('is owner-scoped: filters owner_sub = $1 and a foreign/unknown owner gets [] (no existence oracle)', async () => {
+    // The owner with rows reads them back…
+    const owned = fakePool([{ match: 'WHERE c.owner_sub = $1', rows: [cardRow()] }]);
+    const cards = await listLessons('owner-1', owned.deps);
+    expect(cards).toHaveLength(1);
+    expect(sqlsOf(owned.client.query).some((s) => s.includes('c.owner_sub = $1'))).toBe(true);
+    // the scope param IS the ownerSub
+    expect(paramsOf(owned.client.query, 'c.owner_sub = $1')).toEqual(['owner-1']);
+    // …a foreign/unknown owner matches no rows → [] (same empty result as having zero lessons)
+    expect(await listLessons('someone-else', fakePool().deps)).toEqual([]);
+  });
+
+  it('blob-arm row: a flat PageSpec yields a card whose interactionKind is the extracted value', async () => {
+    // spec_json was a blob PageSpec ({ interactionKind: 'diagram', ... }) → pg `->>` extracts 'diagram'.
+    const blob = fakePool([{ match: 'FROM curriculum c', rows: [cardRow({ interaction_kind: 'diagram' })] }]);
+    const [card] = await listLessons('owner-1', blob.deps);
+    expect(card?.interactionKind).toBe('diagram');
+    expect(card?.id).toBe('cur-1');
+    expect(card?.slug).toBe('fourier');
+    expect(card?.title).toBe('Fourier');
+    expect(card?.status).toBe('built');
+  });
+
+  it('v11-arm row: a sectioned LessonSpec (no interactionKind key) yields interactionKind: null', async () => {
+    // spec_json was a v11 LessonSpec (a `sections` array, NO interactionKind) → pg `->>` yields NULL.
+    const v11 = fakePool([
+      {
+        match: 'FROM curriculum c',
+        rows: [cardRow({ interaction_kind: null, title: 'Diffusion', status: 'built' })],
+      },
+    ]);
+    const [card] = await listLessons('owner-1', v11.deps);
+    expect(card?.interactionKind).toBeNull(); // the reader does NOT assume the blob shape
+    expect(card?.title).toBe('Diffusion');
+    expect(card?.status).toBe('built');
+  });
+
+  it('degraded row: NULL spec_json (a soon/text synthesis failure) yields interactionKind: null, no crash', async () => {
+    // spec_json itself is NULL (no artifact persisted) → pg `->>` yields NULL; the card still renders.
+    const degraded = fakePool([
+      {
+        match: 'FROM curriculum c',
+        rows: [cardRow({ interaction_kind: null, status: 'soon', title: 'Half-built' })],
+      },
+    ]);
+    const [card] = await listLessons('owner-1', degraded.deps);
+    expect(card?.interactionKind).toBeNull(); // NULL spec_json cannot crash the reader
+    expect(card?.status).toBe('soon');
+    expect(card?.title).toBe('Half-built');
+  });
+
+  it('orders newest-first: createdAt descending, and the SQL carries ORDER BY created_at DESC', async () => {
+    // Two owned lessons; pg returns them already DESC-ordered (the query carries ORDER BY). Assert the
+    // reader preserves that order AND normalizes created_at (Date | string) to an ISO string.
+    const two = fakePool([
+      {
+        match: 'FROM curriculum c',
+        rows: [
+          cardRow({ id: 'newer', created_at: new Date('2026-06-21T12:00:00.000Z') }),
+          cardRow({ id: 'older', created_at: '2026-06-20T09:00:00.000Z' }), // pg can also return a string
+        ],
+      },
+    ]);
+    const cards = await listLessons('owner-1', two.deps);
+    expect(cards.map((c) => c.id)).toEqual(['newer', 'older']);
+    expect(cards[0]?.createdAt).toBe('2026-06-21T12:00:00.000Z'); // Date → ISO
+    expect(cards[1]?.createdAt).toBe('2026-06-20T09:00:00.000Z'); // string → ISO
+    expect(sqlsOf(two.client.query).some((s) => s.includes('ORDER BY c.created_at DESC'))).toBe(true);
   });
 });
 
