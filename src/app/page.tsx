@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionIdentity } from './auth/require-session';
 import { listLessons } from '../store/repo';
@@ -13,10 +12,11 @@ export const dynamic = 'force-dynamic';
  * The library home (`/`, TS-17) — the FRAME-phase library route: an auth-gated, owner-scoped card grid
  * of the signed-in user's lesson posters that is ALSO the product's sole generation entry (the intake
  * form folds in here — program decision 11). It is the FLIP ORIGIN of the card→reader morph: each card
- * is a bounded box carrying a per-card `view-transition-name` endpoint (`morphName`) that TS-21 will
- * later animate into the reader's `#readerPanel.morph-box` (TS-20). NO global `@view-transition` is
- * declared and NO animation runs here — TS-17 establishes the origin geometry only (box-only, per the
- * TS-5b verdict; the library `/` and reader `/curriculum/[id]` stay two independent App-Router routes). concept-drift-ok: route identifier, deferred rename (ADR-0003)
+ * is a bounded box carrying a per-card `view-transition-name` endpoint (`morphName`) that the TS-21
+ * route-level cross-document View-Transition (declared in `globals.css`, NOT here) morphs into the
+ * reader's `#readerPanel.morph-box` (TS-20). The transport + box-geometry tween live at the route seam
+ * (`globals.css`); this page sets only the inline per-card endpoint name — box-only, per the TS-5b
+ * verdict; the library `/` and reader `/curriculum/[id]` stay two independent App-Router routes. concept-drift-ok: route identifier, deferred rename (ADR-0003)
  *
  * A SERVER component (the owner-scoped `listLessons` fetch must run behind the session gate, off the
  * client) with the `<IntakeForm>` client island embedded — mirroring `layout.tsx` server + `SessionNav`.
@@ -43,11 +43,17 @@ export default async function Library() {
             const when = relativeTime(lesson.createdAt);
             return (
               <li key={lesson.id} className="poster">
-                {/* Each card is a bounded box linking CROSS-DOCUMENT to the reader (a plain next/link
-                    anchor — no client-router shell, TS-5b box-only routing). The `view-transition-name`
-                    endpoint (morphName, id-scoped) makes this box the morph's FLIP ORIGIN for TS-21; it
-                    is inert here (no `@view-transition` declared → no animation runs). */}
-                <Link
+                {/* Each card links CROSS-DOCUMENT to the reader via a PLAIN <a> anchor — deliberately
+                    NOT next/link. next/link intercepts the click and does a CLIENT-SIDE soft navigation
+                    (RSC payload swap, no document unload/load), and `@view-transition { navigation: auto }`
+                    is a cross-document mechanism that only activates on a real document navigation — so a
+                    soft nav would never fire the morph (the card click would be an instant route swap with
+                    no box-FLIP). A plain anchor is a genuine full-document navigation App Router does not
+                    intercept, so the cross-document View-Transition transport in `globals.css` activates,
+                    pairs this card's `view-transition-name` endpoint (morphName, id-scoped — the FLIP
+                    ORIGIN) with the reader's destination box, and box-FLIPs the geometry on the click. The
+                    two routes stay independent (TS-5b decision 2: cross-doc VT transport, SPA shell rejected). */}
+                <a
                   className="poster__card"
                   href={`/curriculum/${encodeURIComponent(lesson.id)}`} // concept-drift-ok: route identifier, deferred rename (ADR-0003)
                   style={{ viewTransitionName: morphName(lesson.id) }}
@@ -63,7 +69,7 @@ export default async function Library() {
                     {kind ? <span className="poster__kind">{kind}</span> : null}
                     {when ? <span className="poster__when">{when}</span> : null}
                   </span>
-                </Link>
+                </a>
               </li>
             );
           })}
