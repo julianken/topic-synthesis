@@ -64,11 +64,6 @@ export default function SignIn() {
             {error}
           </p>
         ) : null}
-        <p className="signin__foot">
-          Allowlisted Google sign-in · ADR-0002
-          <br />
-          no spend before a verified session
-        </p>
       </div>
     </main>
   );

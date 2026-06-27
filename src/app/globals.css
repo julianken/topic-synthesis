@@ -877,17 +877,6 @@ h1 {
   font-size: var(--fs-small);
 }
 
-/* SF-Mono footer (Figma 5:27): the --mono stack, 10.5px, tracking 0.42px ≈ 0.04em, line-height 16.8px,
-   in --text-faint (= --fog-550, equal to the Figma #889099). Two lines via an inline <br>. */
-.signin__foot {
-  margin-top: 18px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 16.8px;
-  letter-spacing: 0.04em;
-  color: var(--text-faint);
-}
-
 .signin__google:focus-visible {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;

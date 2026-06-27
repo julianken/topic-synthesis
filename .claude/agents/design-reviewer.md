@@ -165,6 +165,27 @@ the hard constraints you need are restated here. The binding ones:
 - Reduced motion honored ("## Motion"). The chrome never depends on an opaque-origin iframe's
   internals for its own a11y.
 
+### Copy appropriateness — user-facing text is for users, never for developers
+- **User-facing copy must NEVER contain project-internal or developer-facing information.** No
+  ADR numbers (`ADR-0002`), no issue/PR numbers (`#150`, `TS-24`), no code identifiers
+  (function/component/token names, class names like `.signin__foot`), no file paths, no
+  env-var or feature-flag names (`AUTH_ALLOWLIST`, `LIVE_ARM`, `CHEAP`), and no descriptions of
+  internal system behavior (e.g. "no spend before a verified session", "allowlisted Google
+  sign-in") in any text a real user reads — headings, leads, button labels, error messages,
+  footers, captions, tooltips, empty-states, badges. This is decided by the *meaning* of the
+  words, not by which DESIGN.md token styles them; it applies even when the layout is correct.
+- **The Figma's TEXT is a DRAFT, never gospel.** The authority chain (shipped build > DESIGN.md
+  > Figma) governs **layout/visual fidelity only** — geometry, spacing, type, color. The mockup
+  itself may carry dev placeholder copy (an `ADR-…` line, lorem, an internal note); "match the
+  Figma" means match its LAYOUT, not transcribe its strings. User-facing copy must be curated
+  *for users* — judge the words on whether a person signing in would understand and benefit from
+  them, not on whether they match the frame. A diff that ships the Figma's dev-speak verbatim
+  into user UI is a finding, not fidelity.
+- **Any internal-ref or dev-speak in user copy is a CRITICAL finding.** Flag the exact string,
+  name what makes it developer-facing, and propose user-appropriate copy (or removal). Treat this
+  with the same severity as a P0 invariant — leaking an ADR number or an internal behavior note to
+  a real user is a release-blocking defect, never a NIT.
+
 ### Scope boundary
 - The generation pipeline is OUT of scope (it was reverted to blob-binary; `src/pipeline/*`
   content logic is not a design surface). Generated artifacts carry their OWN a11y contract —
@@ -177,7 +198,10 @@ the hard constraints you need are restated here. The binding ones:
 - **CRITICAL** — breaks a P0 invariant or a stated correctness rule: a contrast pair below
   the AA floor on operable text, a status conveyed by color alone, the lesson-workspace
   Stable-spine HARD rule violated, legibility gated on motion, `outline:none` with no
-  replacement, a light/parchment inversion of the dark palette. Must be fixed before merge.
+  replacement, a light/parchment inversion of the dark palette, **project-internal or
+  developer-facing text in user-facing copy** (an ADR/issue/PR number, code identifier, file
+  path, env/flag name, or internal-behavior note — §Copy appropriateness). Must be fixed before
+  merge.
 - **MAJOR** — a clear, visible departure from the system: wrong type family for a role
   (serif on chrome / sans on a lesson heading), off-scale spacing/radius, a raw OKLCH/ms/easing
   literal outside §0, a hand-rolled tween instead of the transitions-dev catalog, a reduced-
