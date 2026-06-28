@@ -511,9 +511,14 @@ h1 {
     var(--bg-surface);
 }
 
+/* The mark fills the wash the way the Figma emblem does (`6:27`/`6:28`: a ~168×56 silhouette spread across
+   the 277.9px band, NOT a tiny centred glyph). The SVG's viewBox IS the wash's 278×104 space, so it maps
+   1:1; we size it to ~88% of the wash width (capped at the band) and let the height follow the aspect ratio,
+   so the node-graph spans the band instead of huddling at centre. */
 .library-poster__mark {
-  width: 64px;
-  height: 36px;
+  width: 88%;
+  max-width: 246px;
+  height: auto;
   color: var(--text-faint);
 }
 
