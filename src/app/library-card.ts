@@ -7,6 +7,7 @@
  * (`{ id, slug, title, status, createdAt }`); this module turns that thin row into the status label/icon,
  * the relative-time string, and the per-card `view-transition-name` endpoint — no I/O.
  */
+import type { Level } from '../domain/settings';
 import type { PageStatus } from '../domain/sitemap';
 
 /** The status badge label + glyph (status by label + icon, never color alone — DESIGN.md §Color & contrast).
@@ -56,7 +57,33 @@ export function relativeTime(createdAtIso: string, now: Date = new Date()): stri
   return `${Math.round(days / 365)}y ago`;
 }
 
-// No `kindLabel`: the Figma `6:2` card eyebrow holds a user-meaningful SUBJECT CATEGORY, not a
-// render-backend identifier. An earlier build mapped that slot to the artifact's internal
-// `interactionKind` enum (`svg`/`canvas`/`html`), which is dev-speak on a user surface — dropped per the
-// copy-appropriateness gate. The eyebrow stays unrendered until a real category data source exists.
+/** The learner-facing level word for the card meta line. The Figma `6:2` footer reads "beginner · d2 · …",
+ *  so the `intro` level surfaces as "beginner" (a user-appropriate word, not the internal `intro` enum);
+ *  `intermediate`/`advanced` already read naturally. Never the raw enum on a user surface. */
+export const LEVEL_LABEL: Record<Level, string> = {
+  intro: 'beginner',
+  intermediate: 'intermediate',
+  advanced: 'advanced',
+};
+
+/**
+ * The Figma `6:2` card footer-meta line ("beginner · d2 · 3h ago"): the learner-facing level word, the
+ * depth shorthand (`d{depth}`), and the coarse relative-time, middot-joined. All three parts are REAL
+ * card data (level + depth from the saved Settings, time from `createdAt`) — never fabricated. Each part
+ * is dropped if empty so the line never prints `undefined` or trails a dangling separator: a level
+ * outside the enum (a legacy/out-of-shape row — the typed `Level` can't hit this in normal flow) falls
+ * back to its own value rather than the map's `undefined`, and an unparseable timestamp drops the time.
+ */
+export function metaLine(level: Level, depth: number, createdAtIso: string, now: Date = new Date()): string {
+  const when = relativeTime(createdAtIso, now);
+  const parts = [LEVEL_LABEL[level] ?? level, Number.isFinite(depth) ? `d${depth}` : '', when];
+  return parts.filter(Boolean).join(' · ');
+}
+
+// No `kindLabel` / category eyebrow: the Figma `6:2` card eyebrow (node `6:41`) holds a user-meaningful
+// SUBJECT CATEGORY (BIOLOGY / MATHEMATICS / …), which the card has no data source for — a single-lesson
+// run's hub category is the placeholder `'Lesson'`, and there is no description column. An earlier build
+// mapped the eyebrow to the artifact's internal `interactionKind` enum (`svg`/`canvas`/`html`), which is
+// dev-speak on a user surface — dropped per the copy-appropriateness gate. The eyebrow + description stay
+// unrendered (show nothing > show a code identifier or a fabricated string) until a real category source
+// exists; the meta line (level · depth · time) IS filled from real data above.

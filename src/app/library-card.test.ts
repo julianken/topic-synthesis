@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { badgeClass, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
+import {
+  badgeClass,
+  LEVEL_LABEL,
+  metaLine,
+  morphName,
+  relativeTime,
+  STATUS_ICON,
+  STATUS_LABEL,
+} from './library-card';
 
 describe('library-card — status presentation (TS-17)', () => {
   it('labels every PageStatus with a word + a glyph (label + icon, never color alone)', () => {
@@ -53,5 +61,27 @@ describe('library-card — relativeTime, the coarse recency string (deterministi
   it('never returns a negative/future bucket (clamps to just-now) and is empty on a bad date', () => {
     expect(relativeTime(ago(-5 * MIN), now)).toBe('just now'); // a future createdAt clamps
     expect(relativeTime('not-a-date', now)).toBe('');
+  });
+});
+
+describe('library-card — the Figma 6:2 card meta line (level · depth · time)', () => {
+  const now = new Date('2026-06-26T12:00:00.000Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+  const HOUR = 60 * 60 * 1000;
+
+  it('surfaces the learner-facing level word, never the raw enum (intro → beginner)', () => {
+    // The Figma footer reads "beginner …"; the internal `intro` enum must not leak onto a user surface.
+    expect(LEVEL_LABEL).toEqual({ intro: 'beginner', intermediate: 'intermediate', advanced: 'advanced' });
+  });
+
+  it('builds the middot-joined "beginner · d2 · 3h ago" line from real data', () => {
+    expect(metaLine('intro', 2, ago(3 * HOUR), now)).toBe('beginner · d2 · 3h ago');
+    expect(metaLine('intermediate', 3, ago(3 * HOUR), now)).toBe('intermediate · d3 · 3h ago');
+    expect(metaLine('advanced', 4, ago(3 * HOUR), now)).toBe('advanced · d4 · 3h ago');
+  });
+
+  it('drops a blank relative-time so the line never trails a dangling separator', () => {
+    // an unparseable createdAt → relativeTime '' → the line ends at the depth, no trailing " · "
+    expect(metaLine('intro', 1, 'not-a-date', now)).toBe('beginner · d1');
   });
 });

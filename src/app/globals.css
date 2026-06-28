@@ -473,11 +473,15 @@ h1 {
   display: flex;
 }
 
-/* The poster card (Figma 6:25): #131a22 surface, 0.8px --border outline, rounded 14 (= --r-card-lg). */
+/* The poster card (Figma 6:25): #131a22 surface, 0.8px --border outline, rounded 14 (= --r-card-lg). The
+   card is FIXED at the frame's 262px card height so the body can bottom-pin its footer (the frame's
+   title-top / footer-bottom rhythm) — without a fixed height the body collapses to its content and the
+   footer rides up under the title. The wash is 104px; the remaining ~158px is the body's flex column. */
 .library-poster__card {
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 262px;
   background: var(--bg-surface);
   border: 0.8px solid var(--border);
   border-radius: var(--r-card-lg);
@@ -541,34 +545,37 @@ h1 {
   overflow: hidden;
 }
 
-/* Footer (Figma 6:49): the status badge left, the kind + relative-time meta right. */
+/* Footer (Figma 6:49): the status badge left, the "level · depth · time" meta right — bottom-pinned by
+   the body's flex column (the card's fixed height makes space-between pin the footer to the floor). The
+   pt-4 matches the frame's 4px footer top-pad above the badge baseline. */
 .library-poster__foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
+  padding-top: 4px;
 }
 
+/* Footer meta (Figma 6:57): "beginner · d2 · 3h ago" — mono ~10.5px in --text-faint, tracking +0.21px ≈
+   --ls-meta band. level + depth are REAL request Settings, the time is derived from createdAt (metaLine).
+   nowrap + ellipsis so the line never wraps under the badge on a narrow card. */
 .library-poster__meta {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-/* No kind chip: the Figma `6:2` card eyebrow (node `6:41`) holds a user-meaningful SUBJECT CATEGORY
-   (BIOLOGY / MATHEMATICS / …), which the thin TS-16 `LessonCard` has no data source for. The earlier
-   build filled that slot with the raw `interactionKind` render-backend enum (`svg`/`canvas`/`html`) —
-   internal dev-speak that tells a learner nothing — so the chip is DROPPED (Copy-appropriateness gate)
-   until a real category source exists, rather than leaking a code identifier into user copy. The eyebrow
-   is therefore a deferred frame reduction, matching the description/category deferral above. */
-
-/* Relative-time meta (Figma 6:57): mono ~10.5px in --text-faint, tracking +0.21px ≈ --ls-meta band. */
-.library-poster__when {
   font-family: var(--mono);
   font-size: var(--fs-micro);
   letter-spacing: var(--ls-meta);
   color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* The Figma `6:2` card eyebrow (node `6:41`, SUBJECT CATEGORY) and one-line description (node `6:47`) are
+   NOT rendered — neither has a data source (a single-lesson run's hub category is the placeholder
+   `'Lesson'`, and there is no description column). Filling them would leak the internal `interactionKind`
+   enum (svg/canvas/html — dev-speak) or fabricate copy, both copy-appropriateness defects, so they stay
+   deferred (show nothing > leak/fabricate) until a real subject-category source exists. The card still
+   echoes the frame's title-top / footer-bottom geometry via its fixed height + the bottom-pinned footer,
+   and the footer meta line (level · depth · time) IS filled from real data. */
 
 /* First-run prompt — never a bare blank grid (DESIGN.md — empty states are labeled, not void). A
    card-shaped panel matching the poster surface so the empty library still reads as the card wall. */

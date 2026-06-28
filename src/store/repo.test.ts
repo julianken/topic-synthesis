@@ -375,13 +375,15 @@ describe('getStepEvents (issue #61 — the live timeline read)', () => {
 // reach the card. (The render-backend `interactionKind` is no longer surfaced — it was an internal
 // identifier leaking onto the card eyebrow, dropped per the copy-appropriateness gate.)
 describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
-  // The card row shape the SQL `SELECT id, created_at, concept_slug, title, status` projects.
+  // The card row shape the SQL `SELECT id, created_at, concept_slug, title, status, settings_json`
+  // projects. settings_json is the request's saved Settings — its level + depth fill the card meta line.
   const cardRow = (over: Partial<Record<string, unknown>> = {}) => ({
     id: 'cur-1',
     created_at: new Date('2026-06-21T00:00:00.000Z'),
     concept_slug: 'fourier',
     title: 'Fourier',
     status: 'built',
+    settings_json: { level: 'intro', depth: 2, audience: 'curious' },
     ...over,
   });
 
@@ -412,6 +414,22 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
       expect(s).not.toContain('spec_json');
       expect(s).not.toContain('interactionKind');
     }
+  });
+
+  it('projects the meta fields (level + depth) from settings_json for the Figma 6:2 card meta line', async () => {
+    // level + depth are REAL request Settings (the card meta line "beginner · d2 · 3h ago"), read from the
+    // NOT-NULL settings_json JSONB. The SQL must SELECT settings_json (rode through DISTINCT ON on c.id).
+    const fp = fakePool([
+      {
+        match: 'FROM curriculum c',
+        rows: [cardRow({ settings_json: { level: 'advanced', depth: 4, audience: 'phd' } })],
+      },
+    ]);
+    const [card] = await listLessons('owner-1', fp.deps);
+    expect(card?.level).toBe('advanced');
+    expect(card?.depth).toBe(4);
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM curriculum c'));
+    expect(sql).toContain('settings_json');
   });
 
   it('historical sectioned row yields a valid card (spec shape is irrelevant — the card never reads it)', async () => {

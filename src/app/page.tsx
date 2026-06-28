@@ -3,7 +3,7 @@ import { getSessionIdentity } from './auth/require-session';
 import { listLessons } from '../store/repo';
 import { IntakeForm } from './intake-form';
 import { PosterMark } from './poster-mark';
-import { badgeClass, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
+import { badgeClass, metaLine, morphName, STATUS_ICON, STATUS_LABEL } from './library-card';
 
 // The library lists the signed-in owner's persisted lessons — Postgres data read per request, not at
 // build time (mirrors the reader route's `force-dynamic`).
@@ -26,16 +26,20 @@ export const dynamic = 'force-dynamic';
  * A SERVER component (the owner-scoped `listLessons` fetch must run behind the session gate, off the
  * client) with the `<IntakeForm>` client island embedded — mirroring `layout.tsx` server + `SessionNav`.
  *
- * FRAME-phase card fidelity (DESIGN.md §Components → Library): the thin `LessonCard` (TS-16) carries no
- * category, no description, and no level/depth meta, so this renders the Figma card's title + poster
- * wash + status badge + relative-time only — the per-category eyebrow/icon and the one-line description
- * have no data source. Reaching full `6:2` card fidelity is deferred to a TS-16 contract widening.
+ * Card fidelity to the Figma `6:2` poster (DESIGN.md §Components → Library): the card renders the wash,
+ * the serif title, and a bottom-pinned footer (status badge LEFT + the "beginner · d2 · 3h ago" meta
+ * RIGHT) at the frame's card height, so the title-top / footer-bottom rhythm matches the frame. The meta
+ * line is REAL data — `level` + `depth` come from the request's saved Settings (`metaLine`), the relative
+ * time from `createdAt`. The body is bottom-anchored so the footer pins to the card floor regardless of
+ * how the (deferred) eyebrow/description rows would have grown it.
  *
- * The Figma card eyebrow (`6:41`) holds a user-meaningful SUBJECT CATEGORY (BIOLOGY / MATHEMATICS / …).
- * The card deliberately renders NO eyebrow rather than fill that slot with the artifact's internal
- * `interactionKind` render-backend enum (`svg`/`canvas`/`html`) — that is dev-speak that tells a learner
- * nothing and leaks an internal representation onto a user surface, so it is dropped per the
- * copy-appropriateness gate (show nothing > show a code identifier). Same deferral as the description.
+ * Two of the frame's five rows stay deferred — they have NO data source, so filling them would fabricate:
+ * the Figma card eyebrow (`6:41`) holds a SUBJECT CATEGORY (BIOLOGY / MATHEMATICS / …), but a single-
+ * lesson run's hub category is the placeholder `'Lesson'`, not a subject; and there is no description
+ * column. The card deliberately renders NEITHER rather than fill them with the artifact's internal
+ * `interactionKind` render-backend enum (`svg`/`canvas`/`html`, dev-speak) or an invented sentence — show
+ * nothing > leak a code identifier or fabricate copy (copy-appropriateness gate). Full eyebrow/description
+ * fidelity is deferred to a subject-category data source; the footer + meta + frame geometry land now.
  */
 export default async function Library() {
   const identity = await getSessionIdentity();
@@ -53,7 +57,7 @@ export default async function Library() {
       {lessons.length > 0 ? (
         <ul className="library-grid">
           {lessons.map((lesson) => {
-            const when = relativeTime(lesson.createdAt);
+            const meta = metaLine(lesson.level, lesson.depth, lesson.createdAt);
             return (
               <li key={lesson.id} className="library-poster">
                 {/* Each card links CROSS-DOCUMENT to the reader via a PLAIN <a> anchor — deliberately
@@ -83,9 +87,7 @@ export default async function Library() {
                         </span>{' '}
                         {STATUS_LABEL[lesson.status]}
                       </span>
-                      <span className="library-poster__meta">
-                        {when ? <span className="library-poster__when">{when}</span> : null}
-                      </span>
+                      <span className="library-poster__meta">{meta}</span>
                     </span>
                   </span>
                 </a>

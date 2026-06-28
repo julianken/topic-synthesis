@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { contentHash, contentIdentityKey } from '../domain/identity';
-import { bucketize, type Settings } from '../domain/settings';
+import { bucketize, type Level, type Settings } from '../domain/settings';
 import type { PageStatus, SitemapHub, SitemapPage } from '../domain/sitemap';
 import { LESSON_BRIEF_SCHEMA_HASH, type PipelineResult, type TopicRequest } from '../domain/stages';
 import type { Stage, StageModel } from '../llm/models';
@@ -321,11 +321,13 @@ export async function getStepEvents(
  *  design — only the card fields, NOT the full tiered hub `getCurriculum` reads. `id` is the
  *  curriculum id (the card's `/curriculum/[id]` href target).
  *
- *  No `interactionKind`: the artifact's render-backend enum (`svg`/`canvas`/`html`) is an internal
- *  representation, not user copy. It was once projected here to fill the Figma card eyebrow, but that
- *  surfaced a code identifier onto a user surface (copy-appropriateness gate), so the eyebrow is dropped
- *  and the field with it — no remaining consumer. The eyebrow's real fill is a subject CATEGORY, which a
- *  TS-16 contract widening (a `concept_page.category` column) would add when it lands. */
+ *  Maps to the Figma `6:2` poster card footer-meta line ("beginner · d2 · 3h ago"): `level` + `depth`
+ *  come from `curriculum.settings_json` (the request's saved Settings — REAL data, never fabricated) and
+ *  the relative-time is derived from `createdAt`. The card's `level · depth` meta is the part of the
+ *  Figma card the data CAN fill; the per-category eyebrow + the one-line description are NOT projected
+ *  (no subject-category column, no description column — for a single-lesson run the hub `category` is the
+ *  placeholder `'Lesson'`, not BIOLOGY/MATHEMATICS/…), so those two frame rows stay deferred rather than
+ *  filled with a code identifier or a fabricated string (copy-appropriateness gate). */
 export interface LessonCard {
   /** The curriculum id — the card's href target, `/curriculum/[id]`. */
   id: string;
@@ -334,6 +336,10 @@ export interface LessonCard {
   /** The lesson title (the `concept_page.title` NOT NULL column, NOT JSONB). */
   title: string;
   status: PageStatus;
+  /** The request's level (`intro`/`intermediate`/`advanced`), from `curriculum.settings_json`. */
+  level: Level;
+  /** The request's depth (1..5), from `curriculum.settings_json`. */
+  depth: number;
   /** ISO string from `curriculum.created_at`, for newest-first ordering. */
   createdAt: string;
 }
@@ -371,16 +377,20 @@ export async function listLessons(
     concept_slug: string;
     title: string;
     status: PageStatus;
+    settings_json: Settings;
   }>(
     // ONE card per curriculum, newest-first. The inner DISTINCT ON (c.id) ... ORDER BY c.id, cp.ordinal
     // collapses each curriculum to its lowest-ordinal (representative) page — so a multi-page curriculum
     // (the RETAINED runPipeline path) emits ONE card, not N duplicates sharing one /curriculum/[id] href
     // (today every curriculum is single-page per ADR-0003, but the query enforces it regardless). The
     // outer query re-orders the representatives newest-first (DISTINCT ON forces ORDER BY c.id first).
-    `SELECT id, created_at, concept_slug, title, status
+    // settings_json is the request's saved Settings (NOT-NULL JSONB column) — its level + depth fill the
+    // Figma card meta line. It rides through DISTINCT ON on c.id (one settings per curriculum), so it
+    // can't fan a curriculum into duplicate cards.
+    `SELECT id, created_at, concept_slug, title, status, settings_json
        FROM (
          SELECT DISTINCT ON (c.id)
-                c.id, c.created_at, p.concept_slug, p.title, p.status
+                c.id, c.created_at, c.settings_json, p.concept_slug, p.title, p.status
            FROM curriculum c
            JOIN curriculum_page cp ON cp.curriculum_id = c.id
            JOIN concept_page p ON p.id = cp.page_id
@@ -395,6 +405,8 @@ export async function listLessons(
     slug: r.concept_slug,
     title: r.title,
     status: r.status,
+    level: r.settings_json.level,
+    depth: r.settings_json.depth,
     // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string (same as getStepEvents).
     createdAt: new Date(r.created_at).toISOString(),
   }));
