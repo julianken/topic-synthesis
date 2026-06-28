@@ -199,25 +199,28 @@ describe('generating-view.tsx — renders the compact progress pill, never a gra
   const VIEW = readFileSync(fileURLToPath(new URL('./generating-view.tsx', import.meta.url)), 'utf8');
   const RAIL = readFileSync(fileURLToPath(new URL('./stage-rail.ts', import.meta.url)), 'utf8');
 
-  it('renders the progress pill + the top stepper from the canonical stage list via deriveRail', () => {
+  it('renders the compact progress bar + the top stepper from the canonical stage list via deriveRail', () => {
     expect(VIEW).toContain('deriveRail');
-    // The Figma 1:2 compact horizontal progress pill + the top stage stepper (replacing the old
-    // vertical six-row rail). Both fold over the SAME `deriveRail` six-stage list.
-    expect(VIEW).toContain('className="genb__pill"');
-    expect(VIEW).toContain('className="genb__stepper"');
+    // The full-width column-table view (superseding the #154 side-rail) renders the SIX phases as the
+    // top STEPPER (the column headers) AND the compact bottom PROGRESS bar — both folding over the SAME
+    // `deriveRail` six-stage list.
+    expect(VIEW).toContain('className="gen-stepper"');
+    expect(VIEW).toContain('className="gen-progress__steps"');
   });
 
   it('introduces NO graph/gate/hub stage entry in the view or the rail module', () => {
     // The retired graph path must not appear as a pipeline-stage `name`/`label` on either surface. (A
     // `concept-drift-ok` note in stage-rail.ts explains the deliberate omission to a future reader.)
+    // The table's PHASES list is the six live stages — `graph` is omitted.
+    expect(VIEW).not.toMatch(/'plan',\s*'research',\s*'brief',\s*'spec',\s*'code',\s*'critic',\s*'graph'/);
     expect(VIEW).not.toMatch(/name:\s*'graph'/);
     expect(RAIL).not.toMatch(/name:\s*'(graph|gate|hub)'/);
   });
 
   it('conveys state by icon + text, not color alone (a per-state affordance map + the accessible word)', () => {
-    expect(VIEW).toContain('PILL_AFFORDANCE'); // the pill's per-state glyph + screen-reader word map
-    expect(VIEW).toContain('STATE_WORD'); // the stepper's per-state accessible word map
-    expect(VIEW).toContain('genb__sr'); // the visually-hidden accessible state word
+    expect(VIEW).toContain('CELL_AFFORDANCE'); // the node/stepper per-state glyph + screen-reader word map
+    expect(VIEW).toContain('SEG_AFFORDANCE'); // the progress segment per-state glyph + accessible word map
+    expect(VIEW).toContain('gen-sr'); // the visually-hidden accessible state word
   });
 });
 

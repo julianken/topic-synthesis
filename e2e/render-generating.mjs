@@ -1,7 +1,8 @@
-// One-off full-page render of the live-research GENERATING view (the B view — Figma 1:2) at both
-// DESIGN.md viewports, via the test-auth seam. NOT part of the suite (run by hand): reuses e2e/auth.ts's
-// seeded __session cookie + e2e/seed.ts's SEED_GENERATING_RUN_ID (a `run_owner`-stamped in-flight run
-// with no persisted curriculum) against a running standalone server (AUTH_PROVIDER=fake).
+// One-off full-page render of the live-research GENERATING view (the FULL-WIDTH column-table; SPEC in
+// .superpowers/generating-layout/) at both DESIGN.md viewports, via the test-auth seam. NOT part of the
+// suite (run by hand): reuses e2e/auth.ts's seeded __session cookie + e2e/seed.ts's
+// SEED_GENERATING_RUN_ID (a `run_owner`-stamped in-flight run with no persisted curriculum) against a
+// running standalone server (AUTH_PROVIDER=fake).
 //
 // TOPIC-BEARING (Figma 1:2's headline — the topic as the large H1 in --interactive): the captures drive
 // the CREATE-FORM path (the path that carries the typed topic), NOT the reader-route refresh path (which
@@ -109,13 +110,13 @@ try {
     await page.getByRole('button', { name: /generate/i }).click();
     // Wait for the topic header + the FIRST status poll to land the mid-run payload (POLL_MS=2500), not
     // the initial empty paint — the topic span + the populated count prove the create-form render filled.
-    await page.locator('.genb__topic').filter({ hasText: TOPIC }).waitFor({ timeout: 15000 });
+    await page.locator('.gen-topic__topic').filter({ hasText: TOPIC }).waitFor({ timeout: 15000 });
     await page.getByText('2 / 3 extracted').waitFor({ timeout: 15000 });
     await page.getByText('Where does a plant’s mass come from?').waitFor();
-    // Hide the live cells (the in-progress pill timer + the caption timer tick off the wall clock) so the
-    // clean render has no flicker and no mask — the rest is fixed fixture data. Injected AFTER load.
+    // Hide the live cells (the in-progress progress timer + the caption timer tick off the wall clock) so
+    // the clean render has no flicker and no mask — the rest is fixed fixture data. Injected AFTER load.
     await page.addStyleTag({
-      content: '.genb__seg--running .genb__seg-time,.genb__caption{visibility:hidden}',
+      content: '.gen-pstep--running .gen-pstep__time,.gen-progress__caption{visibility:hidden}',
     });
     await page.screenshot({ path: vp.out, fullPage: true, animations: 'disabled' });
     console.log(`wrote ${vp.out} (${vp.width}x${vp.height})`);

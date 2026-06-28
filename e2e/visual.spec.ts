@@ -120,10 +120,12 @@ test.describe('visual — library (authed)', () => {
 });
 
 test.describe('visual — generating (live-research, mid-run)', () => {
-  // The live-research GENERATING view (the B view — Figma 1:2): the research node-graph + the LIVE
-  // RESEARCH panel + the six-stage rail. Captured DETERMINISTICALLY by intercepting the status poll with
-  // a FIXED mid-run payload (e2e/generating-fixture.ts) — no live pipeline, no model spend. The seeded
-  // in-flight run id (e2e/seed.ts SEED_GENERATING_RUN_ID) has a `run_owner` stamp but NO persisted
+  // The live-research GENERATING view — the FULL-WIDTH, COLUMN-LOCKED TABLE (SPEC in
+  // .superpowers/generating-layout/, superseding the #154 side-rail): the six phase columns (Plan ·
+  // Research · Brief · Spec · Code · Critic) under the stepper headers, with the LIVE RESEARCH evidence
+  // relocated to a full-width band below the graph. Captured DETERMINISTICALLY by intercepting the status
+  // poll with a FIXED mid-run payload (e2e/generating-fixture.ts) — no live pipeline, no model spend. The
+  // seeded in-flight run id (e2e/seed.ts SEED_GENERATING_RUN_ID) has a `run_owner` stamp but NO persisted
   // curriculum, so page.tsx renders the generating branch for the owner (not a 404). DESIGN.md wins.
   //
   // TWO captures, because the SAME shared GeneratingView renders both entries with a different header
@@ -162,7 +164,7 @@ test.describe('visual — generating (live-research, mid-run)', () => {
     // line (both tick off the wall clock via a JS setInterval, which `animations: 'disabled'` can't
     // freeze), so a re-render at a different ms would flake the diff. Mask just those; everything else is
     // static fixture data.
-    const liveTimer = page.locator('.genb__seg--running .genb__seg-time, .genb__caption');
+    const liveTimer = page.locator('.gen-pstep--running .gen-pstep__time, .gen-progress__caption');
     await expect(page).toHaveScreenshot('generating.png', {
       fullPage: true,
       mask: [liveTimer],
@@ -218,11 +220,11 @@ test.describe('visual — generating (live-research, mid-run)', () => {
     // criterion the reader-route capture can't exercise). Then wait for the mid-run feed to land.
     const h1 = page.getByRole('heading', { level: 1 });
     await expect(h1).toContainText(/generating/i);
-    await expect(h1.locator('.genb__topic')).toHaveText('Photosynthesis');
+    await expect(h1.locator('.gen-topic__topic')).toHaveText('Photosynthesis');
     await expect(page.getByText('Where does a plant’s mass come from?')).toBeVisible();
     await expect(page.getByText(/2 \/ 3 extracted/)).toBeVisible();
 
-    const liveTimer = page.locator('.genb__seg--running .genb__seg-time, .genb__caption');
+    const liveTimer = page.locator('.gen-pstep--running .gen-pstep__time, .gen-progress__caption');
     await expect(page).toHaveScreenshot('generating-create.png', {
       fullPage: true,
       mask: [liveTimer],

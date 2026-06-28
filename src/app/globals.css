@@ -761,108 +761,131 @@ h1 {
   }
 }
 
-/* ── Live-research GENERATING view (the B view — Figma frame 1:2; live-research generating Stage 2) ───
-   The shared generating state, matching Figma 1:2 top-to-bottom: a TOP STAGE STEPPER (the six stages as
-   NAME/0N columns with style-coded under-bars) → a TOPIC HEADER (eyebrow → "Generating <topic>…" → a
-   "<level> · depth <n> · building one lesson" sub-line) → a research NODE-GRAPH (plan → questions →
-   brief DAG, nodes lighting as each question extracts) + a "LIVE RESEARCH · N/M extracted" panel (the
-   grounded findings + source hosts) → a COMPACT HORIZONTAL PROGRESS PILL (one bordered row of
-   `stage Xs glyph` segments + a single mono caption with the live timer) → a bottom solid/dashed/dotted
-   STATE LEGEND. Driven ENTIRELY by the owner-scoped status poll's `research` + `steps` (real data only —
-   research-graph.ts / stage-rail.ts). Palette from §0: `--pipeline` (the ran/✓ green), `--accent` (the
-   in-flight cyan), `--source-link` (grounded-source host), `--surface-ledger`/`--surface-divider` (the
-   frosted panel + rules). Motion is the §0 catalog only (the `rail-reveal` stagger, the `--tr-state`
-   primitive); reduced motion zeroes it. */
-.genb {
+/* ── Live-research GENERATING view — a FULL-WIDTH, COLUMN-LOCKED TABLE (the owner-approved, measured-sound
+   layout in .superpowers/generating-layout/; supersedes the prior side-rail B view #154). The shared
+   generating state, laid out TOP-TO-BOTTOM: a TOP CHROME band (wordmark + a live phase shimmer) → a TOPIC
+   HEADER (optional eyebrow → "Generating <topic>…" → optional settings sub-line) → the TABLE: a STEPPER
+   (the SIX column headers) over a column-locked PLANE of one cell per phase, with the Research column the
+   in-column FAN (fit-math capped, SPEC §2.3) and measured SVG edges (SPEC §3) → a FULL-WIDTH LIVE RESEARCH
+   band (the relocated evidence + the research-overflow sink, SPEC §6.B) → a compact PROGRESS bar (the #61
+   per-step timeline) → a bottom STATE LEGEND. Driven ENTIRELY by the owner-scoped status poll's `steps` +
+   `research` (real data only — research-graph.ts / stage-rail.ts). Palette from §0: --pipeline (ran/✓
+   green), --accent (in-flight cyan), --source-link (grounded-source host), --surface-ledger /
+   --surface-divider (the frosted band + rules). Motion is the §0 catalog only (the rail-reveal stagger +
+   the --tr-state primitive); reduced motion zeroes it.
+
+   COLUMN-LOCAL METRICS (NOT §0 tokens — component layout constants, the way the lesson workspace scopes
+   its panel internals; ADDITIVE-only, so NO §0 retoken / no manifest-copy edit / no serve.test.ts guard
+   trip). Every node placement derives from these — there are NO bare px in the layout logic. */
+.gen {
+  --gen-cols: 6; /* PHASE COUNT — the # of table columns = # of stepper headers (plan…critic; NO graph) */
+  --gen-col-gap: var(--sp-4); /* inter-column gutter (the shared table column gap) */
+  --gen-plane-h: 30rem; /* the graph plane height = the column height the fan must fit */
+  --gen-node-gap: var(--sp-4); /* vertical gap between stacked nodes within a column (the fan gap) */
+  --gen-node-min-h: 6.5rem; /* node height FLOOR (104px) = the MEASURED intrinsic height of a research
+                               node's full 2-line-title content (label + 2-line title + meta + gaps +
+                               padding) — so every node holds its full title (SPEC §2.3). */
+  --gen-node-max-h: 7rem; /* node height CEILING (112px) — above the floor (a clamp with min>max returns
+                             max) and aligned with --gen-node-single-h so research + spine read as one row. */
+  --gen-node-single-h: 7rem; /* FIXED single-node card height — same for every spine card so the spine
+                                reads as one uniform row (SPEC §2.3). */
+  --gen-col-pad: var(--sp-5); /* TOP+BOTTOM breathing room reserved inside every column so no stack ever
+                                 bleeds to the plane edges (the fit-math budgets against colH − 2·pad). */
+  --gen-bend: var(--sp-6); /* min bezier control-handle length so a zero-gap edge still curves */
+  --gen-research-card-min: 20rem; /* the band's auto-fill card minmax floor — a readable finding card */
+  --gen-research-rows: 2; /* visible card rows before the band scrolls (keeps progress in budget) */
+  --gen-research-card-h: 6.5rem; /* approx card height used to cap the band to ~--gen-research-rows */
+
   display: flex;
   flex-direction: column;
   gap: var(--sp-5);
 }
 
-/* ── Top stage stepper (Figma 1:2 stage columns + 66:* under-bars) ─────────────────────────────────────
-   The six pipeline stages as a row of NAME / 0N columns, each with a thin under-bar whose STYLE encodes
-   state (solid ran · dashed in progress · dotted pending), so the run's position reads by style + the
-   visually-hidden state word, never color alone (§Accessibility). It scrolls horizontally on a narrow
-   viewport rather than wrapping mid-row (the bar set stays one line, mirroring the frame). */
-.genb__stepper {
-  list-style: none;
-  margin: 0;
-  padding: var(--sp-2) 0 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: var(--sp-3);
-  overflow-x: auto;
-}
-
-.genb__step {
+/* ── Top chrome band: wordmark left, the live phase shimmer right ──────────────────────────────────────── */
+.gen-top {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--sp-1);
-  min-width: 4.5rem;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--sp-4);
 }
 
-.genb__step-name {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
+.gen-top__mark {
   font-weight: 600;
-  letter-spacing: var(--ls-eyebrow-wide);
-  text-transform: uppercase;
-  color: var(--text-faint);
+  letter-spacing: var(--ls-snug);
+  color: var(--text);
+}
+.gen-top__mark small {
+  display: block;
+  margin-top: var(--sp-1);
+  font-weight: 400;
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
 }
 
-.genb__step-ord {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-meta);
-  color: var(--text-faint);
+.gen-top__live {
+  text-align: right;
+  min-width: 0;
+}
+.gen-top__live b {
+  font-weight: 600;
+  font-size: var(--fs-body);
+  color: var(--interactive);
+}
+.gen-top__live small {
+  display: block;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
 }
 
-/* The under-bar — a thin rule whose BORDER STYLE carries state (solid ran · dashed in progress · dotted
-   pending), the same vocabulary as the graph nodes + the bottom legend. The state transition rides the
-   catalog --tr-state primitive (instant under reduced motion). */
-.genb__step-bar {
-  width: 2.25rem;
-  height: 0;
-  border-top: 1.5px dotted var(--faint);
-  transition: var(--tr-state);
+/* The live phase shimmer (transitions-dev §15 shimmer-text, rebound to §0 tokens — its sweep highlight
+   reuses §0 inks + the §0 --dur tiers; the global reduced-motion reset zeroes the loop). */
+.gen-shimmer {
+  position: relative;
+  display: inline-block;
+}
+.gen-shimmer::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 40%,
+    var(--text) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: 400% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: gen-shimmer 2200ms linear infinite;
+}
+@keyframes gen-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
 }
 
-.genb__step--done .genb__step-name {
-  color: var(--pipeline);
-}
-.genb__step--done .genb__step-bar {
-  border-top-style: solid;
-  border-top-color: var(--pipeline);
-}
-
-.genb__step--running .genb__step-name {
-  color: var(--accent);
-}
-.genb__step--running .genb__step-bar {
-  border-top-style: dashed;
-  border-top-color: var(--accent);
-}
-
-.genb__step--error .genb__step-name {
-  color: var(--status-error);
-}
-.genb__step--error .genb__step-bar {
-  border-top-style: solid;
-  border-top-color: var(--status-error);
-}
-
-.genb__head {
+/* ── Topic header ──────────────────────────────────────────────────────────────────────────────────────── */
+.gen-topic {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
 }
 
-/* The subject-category eyebrow (Figma 1:2 63:3 "BIOLOGY") — shown ONLY where a caller can truthfully
-   supply the category (it's classified at the run tail, not in the live poll, so it's omitted today on
-   every live path; never fabricated). Uppercase mono in --accent, the widest eyebrow tracking. */
-.genb__eyebrow {
+/* The subject-category eyebrow (Figma 63:3 "BIOLOGY") — shown ONLY where a caller can truthfully supply
+   it (classified at the run tail, omitted on every live path today; never fabricated). */
+.gen-topic__eyebrow {
   margin: 0;
   font-family: var(--mono);
   font-size: var(--fs-caption);
@@ -872,20 +895,18 @@ h1 {
   color: var(--accent);
 }
 
-.genb__title {
+.gen-topic__title {
   margin: 0;
 }
 
 /* The typed topic that morphs in via the `specimen-topic` shared element (create-form path) — the live
-   anchor of "what is being built", in --interactive. The reader-route path renders no topic span. */
-.genb__topic {
+   anchor of "what is being built". The reader-route refresh path renders no topic span. */
+.gen-topic__topic {
   color: var(--interactive);
 }
 
-/* The settings sub-line (Figma 1:2 63:5 "intermediate · depth 1 · building one lesson") — the run's
-   level + depth, shown ONLY where they're known (the create-form path); the reader-route refresh path
-   omits it (no settings pre-persist). Mono fine-print in --faint, mirroring the persisted reader meta. */
-.genb__settings {
+/* The settings sub-line (Figma 63:5) — shown ONLY where level + depth are known (create-form path). */
+.gen-topic__settings {
   margin: 0;
   font-family: var(--mono);
   font-size: var(--fs-caption);
@@ -894,131 +915,176 @@ h1 {
   color: var(--faint);
 }
 
-/* The graph + ledger sit side by side on desktop (graph wide, ledger fixed); they stack on mobile. */
-.genb__body {
-  display: grid;
-  grid-template-columns: 1fr;
+/* ── THE TABLE ─────────────────────────────────────────────────────────────────────────────────────────── */
+.gen-table {
+  display: flex;
+  flex-direction: column;
   gap: var(--sp-5);
-  align-items: start;
 }
 
-@media (min-width: 60rem) {
-  .genb__body {
-    grid-template-columns: minmax(0, 1fr) 26rem;
-  }
+/* THE STEPPER + THE PLANE'S NODE GRID share the IDENTICAL track set — the COLUMN LOCK (SPEC §2.1). A
+   header in grid-column i and a node cell in grid-column i are X-centered on the SAME track center, so a
+   node's x-center == its header's x-center BY CONSTRUCTION (no JS x-math). FULL WIDTH — the 6 equal 1fr
+   tracks divide the entire content width. */
+.gen-stepper,
+.gen-plane__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--gen-cols), 1fr);
+  column-gap: var(--gen-col-gap);
 }
 
-/* ── The research node-graph ─────────────────────────────────────────────────────────────────────────
-   A three-column flow (plan · research fan-out · brief) over an absolutely-positioned SVG edge layer of
-   curved connectors (Figma 1:2 graph overlay). The columns are the accessible content; the SVG is
-   decorative (aria-hidden). On mobile the columns stack and the edges hide (stacked nodes need no
-   crossing connectors — the per-node state still tells the whole story). */
-.genb__graph {
+.gen-stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gen-step {
+  text-align: center;
+  min-width: 0;
+}
+.gen-step__label {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+/* The under-bar — the Figma stage-state-bar; its color + weight is the current-phase indicator (paired
+   with the label brightness, never color alone). The state change rides the catalog --tr-state primitive. */
+.gen-step__bar {
+  height: 3px;
+  width: 3.5rem;
+  margin: var(--sp-2) auto 0;
+  border-radius: var(--r-pill);
+  background: var(--border);
+  transition: var(--tr-state);
+}
+.gen-step__count {
+  display: block;
+  margin-top: var(--sp-1);
+  min-height: 1em;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.gen-step[data-state='ran'] .gen-step__label {
+  color: var(--text);
+}
+.gen-step[data-state='ran'] .gen-step__bar {
+  background: var(--pipeline);
+}
+.gen-step[data-state='running'] .gen-step__label {
+  color: var(--accent);
+}
+.gen-step[data-state='running'] .gen-step__bar {
+  background: var(--accent);
+  height: 4px;
+}
+
+/* THE GRAPH PLANE — a position:relative coordinate plane whose box height is RESERVED (--gen-plane-h) so
+   nodes streaming in never shift the layout. contain:layout reserves it; container-type:size makes node
+   internals respond to the PLANE's width (container queries), not the viewport. */
+.gen-plane {
   position: relative;
+  height: var(--gen-plane-h);
+  container-type: size;
+  contain: layout;
 }
-
-.genb__edges {
+/* The SVG edge layer sits BENEATH the nodes (z-order) so node hit-targets win. */
+.gen-plane__edges {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  /* Hidden on mobile (the stacked single column has no crossing edges to draw). */
-  display: none;
+  z-index: 0;
 }
-
-@media (min-width: 48rem) {
-  .genb__edges {
-    display: block;
-  }
-}
-
-/* A curved edge — faint until its source node has run, then `--pipeline` (a settled, grounded link).
-   The state change rides the catalog's --tr-state primitive (instant under reduced motion). */
-.genb__edge {
+.gen-edge {
   fill: none;
   stroke: var(--surface-divider);
-  stroke-width: 0.5;
-  vector-effect: non-scaling-stroke;
+  stroke-width: 1.2;
+  stroke-dasharray: 3 4;
+  stroke-linecap: round;
   transition: var(--tr-state);
 }
-
-.genb__edge--active {
+.gen-edge--active {
   stroke: var(--pipeline);
+  stroke-width: 1.6;
+  stroke-dasharray: none;
+}
+/* The node grid is the SAME track set as the stepper → column lock. */
+.gen-plane__grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  height: 100%;
 }
 
-.genb__cols {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--sp-4);
-}
-
-@media (min-width: 48rem) {
-  .genb__cols {
-    grid-template-columns: 1fr 1fr 1fr;
-    align-items: center;
-    gap: var(--sp-5);
-  }
-}
-
-.genb__col {
+/* A COLUMN CELL — one per phase. A flex column with justify-content:center → a lone node sits dead-center;
+   a stack of N distributes symmetrically about the center. min-height:0 lets the fit-math cap node height.
+   padding-block reserves equal top+bottom breathing room so a stack can never bleed to the plane edges. */
+.gen-cell {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  min-width: 0;
+  justify-content: center;
+  align-items: stretch;
+  gap: var(--gen-node-gap);
+  min-height: 0;
+  height: 100%;
+  padding-block: var(--gen-col-pad);
 }
 
-.genb__col-empty {
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: var(--fs-caption);
-  list-style: none;
-}
-
-/* A graph node card (Figma 1:2 Node·*): a frosted box whose BORDER STYLE + color encodes state — solid
-   `--pipeline` ran, dashed `--accent` in-progress, dotted `--faint` pending, solid `--err` skipped — so
-   state reads by border + icon + text, never color alone (§Accessibility). */
-.gnode {
+/* A NODE — the table cell card. width = the 1fr column (column-locked); height = the fit-math var (CSS
+   falls back to the floor when --node-h is unset, pre-measure / SSR). contain:content stops a per-poll
+   restyle from cascading a reflow across the plane. */
+.gen-node {
+  height: var(--node-h, var(--gen-node-min-h));
   background: var(--surface-panel-strong);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--r-sm);
   padding: var(--sp-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto; /* [label] [title fills] [meta] — shared row set, table-aligned */
+  gap: var(--sp-1);
+  margin: 0;
+  overflow: hidden;
+  contain: content;
   transition: var(--tr-state);
   /* The node reveal as it first paints — the catalog's staggered enter (zeroed under reduced motion). */
   animation: rail-reveal var(--dur-base) var(--ease) both;
 }
-
-.gnode__eyebrow {
+.gen-node__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1);
   margin: 0;
   font-family: var(--mono);
   font-size: var(--fs-micro);
-  font-weight: 700;
   letter-spacing: var(--ls-eyebrow);
   text-transform: uppercase;
   color: var(--text-faint);
 }
-
-.gnode__icon {
+.gen-node__glyph {
   font-weight: 700;
 }
-
-.gnode__title {
+.gen-node__title {
+  /* container-query sizing: text scales to the PLANE, not the viewport. */
   margin: 0;
-  font-size: var(--fs-small);
+  font-size: clamp(0.72rem, 1.4cqw + 0.4rem, var(--fs-small));
   font-weight: 600;
-  color: var(--text);
   line-height: 1.3;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
-
-.gnode__detail {
+.gen-node__meta {
   margin: 0;
   font-family: var(--mono);
   font-size: var(--fs-micro);
@@ -1026,157 +1092,189 @@ h1 {
   color: var(--text-faint);
 }
 
-.gnode--done {
+/* State encoded by BORDER STYLE (the legend) + the glyph + the sr word — never color alone (§Accessibility). */
+.gen-node[data-state='ran'] {
+  border-style: solid;
   border-color: var(--pipeline);
 }
-.gnode--done .gnode__eyebrow {
+.gen-node[data-state='ran'] .gen-node__glyph {
   color: var(--pipeline);
 }
-
-.gnode--running {
+.gen-node[data-state='running'] {
   border-style: dashed;
   border-color: var(--accent);
 }
-.gnode--running .gnode__eyebrow,
-.gnode--running .gnode__detail {
+.gen-node[data-state='running'] .gen-node__glyph,
+.gen-node[data-state='running'] .gen-node__meta {
   color: var(--accent);
 }
-
-.gnode--pending {
+.gen-node[data-state='pending'] {
   border-style: dotted;
   border-color: var(--faint);
-  opacity: 0.75;
+  background: transparent;
+}
+.gen-node[data-state='pending'] .gen-node__title,
+.gen-node[data-state='pending'] .gen-node__meta {
+  color: var(--text-faint);
 }
 
-.gnode--error {
-  border-color: var(--status-error);
-}
-.gnode--error .gnode__eyebrow {
-  color: var(--status-error);
-}
-
-/* ── The LIVE RESEARCH ledger panel (Figma 1:2 node 65:2) ─────────────────────────────────────────────
-   A frosted panel: a pulse-dot + "LIVE RESEARCH" + an "N / M extracted" count, over the flattened
-   grounded findings (a ✓/⟳ claim + an em-dash source HOST in --source-link). Real data only. */
-.ledger {
-  background: var(--surface-ledger);
-  border: 1px solid var(--border);
-  border-radius: var(--r-card);
-  padding: var(--sp-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  min-width: 0;
+/* The per-column overflow chip (research overflow → "+K below" — re-pointed DOWN to the band). */
+.gen-overflow {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  background: transparent;
 }
 
-.ledger__head {
+/* ── THE RELOCATED LIVE-RESEARCH BAND (SPEC §6.B) — the EVIDENCE detail, a FULL-WIDTH band directly below
+   the plane (above progress). Purpose stays NON-REDUNDANT vs. the stepper (= phase progress) and the
+   columns (= phase structure): the band is the evidence (what was found + from where) AND the overflow
+   sink for research nodes beyond the column cap. ──────────────────────────────────────────────────────── */
+.gen-research {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-5);
+}
+.gen-research__head {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
 }
-
-/* The live pulse dot — a soft glow in --pipeline. The pulse animation is the only bespoke loop here; it
-   reuses the §0 --dur-slow tier and is zeroed under the global reduced-motion reset. */
-.ledger__pulse {
+/* The live pulse dot — a soft glow in --pipeline (reuses the §0 --dur-slow tier; zeroed under reduced
+   motion via the global reset). */
+.gen-research__pulse {
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: var(--r-pill);
   background: var(--pipeline);
   box-shadow: 0 0 6px var(--pipeline);
-  animation: ledger-pulse var(--dur-slow) var(--ease) infinite alternate;
+  animation: gen-pulse var(--dur-slow) var(--ease) infinite alternate;
 }
-
-@keyframes ledger-pulse {
+@keyframes gen-pulse {
   to {
     opacity: 0.45;
   }
 }
-
-.ledger__title {
+.gen-research__title {
   font-family: var(--mono);
   font-size: var(--fs-caption);
   font-weight: 700;
   letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
   color: var(--text);
 }
-
-.ledger__count {
+.gen-research__count {
   margin-left: auto;
   font-family: var(--mono);
   font-size: var(--fs-micro);
   letter-spacing: var(--ls-meta);
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-
-.ledger__list {
+/* The FULL-WIDTH auto-fill card grid — grows in 2D, wraps into bounded rows, never an unbounded scroll. */
+.gen-research__grid {
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
+  padding-right: var(--sp-1);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--gen-research-card-min), 1fr));
+  gap: var(--sp-4);
+  /* Bounded height: ~--gen-research-rows card rows; past that the band scrolls so the fixed-height plane
+     ABOVE never moves and progress/legend stay in budget. */
+  max-height: calc(var(--gen-research-rows) * var(--gen-research-card-h) + var(--sp-4));
+  overflow-y: auto;
 }
-
-/* Each finding row is divided by a fine rule (Figma 1:2 ledger dividers) and staggers in via the catalog
-   rail-reveal (zeroed under reduced motion). */
-.ledger__item {
-  padding: var(--sp-3) 0;
-  border-top: 1px solid var(--surface-divider);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
+.gen-finding {
+  background: var(--surface-ledger);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-2);
+  align-content: start;
+  /* The card landing — the catalog's staggered reveal (zeroed under reduced motion). */
   animation: rail-reveal var(--dur-base) var(--ease) both;
 }
-
-.ledger__item:first-child {
-  border-top: 0;
-  padding-top: var(--sp-1);
+.gen-finding__glyph {
+  font-weight: 700;
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  color: var(--pipeline);
 }
-
-.ledger__claim {
+.gen-finding--extracting .gen-finding__glyph {
+  color: var(--accent);
+}
+.gen-finding__claim {
   margin: 0;
   font-size: var(--fs-small);
   color: var(--text);
   line-height: 1.4;
 }
-
-/* The ✓ (done, --pipeline) / ⟳ (extracting, --accent) marker — state by icon + the row's source copy. */
-.ledger__mark {
-  font-weight: 700;
-  color: var(--pipeline);
-}
-
-.ledger__item--extracting .ledger__mark {
-  color: var(--accent);
-}
-
-.ledger__source {
-  margin: 0;
+.gen-finding__src {
+  margin: var(--sp-1) 0 0;
   font-family: var(--mono);
   font-size: var(--fs-micro);
   letter-spacing: var(--ls-meta);
   color: var(--source-link);
 }
-
-.ledger__empty {
-  margin: 0;
+/* A QUEUED card — an overflowed research question rehomed here from the column chip (dotted border, ○
+   glyph, the question text + a "queued" sublabel, carrying its R{n} mono label so it reads as a research
+   question even without column-position). */
+.gen-finding--queued {
+  border-style: dotted;
+  background: transparent;
+}
+.gen-finding--queued .gen-finding__glyph {
   color: var(--text-faint);
+}
+.gen-finding--queued .gen-finding__claim {
+  color: var(--text-muted);
+}
+.gen-finding__rlabel {
+  margin: 0 0 var(--sp-1);
   font-family: var(--mono);
-  font-size: var(--fs-caption);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.gen-finding__queued {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+}
+/* The empty / parked state — a single muted row, NOT a conspicuous void, shown when research has not
+   started (plan running, 0 findings). */
+.gen-research__parked {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-style: italic;
+  color: var(--text-faint);
+  padding: var(--sp-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
 }
 
-/* ── The compact horizontal progress pill under the graph (Figma 1:2 node 65:33) ──────────────────────
-   ONE bordered row of `stage Xs glyph` segments (dot-separated), then a single mono caption line naming
-   the in-progress stage with its live ticking timer. Carries the SAME per-step data the old vertical
-   six-row rail did, in the frame's compact horizontal form. */
-.genb__progress {
+/* ── THE BOTTOM PROGRESS BAR — the full 6-phase timeline (compact inline list + a live caption). Full
+   content width, but a compact list (not column-distributed) so it doesn't balloon with N. ─────────────── */
+.gen-progress {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-4);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
 }
-
-.genb__progress-label {
+.gen-progress__label {
   margin: 0;
   font-family: var(--mono);
   font-size: var(--fs-micro);
@@ -1185,85 +1283,53 @@ h1 {
   text-transform: uppercase;
   color: var(--text-faint);
 }
-
-/* The pill itself: a single bordered row that holds every stage segment inline, wrapping only if the
-   viewport is too narrow to fit the row (the frame keeps it one line on desktop). */
-.genb__pill {
+.gen-progress__steps {
   list-style: none;
   margin: 0;
-  padding: var(--sp-2) var(--sp-3);
+  padding: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0;
-  background: var(--surface-ledger);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  width: fit-content;
-  max-width: 100%;
   font-family: var(--mono);
   font-size: var(--fs-small);
 }
-
-/* One segment: `stage  Xs  glyph`, then the `·` separator (a sibling element) before the next. The stage
-   name + its tabular-mono timing + the state glyph sit on one baseline; tabular figures so the live
-   timer doesn't jitter as digits tick (§Typography). State by glyph + the visually-hidden word + color. */
-.genb__seg {
+.gen-pstep {
   display: inline-flex;
   align-items: baseline;
   gap: var(--sp-2);
   white-space: nowrap;
-}
-
-.genb__seg-name {
-  color: var(--text-muted);
-}
-
-.genb__seg-time {
   color: var(--text-faint);
+}
+.gen-pstep__time {
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-
-.genb__seg-glyph {
+.gen-pstep__glyph {
   font-weight: 700;
 }
-
-/* The dot separator between segments — the faintest ink, mirroring the frame's dimmed `·`. */
-.genb__seg-sep {
+.gen-pstep__sep {
   color: var(--faint);
   padding: 0 var(--sp-2);
 }
-
-.genb__seg--done .genb__seg-name {
+.gen-pstep--done {
   color: var(--text);
 }
-.genb__seg--done .genb__seg-glyph {
+.gen-pstep--done .gen-pstep__glyph {
   color: var(--pipeline);
 }
-
-.genb__seg--running .genb__seg-name {
+.gen-pstep--running {
   color: var(--text);
 }
-.genb__seg--running .genb__seg-time,
-.genb__seg--running .genb__seg-glyph {
+.gen-pstep--running .gen-pstep__time,
+.gen-pstep--running .gen-pstep__glyph {
   color: var(--accent);
 }
-
-.genb__seg--pending .genb__seg-name {
-  color: var(--text-faint);
-}
-.genb__seg--pending .genb__seg-glyph {
-  color: var(--faint);
-}
-
-.genb__seg--error .genb__seg-name,
-.genb__seg--error .genb__seg-glyph {
+.gen-pstep--error,
+.gen-pstep--error .gen-pstep__glyph {
   color: var(--status-error);
 }
-
-/* The single caption line under the pill — names the in-progress stage + its live elapsed timer
-   ("research · 11.4s and counting …"). Tabular-mono fine-print in --faint. */
-.genb__caption {
+.gen-progress__caption {
   margin: 0;
   font-family: var(--mono);
   font-size: var(--fs-micro);
@@ -1272,55 +1338,48 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── The bottom state legend (Figma 1:2 node 1:62) ─────────────────────────────────────────────────────
-   solid — ran · dashed — in progress · dotted — pending, each a short sample bar in the matching border
-   style: tells the reader how to read the graph nodes + the stepper under-bars BY STYLE. */
-.genb__legend {
+/* ── THE BOTTOM STATE LEGEND ───────────────────────────────────────────────────────────────────────────── */
+.gen-legend {
   margin: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
 }
-
-.genb__legend-row {
+.gen-legend__row {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
 }
-
-.genb__legend-bar {
+.gen-legend__bar {
   flex: none;
   width: 1.875rem;
   height: 0;
   border-top: 1.5px solid var(--text-muted);
 }
-.genb__legend-bar--solid {
+.gen-legend__bar--solid {
   border-top-style: solid;
 }
-.genb__legend-bar--dashed {
+.gen-legend__bar--dashed {
   border-top-style: dashed;
 }
-.genb__legend-bar--dotted {
+.gen-legend__bar--dotted {
   border-top-style: dotted;
 }
-
-.genb__legend-term {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
+.gen-legend__term {
   font-weight: 600;
   color: var(--text-muted);
 }
-
-.genb__legend-def {
+.gen-legend__def {
   margin: 0;
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
   color: var(--text-faint);
 }
 
-/* Visually-hidden state word for the graph nodes + the stepper/pill (state read by TEXT to assistive
-   tech, not icon/color alone — §Accessibility). Mirrors the prior .rail__state-sr. */
-.genb__sr {
+/* Visually-hidden state word for the nodes + the stepper/progress (state read by TEXT to assistive tech,
+   not icon/color alone — §Accessibility). */
+.gen-sr {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1332,10 +1391,63 @@ h1 {
   border: 0;
 }
 
-/* The reader-route generating wrapper widens to hold the graph + ledger side by side (the create-form
-   path reuses .generating-shell, which already provides its own column). */
+/* ── RESPONSIVE (SPEC §9) — at ≤60rem the table collapses to a single column: the stepper folds to a
+   vertical phase list; the plane becomes normal block flow (each phase a stacked block, all research
+   nodes shown, no cap); the SVG edge layer hides (stacked nodes need no crossing connectors); the
+   research band collapses to one card column with its max-height cap released. ─────────────────────────── */
+@media (max-width: 60rem) {
+  .gen-stepper {
+    grid-template-columns: 1fr;
+    row-gap: var(--sp-3);
+  }
+  .gen-step {
+    text-align: left;
+  }
+  .gen-step__bar {
+    margin-left: 0;
+  }
+  .gen-step__count {
+    display: inline;
+    margin-left: var(--sp-2);
+  }
+  .gen-plane {
+    height: auto;
+    container-type: normal;
+    contain: none;
+  }
+  .gen-plane__edges {
+    display: none;
+  }
+  .gen-plane__grid {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    height: auto;
+  }
+  .gen-cell {
+    height: auto;
+    min-height: 0;
+    gap: var(--sp-3);
+    padding-block: 0;
+  }
+  /* Release the hard fit-cap height on mobile — node grows to content in the vertical list. */
+  .gen-node {
+    height: auto;
+    min-height: var(--gen-node-min-h);
+  }
+  .gen-research__grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+/* The reader-route generating wrapper widens to the frame cap so the full-width column-table's six phase
+   columns divide the entire content width (SPEC §1) — the create-form path reuses .generating-shell, which
+   already provides its own column. */
 .wrap--gen {
-  max-width: 72rem;
+  max-width: var(--frame-max);
 }
 
 /* Status badge: a glyph + the text label (DESIGN.md — status by label + icon, never color alone). */
@@ -1808,14 +1920,14 @@ h1 {
 }
 
 /* The IN-PLACE generating shell (the submit handoff target on `/`). It hosts the SHARED live-research
-   generating view (the B view — Figma 1:2: the research node-graph + the LIVE RESEARCH panel + the rail),
-   so it widens to the same column the reader-route generating state uses (`.wrap--gen`) to hold the
-   graph + ledger side by side. The view renders its own header (+ the `specimen-topic` topic span that
-   the form's submit handoff morphs into). */
+   generating view (the full-width column-table: the phase stepper over a column-locked plane + the
+   full-width LIVE RESEARCH band below), so it widens to the frame cap (matching `.wrap--gen`) so the six
+   phase columns divide the full content width (SPEC §1). The view renders its own header (+ the
+   `specimen-topic` topic span that the form's submit handoff morphs into). */
 .generating-shell {
-  max-width: 72rem;
+  max-width: var(--frame-max);
   margin: 0 auto;
-  padding: var(--sp-6) 26px var(--sp-7);
+  padding: var(--sp-6) var(--edge-gap) var(--sp-7);
 }
 
 /* ── Typed-root View-Transition CSS (the create-form flow) ──────────────────────────────────────────
