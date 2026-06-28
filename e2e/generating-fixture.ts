@@ -74,3 +74,46 @@ export const GENERATING_STATUS_PAYLOAD = {
     },
   ],
 } as const;
+
+// ── A STRESS payload (N=8) for the geometry/measurement spec (generating-geometry.spec.ts) ──────────────
+// Same REAL shape as the N=3 payload, scaled to EIGHT research questions so the fit-math's OVERFLOW path
+// is exercised against the BUILT app: at 1440×900 the Research column caps at 3 visible @ the floor height
+// and the remaining 5 sink DOWN into the relocated band as queued cards (the "+5 below" chip). This is the
+// case the geometry spec measures — the four SPEC §10 guarantees (column-lock, research margins, spine
+// uniformity, edge anchors) must hold WITH the overflow chip reserved inside the column budget. The first
+// three rows are `done` (grounded findings), the rest `pending` — an honest mid-run fan-out, never
+// fabricated evidence (the pending rows contribute zero ledger findings, like the N=3 in-flight row).
+const STRESS_QUESTIONS: ReadonlyArray<{ q: string; sub: string; claim: string; host: string; title: string }> = [
+  { q: 'Where does a plant’s mass come from?', sub: 'Carbon source', claim: 'A tree’s mass comes mostly from CO₂ in the air, not the soil.', host: 'https://www.britannica.com/science/photosynthesis', title: 'Britannica' },
+  { q: 'Light reactions vs. the Calvin cycle?', sub: 'Two stages', claim: 'Photosynthesis splits water (H₂O) to release O₂.', host: 'https://www.nature.com/articles/photosynthesis', title: 'Nature' },
+  { q: 'Chlorophyll’s role in capturing light?', sub: 'Pigments', claim: 'Chlorophyll absorbs red and blue light, reflecting green.', host: 'https://www.khanacademy.org/science/biology', title: 'Khan Academy' },
+  { q: 'What limits the rate of photosynthesis?', sub: 'Rate limits', claim: '', host: '', title: '' },
+  { q: 'C3 vs C4 vs CAM pathways?', sub: 'Pathways', claim: '', host: '', title: '' },
+  { q: 'How is glucose stored and used?', sub: 'Storage', claim: '', host: '', title: '' },
+  { q: 'Photosynthesis vs cellular respiration?', sub: 'Contrast', claim: '', host: '', title: '' },
+  { q: 'The role of the thylakoid membrane?', sub: 'Structure', claim: '', host: '', title: '' },
+];
+
+export const GENERATING_STATUS_PAYLOAD_STRESS = {
+  ready: false,
+  steps: [
+    { name: 'plan', stepKey: 'plan:k', startedAt: T(0), finishedAt: T(2100), status: 'done' },
+    { name: 'research', stepKey: 'research:a', startedAt: T(2100), finishedAt: T(7400), status: 'done' },
+    { name: 'research', stepKey: 'research:b', startedAt: T(2100), finishedAt: T(9200), status: 'done' },
+    { name: 'research', stepKey: 'research:c', startedAt: T(2100), finishedAt: T(10500), status: 'done' },
+    { name: 'research', stepKey: 'research:d', startedAt: T(2100), finishedAt: null, status: 'running' },
+  ],
+  research: STRESS_QUESTIONS.map((r, i) => {
+    const done = i < 3;
+    return {
+      question: r.q,
+      subtopic: r.sub,
+      status: done ? 'done' : 'pending',
+      findings: done ? [{ claim: r.claim, url: r.host, title: r.title }] : [],
+      sources: done ? [{ url: r.host, title: r.title }] : [],
+      findingCount: done ? 1 : null,
+      startedAt: T(2100),
+      finishedAt: done ? T(7400 + i * 700) : null,
+    };
+  }),
+} as const;

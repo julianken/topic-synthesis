@@ -369,13 +369,48 @@ function PhaseTable({
     setEdgeBox({ width: planeRect.width, height: planeRect.height, paths: out });
   }, []);
 
+  // The monotonic token that makes a DEFERRED edge draw idempotent (SPEC §3.5): a newer render supersedes
+  // an older deferred draw, so a fast N-toggle can't paint a stale edge set onto a settled layout.
+  const edgeDrawToken = useRef(0);
+
   useLayoutEffect(() => {
-    drawEdges();
     const plane = planeRef.current;
-    if (!plane) return;
+    const gridEl = gridRef.current;
+    if (!plane || !gridEl) return;
+
+    // SETTLE GATE (SPEC §3.5 — the entrance-race fix). The `.gen-node` cards mount with the `rail-reveal`
+    // catalog animation (`translateY(var(--sp-1))` → 0 = a 4px displacement). A draw taken DURING that
+    // entrance reads the +4px-displaced rect and anchors every edge 4px off the node center (the measured
+    // edge-anchor regression the BUILT-app geometry spec catches). So draw ONLY once the nodes are at rest:
+    //   • a double-rAF after layout — under reduced motion the global guard zeroes the duration, so the
+    //     entrance has already committed its resting frame by the second rAF (this is the common path);
+    //   • each node's `rail-reveal` `animationend` (bubbling to the grid) — the authoritative settled
+    //     signal on the animated path; the final redraw reflects all-settled geometry, the token guards a
+    //     stale one, and the double-rAF is the bounded fallback if an `animationend` is dropped.
+    // A token makes the deferred draw idempotent against a fast re-render (SPEC §3.5).
+    const myToken = ++edgeDrawToken.current;
+    const run = (): void => {
+      if (myToken === edgeDrawToken.current) drawEdges();
+    };
+
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(run);
+    });
+    const onAnimEnd = (e: AnimationEvent): void => {
+      if (e.animationName === 'rail-reveal') run();
+    };
+    gridEl.addEventListener('animationend', onAnimEnd);
+
     const ro = new ResizeObserver(() => drawEdges());
     ro.observe(plane);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      gridEl.removeEventListener('animationend', onAnimEnd);
+      ro.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- edgeKey + the measured heights gate redraws; drawEdges is stable.
   }, [drawEdges, edgeKey, fit.nodeH, fit.visible, singleH]);
 
@@ -412,7 +447,12 @@ function PhaseTable({
           aria-hidden="true"
         >
           {edgeBox.paths.map((e) => (
-            <path key={e.id} className={`gen-edge${e.active ? ' gen-edge--active' : ''}`} d={e.d} />
+            <path
+              key={e.id}
+              data-edge={e.id}
+              className={`gen-edge${e.active ? ' gen-edge--active' : ''}`}
+              d={e.d}
+            />
           ))}
         </svg>
 
