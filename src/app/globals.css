@@ -746,3 +746,138 @@ h1 {
   color: var(--text-faint);
   cursor: default;
 }
+
+/* ── Sign in (DESIGN.md §Components → "Sign in"; Figma frame 5:2 / card 5:5) ───────────────────────
+   A viewport-centered ~380px card on the §0 radial-glow background. SCOPED to `.signin*` so the rebuilt
+   sign-in chrome doesn't leak its look onto the library / curriculum routes (which keep the shared
+   `.wrap`/`h1`/`.lead`/`.btn`). Colors resolve to §0 tokens 1:1 (OKLCH-verified equal to the Figma hexes):
+   ✦/synthesis #00dbfe → --accent · badge border #35afc9 → --accent-dim · topic· #ebeff4 → --text
+   (fog-100) · H1/button-bg #f5f9fc → --fog-50 · lead #a4acb4 → --text-muted (fog-450) · footer #889099
+   → --text-faint (fog-550) · button text #141b24 → --ink-950 (darkest ink on the near-white pill). The
+   handful of font-size / line-height / tracking literals below are sign-in-specific values that map to NO
+   §0 token (e.g. the 27px serif title sits between --fs-title 25.5 and --fs-h1 30), so they are written
+   inline rather than duplicating a token — the §0-only rule forbids re-stating a token's value, not
+   carrying a one-off size the scale doesn't define. */
+.signin {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-bg);
+  padding: var(--sp-5);
+}
+
+.signin__card {
+  max-width: 380px;
+  width: 100%;
+  padding: 24px; /* Figma 5:5 — equals --sp-5 (24px ≠ a rem token step), kept literal to match the frame */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* ✦ icon badge (Figma 5:6/5:7): 54×54, 0.8px --accent-dim outline, rounded 15px. The mark is the inlined
+   <SparkleMark/> SVG (sparkle.tsx) — NOT the "✦" character, which isn't in Inter and fell back to a
+   per-platform system glyph that mis-sized/mis-positioned vs. Figma and drifted dev↔Cloud Run. `color:
+   var(--accent)` drives the SVG's `currentColor` so the cyan still resolves to the §0 token (no hardcode). */
+.signin__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border: 0.8px solid var(--accent-dim);
+  border-radius: 15px;
+  color: var(--accent);
+}
+
+/* Two-tone wordmark (Figma 5:10): Inter SemiBold "topic·" in --text + Inter Black "synthesis" in --accent,
+   17px (= --fs-body), tracking -0.17px ≈ -0.01em (= --ls-display). */
+.signin__wordmark {
+  margin-top: 22px;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: var(--fs-body);
+  line-height: 25.5px;
+  letter-spacing: var(--ls-display);
+  color: var(--text);
+}
+
+.signin__wordmark-accent {
+  font-weight: 900;
+  color: var(--accent);
+}
+
+/* Serif H1 (Figma 5:13): Iowan Old Style Semi Bold (the --serif stack), 27px, tracking -0.405px ≈
+   -0.015em (= --ls-display-tight), in --fog-50. */
+.signin__title {
+  margin: 18px 0 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 27px;
+  line-height: 40.5px;
+  letter-spacing: var(--ls-display-tight);
+  color: var(--fog-50);
+}
+
+/* Lead copy (Figma 5:16): Inter Regular 14px (= --fs-small), line-height 21.7px ≈ 1.55 (= --lh-gloss),
+   constrained to 300px, in --text-muted. */
+.signin__lead {
+  margin-top: 11px;
+  max-width: 300px;
+  font-family: var(--sans);
+  font-size: var(--fs-small);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+
+/* Near-white Google pill (Figma 5:18/5:24): --fog-50 bg, 332px wide (= 380 card − 2×24 pad), 13px pad,
+   rounded 10px (= --r-md), gap 11px; label Inter SemiBold 14.5px in --ink-950 (the darkest ink on the
+   light surface). The 4-color Google G is the inlined <GoogleG/> SVG, never a remote asset. */
+.signin__google {
+  margin-top: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  width: 100%;
+  max-width: 332px;
+  padding: 13px;
+  background: var(--fog-50);
+  color: var(--ink-950);
+  border: none;
+  border-radius: var(--r-md);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14.5px;
+  line-height: 1;
+  cursor: pointer;
+  /* TS-24: the chrome's primary-button motion — the catalog's background primitive (@ --dur-fast/--ease). */
+  transition: var(--tr-bg);
+}
+
+.signin__google:hover {
+  background: var(--fog-100);
+}
+
+.signin__google:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Re-skinned error / rejected-allowlist state (DESIGN.md §Sign-in: "branded states for a rejected /
+   non-allowlisted account"). Centered under the button, in --status-error so a rejection reads as an
+   error, not the soon/amber the old shared .intake__error used. */
+.signin__error {
+  margin-top: var(--sp-3);
+  max-width: 332px;
+  color: var(--status-error);
+  font-size: var(--fs-small);
+}
+
+.signin__google:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}

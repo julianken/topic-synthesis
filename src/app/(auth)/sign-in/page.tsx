@@ -3,12 +3,16 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { signInWithGoogle } from '../../auth/client';
+import { GoogleG } from './google-g';
+import { SparkleMark } from './sparkle';
 
 export default function SignIn() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auth flow (verbatim — DESIGN.md §Sign-in: the Google consent popup is the one external surface):
+  // signInWithGoogle() → POST /api/auth/session (mints the httpOnly session cookie) → router.push('/').
   async function go() {
     if (busy) return;
     setBusy(true);
@@ -34,21 +38,33 @@ export default function SignIn() {
   }
 
   return (
-    <main className="wrap">
-      <p className="eyebrow">Topic Synthesis</p>
-      <h1>Sign in</h1>
-      <p className="lead">
-        This is a private, invite-only preview. Sign in with the Google account on the allowlist to
-        generate and view lessons.
-      </p>
-      <button className="btn" onClick={() => void go()} disabled={busy}>
-        {busy ? 'Signing in…' : 'Continue with Google'}
-      </button>
-      {error ? (
-        <p className="intake__error" role="alert">
-          {error}
+    <main className="signin">
+      <div className="signin__card">
+        <div className="signin__badge" aria-hidden="true">
+          <SparkleMark />
+        </div>
+        <p className="signin__wordmark">
+          topic·<span className="signin__wordmark-accent">synthesis</span>
         </p>
-      ) : null}
+        <h1 className="signin__title">Sign in to your lessons</h1>
+        <p className="signin__lead">
+          Generate interactive, source-grounded lessons from any topic. Private to your account.
+        </p>
+        <button
+          type="button"
+          className="signin__google"
+          onClick={() => void go()}
+          disabled={busy}
+        >
+          <GoogleG />
+          {busy ? 'Signing in…' : 'Continue with Google'}
+        </button>
+        {error ? (
+          <p className="signin__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
     </main>
   );
 }
