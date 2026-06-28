@@ -881,6 +881,350 @@ h1 {
   border: 0;
 }
 
+/* ── Live-research GENERATING view (the B view — Figma frame 1:2; live-research generating Stage 2) ───
+   The shared generating state: a "Generating <topic>…" header over a research NODE-GRAPH (plan →
+   questions → brief DAG, nodes lighting as each question extracts) + a "LIVE RESEARCH · N/M extracted"
+   panel (the grounded findings + source hosts), then the fixed six-stage rail. Driven ENTIRELY by the
+   owner-scoped status poll's `research` + `steps` (real data only — research-graph.ts / stage-rail.ts).
+   Palette from §0: `--pipeline` (the ran/✓ green), `--accent` (the in-flight cyan), `--source-link`
+   (grounded-source host), `--surface-ledger`/`--surface-divider` (the frosted panel + rules). Motion is
+   the §0 catalog only (the `rail-reveal` stagger, the `--tr-state` primitive); reduced motion zeroes it. */
+.genb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.genb__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.genb__title {
+  margin: 0;
+}
+
+/* The typed topic that morphs in via the `specimen-topic` shared element (create-form path) — the live
+   anchor of "what is being built", in --interactive. The reader-route path renders no topic span. */
+.genb__topic {
+  color: var(--interactive);
+}
+
+/* The graph + ledger sit side by side on desktop (graph wide, ledger fixed); they stack on mobile. */
+.genb__body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+@media (min-width: 60rem) {
+  .genb__body {
+    grid-template-columns: minmax(0, 1fr) 26rem;
+  }
+}
+
+/* ── The research node-graph ─────────────────────────────────────────────────────────────────────────
+   A three-column flow (plan · research fan-out · brief) over an absolutely-positioned SVG edge layer of
+   curved connectors (Figma 1:2 graph overlay). The columns are the accessible content; the SVG is
+   decorative (aria-hidden). On mobile the columns stack and the edges hide (stacked nodes need no
+   crossing connectors — the per-node state still tells the whole story). */
+.genb__graph {
+  position: relative;
+}
+
+.genb__edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* Hidden on mobile (the stacked single column has no crossing edges to draw). */
+  display: none;
+}
+
+@media (min-width: 48rem) {
+  .genb__edges {
+    display: block;
+  }
+}
+
+/* A curved edge — faint until its source node has run, then `--pipeline` (a settled, grounded link).
+   The state change rides the catalog's --tr-state primitive (instant under reduced motion). */
+.genb__edge {
+  fill: none;
+  stroke: var(--surface-divider);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+  transition: var(--tr-state);
+}
+
+.genb__edge--active {
+  stroke: var(--pipeline);
+}
+
+.genb__cols {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-4);
+}
+
+@media (min-width: 48rem) {
+  .genb__cols {
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: center;
+    gap: var(--sp-5);
+  }
+}
+
+.genb__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.genb__col-empty {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  list-style: none;
+}
+
+/* A graph node card (Figma 1:2 Node·*): a frosted box whose BORDER STYLE + color encodes state — solid
+   `--pipeline` ran, dashed `--accent` in-progress, dotted `--faint` pending, solid `--err` skipped — so
+   state reads by border + icon + text, never color alone (§Accessibility). */
+.gnode {
+  background: var(--surface-panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  transition: var(--tr-state);
+  /* The node reveal as it first paints — the catalog's staggered enter (zeroed under reduced motion). */
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+}
+
+.gnode__eyebrow {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.gnode__icon {
+  font-weight: 700;
+}
+
+.gnode__title {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.gnode__detail {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+}
+
+.gnode--done {
+  border-color: var(--pipeline);
+}
+.gnode--done .gnode__eyebrow {
+  color: var(--pipeline);
+}
+
+.gnode--running {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.gnode--running .gnode__eyebrow,
+.gnode--running .gnode__detail {
+  color: var(--accent);
+}
+
+.gnode--pending {
+  border-style: dotted;
+  border-color: var(--faint);
+  opacity: 0.75;
+}
+
+.gnode--error {
+  border-color: var(--status-error);
+}
+.gnode--error .gnode__eyebrow {
+  color: var(--status-error);
+}
+
+/* ── The LIVE RESEARCH ledger panel (Figma 1:2 node 65:2) ─────────────────────────────────────────────
+   A frosted panel: a pulse-dot + "LIVE RESEARCH" + an "N / M extracted" count, over the flattened
+   grounded findings (a ✓/⟳ claim + an em-dash source HOST in --source-link). Real data only. */
+.ledger {
+  background: var(--surface-ledger);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.ledger__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* The live pulse dot — a soft glow in --pipeline. The pulse animation is the only bespoke loop here; it
+   reuses the §0 --dur-slow tier and is zeroed under the global reduced-motion reset. */
+.ledger__pulse {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--pipeline);
+  box-shadow: 0 0 6px var(--pipeline);
+  animation: ledger-pulse var(--dur-slow) var(--ease) infinite alternate;
+}
+
+@keyframes ledger-pulse {
+  to {
+    opacity: 0.45;
+  }
+}
+
+.ledger__title {
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text);
+}
+
+.ledger__count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each finding row is divided by a fine rule (Figma 1:2 ledger dividers) and staggers in via the catalog
+   rail-reveal (zeroed under reduced motion). */
+.ledger__item {
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--surface-divider);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+}
+
+.ledger__item:first-child {
+  border-top: 0;
+  padding-top: var(--sp-1);
+}
+
+.ledger__claim {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+/* The ✓ (done, --pipeline) / ⟳ (extracting, --accent) marker — state by icon + the row's source copy. */
+.ledger__mark {
+  font-weight: 700;
+  color: var(--pipeline);
+}
+
+.ledger__item--extracting .ledger__mark {
+  color: var(--accent);
+}
+
+.ledger__source {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--source-link);
+}
+
+.ledger__empty {
+  margin: 0;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+}
+
+/* ── The pipeline rail wrapper under the graph (the retained TS-23 six-stage ledger) ──────────────────── */
+.genb__rail-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.genb__rail-label {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The rail inside the generating-B view sits directly under its PIPELINE PROGRESS label (no extra top
+   margin — the .rail default margin-top is for the standalone reader use). */
+.genb__rail-wrap .rail {
+  margin-top: var(--sp-3);
+}
+
+/* Visually-hidden state word for the graph nodes (state read by TEXT to assistive tech, not icon/color
+   alone — §Accessibility). Mirrors .rail__state-sr. */
+.genb__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The reader-route generating wrapper widens to hold the graph + ledger side by side (the create-form
+   path reuses .generating-shell, which already provides its own column). */
+.wrap--gen {
+  max-width: 72rem;
+}
+
 /* Status badge: a glyph + the text label (DESIGN.md — status by label + icon, never color alone). */
 .badge__icon {
   font-weight: 700;
@@ -1350,21 +1694,15 @@ h1 {
   font-size: var(--fs-caption);
 }
 
-/* The IN-PLACE generating shell (the submit handoff target on `/`). A bounded reading column matching the
-   chrome's .wrap width so the rail + spinner read like the reader route's generating state — it reuses
-   the shipped `.eyebrow` / `h1` / `.lead` / `.rail` / `.generating` styles, adding only its own column +
-   the `specimen-topic` topic accent. */
+/* The IN-PLACE generating shell (the submit handoff target on `/`). It hosts the SHARED live-research
+   generating view (the B view — Figma 1:2: the research node-graph + the LIVE RESEARCH panel + the rail),
+   so it widens to the same column the reader-route generating state uses (`.wrap--gen`) to hold the
+   graph + ledger side by side. The view renders its own header (+ the `specimen-topic` topic span that
+   the form's submit handoff morphs into). */
 .generating-shell {
-  max-width: 48rem;
+  max-width: 72rem;
   margin: 0 auto;
   padding: var(--sp-6) 26px var(--sp-7);
-}
-
-/* The topic text the form's `specimen-topic` shared element morphs INTO — colored --interactive so the
-   user's typed topic reads as the live anchor of "what is being built". Set as the NEW-side endpoint name
-   inline in the TSX. */
-.generating-shell__topic {
-  color: var(--interactive);
 }
 
 /* ── Typed-root View-Transition CSS (the create-form flow) ──────────────────────────────────────────

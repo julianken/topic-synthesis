@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
-import { SEED_RUN_ID } from './seed';
+import { SEED_GENERATING_RUN_ID, SEED_RUN_ID } from './seed';
+import { GENERATING_STATUS_PAYLOAD } from './generating-fixture';
 
 // visual.spec — per-screen full-page VISUAL snapshots at the two DESIGN.md viewports (390×844 mobile +
 // 1440×900 desktop, set per-project in playwright.config.ts), under FORCED reduced motion (config
@@ -115,5 +116,49 @@ test.describe('visual — library (authed)', () => {
     // Cancel collapses the form back to the +New card (the morph in reverse).
     await intake.getByRole('button', { name: /cancel/i }).click();
     await expect(page.getByRole('button', { name: /new lesson/i })).toBeVisible();
+  });
+});
+
+test.describe('visual — generating (live-research, mid-run)', () => {
+  // The live-research GENERATING view (the B view — Figma 1:2): the research node-graph + the LIVE
+  // RESEARCH panel + the six-stage rail. Captured DETERMINISTICALLY by intercepting the status poll with
+  // a FIXED mid-run payload (e2e/generating-fixture.ts) — no live pipeline, no model spend. The seeded
+  // in-flight run id (e2e/seed.ts SEED_GENERATING_RUN_ID) has a `run_owner` stamp but NO persisted
+  // curriculum, so page.tsx renders the generating branch for the owner (not a 404). DESIGN.md wins.
+
+  test('the live-research generating view matches the committed baseline', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+
+    // Intercept the owner-scoped status poll for the seeded in-flight run, returning the fixed mid-run
+    // research+steps payload (REAL-shaped: plan done, two questions answered, one extracting, brief
+    // forming). This is the SAME contract the route serves — only the data is pinned for determinism.
+    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD }),
+      });
+    });
+
+    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    // The view renders its own "Generating…" heading + the live-research surfaces.
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
+    // The node-graph carries the real research questions; the panel carries the grounded findings.
+    await expect(page.getByText('Where does a plant’s mass come from?')).toBeVisible();
+    await expect(page.getByText('LIVE RESEARCH')).toBeVisible();
+    await expect(page.getByText(/2 \/ 3 extracted/)).toBeVisible();
+
+    // Mask the one live cell: the in-progress `research` rail timer ticks off the wall clock (a JS
+    // setInterval, which `animations: 'disabled'` can't freeze), so a re-render at a different ms would
+    // flake the diff. Mask just that cell; every other surface is static fixture data.
+    const liveTimer = page.locator('.rail__stage--running .rail__time');
+    await expect(page).toHaveScreenshot('generating.png', {
+      fullPage: true,
+      mask: [liveTimer],
+    });
   });
 });

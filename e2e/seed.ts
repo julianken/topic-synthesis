@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import type { PipelineResult, TopicRequest } from '../src/domain/stages';
 import { STAGE_MODELS } from '../src/llm/models';
-import { persistRun } from '../src/store/repo';
+import { persistRun, recordRunOwner } from '../src/store/repo';
 
 // e2e/seed — a DETERMINISTIC owned lesson for the library VISUAL baseline. The library card grid is
 // owner-scoped over a SHARED Postgres, so a full-grid capture is otherwise non-deterministic (count,
@@ -18,6 +18,12 @@ const E2E_OWNER_SUB = 'e2e-owner-sub';
 
 /** A FIXED curriculum/run id so a reseed is idempotent (persistRun is ON CONFLICT DO NOTHING). */
 export const SEED_RUN_ID = 'e2e-seed-photosynthesis';
+
+/** A FIXED IN-FLIGHT run id (owned by the e2e owner, NO persisted curriculum) so the reader route shows
+ *  the live-research GENERATING view (Figma 1:2) deterministically. The visual spec intercepts the status
+ *  poll for THIS id and returns a stable mid-run research+steps payload, so the captured graph + ledger
+ *  are byte-stable. `ownsRun(id)` must be TRUE for page.tsx to render the generating branch (vs a 404). */
+export const SEED_GENERATING_RUN_ID = 'e2e-seed-generating-run';
 
 const SEED_REQUEST: TopicRequest = {
   topic: 'Photosynthesis',
@@ -80,6 +86,13 @@ export async function seedDenseLibraryCard(): Promise<void> {
       },
       { pool },
     );
+
+    // Stamp the IN-FLIGHT run owner (NO curriculum persisted for this id) so the reader route's
+    // generating branch renders for the visual spec. getCurriculum(this id) stays null → page.tsx shows
+    // the live-research generating view; ownsRun(this id) is true → it's the generating branch, not a 404.
+    // The mid-run research/steps data comes from the spec's status-poll interception (deterministic),
+    // not the DB, so no research_event/step_event rows are seeded here.
+    await recordRunOwner(SEED_GENERATING_RUN_ID, E2E_OWNER_SUB, { pool });
   } finally {
     await pool.end();
   }

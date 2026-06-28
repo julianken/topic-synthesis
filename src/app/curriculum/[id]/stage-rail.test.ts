@@ -190,19 +190,22 @@ describe('formatDuration — compact ledger durations', () => {
 // ── AC2 (markup) — the generating view renders no graph rail position, by label or name ──────────────
 // The `.tsx` view can't mount in vitest's `environment: 'node'` (no DOM — the constraint
 // `lesson-message.test.ts` / `page.test.ts` note), so this is a SOURCE byte-pin: it asserts the rail
-// vocabulary present in the view and the absence of any graph/gate/hub stage entry.
-describe('generating.tsx — renders the stage rail, never a graph stage (TS-23 AC2)', () => {
-  const VIEW = readFileSync(fileURLToPath(new URL('./generating.tsx', import.meta.url)), 'utf8');
+// vocabulary present in the SHARED view (`generating-view.tsx`, the B live-research view — both the
+// reader-route poller and the create-form shell render it, so there is ONE rail surface) and the
+// absence of any graph/gate/hub PIPELINE-STAGE entry. (The B view's research NODE-GRAPH is a research
+// DAG over the real `research` feed — NOT a pipeline `graph` stage; the pin below targets the stage
+// vocabulary, `name: 'graph'`, which never appears.)
+describe('generating-view.tsx — renders the stage rail, never a graph stage (TS-23 AC2)', () => {
+  const VIEW = readFileSync(fileURLToPath(new URL('./generating-view.tsx', import.meta.url)), 'utf8');
   const RAIL = readFileSync(fileURLToPath(new URL('./stage-rail.ts', import.meta.url)), 'utf8');
 
-  it('renders the rail from the canonical STAGE_RAIL via deriveRail', () => {
+  it('renders the rail from the canonical stage list via deriveRail', () => {
     expect(VIEW).toContain('deriveRail');
-    expect(VIEW).toContain('STAGE_RAIL');
     expect(VIEW).toContain('className="rail"');
   });
 
   it('introduces NO graph/gate/hub stage entry in the view or the rail module', () => {
-    // The retired graph path must not appear as a stage `name`/`label` on either surface. (A
+    // The retired graph path must not appear as a pipeline-stage `name`/`label` on either surface. (A
     // `concept-drift-ok` note in stage-rail.ts explains the deliberate omission to a future reader.)
     expect(VIEW).not.toMatch(/name:\s*'graph'/);
     expect(RAIL).not.toMatch(/name:\s*'(graph|gate|hub)'/);

@@ -20,11 +20,12 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   // writes the lesson row atomically on completion); a foreign/absent id is a uniform 404 (no oracle).
   if (!view) {
     if (!(await ownsRun(id, identity.sub))) notFound();
+    // The SHARED live-research generating view (the B view — Figma 1:2) renders its own header + the
+    // research node-graph + the LIVE RESEARCH panel + the rail, driven by the status poll. No topic is
+    // available pre-persist on this reader-route path (the run isn't persisted; run_owner carries no
+    // topic), so the view degrades to a bare "Generating…" header — honest, never fabricated.
     return (
-      <main className="wrap">
-        <p className="eyebrow">Lesson</p>
-        <h1>Generating…</h1>
-        <p className="lead">Researching and building your lesson. This usually takes a minute or two.</p>
+      <main className="wrap wrap--gen">
         <GeneratingPoller id={id} />
       </main>
     );
