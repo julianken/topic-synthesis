@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   badgeClass,
+  cardDescription,
+  categoryEyebrow,
   LEVEL_LABEL,
   metaLine,
   morphName,
@@ -83,5 +85,52 @@ describe('library-card — the Figma 6:2 card meta line (level · depth · time)
   it('drops a blank relative-time so the line never trails a dangling separator', () => {
     // an unparseable createdAt → relativeTime '' → the line ends at the depth, no trailing " · "
     expect(metaLine('intro', 1, 'not-a-date', now)).toBe('beginner · d1');
+  });
+});
+
+describe('library-card — categoryEyebrow, the dense-card subject eyebrow (Figma 6:41, read-side gate)', () => {
+  it('uppercases a real subject label for the eyebrow', () => {
+    expect(categoryEyebrow('Biology')).toBe('BIOLOGY');
+    expect(categoryEyebrow('computer science')).toBe('COMPUTER SCIENCE');
+  });
+
+  it('omits (null) for a null/blank/old-row value — the card shows no eyebrow, no empty band', () => {
+    expect(categoryEyebrow(null)).toBeNull();
+    expect(categoryEyebrow(undefined)).toBeNull();
+    expect(categoryEyebrow('')).toBeNull();
+    expect(categoryEyebrow('   ')).toBeNull();
+  });
+
+  it('NEVER leaks an internal/render-backend identifier even from a hand-edited DB value', () => {
+    // Defense-in-depth on the READ side: a leaked interactionKind enum / code token is omitted, not shown.
+    expect(categoryEyebrow('svg')).toBeNull();
+    expect(categoryEyebrow('canvas')).toBeNull();
+    expect(categoryEyebrow('html')).toBeNull();
+    expect(categoryEyebrow('Lesson')).toBeNull();
+    expect(categoryEyebrow('ts-17')).toBeNull(); // identifier (non-alpha)
+    expect(categoryEyebrow('General')).toBeNull(); // generic filler
+  });
+});
+
+describe('library-card — cardDescription, the dense-card one-liner (Figma 6:47)', () => {
+  it('passes a normal learner-facing one-liner through verbatim', () => {
+    expect(cardDescription('How a plant turns sunlight, water, and air into food.')).toBe(
+      'How a plant turns sunlight, water, and air into food.',
+    );
+  });
+
+  it('omits (null) for a null/blank value so the card drops the description row', () => {
+    expect(cardDescription(null)).toBeNull();
+    expect(cardDescription(undefined)).toBeNull();
+    expect(cardDescription('   ')).toBeNull();
+  });
+
+  it('hard-caps a runaway value at a word boundary with an ellipsis (the CSS clamp does the visual cut)', () => {
+    const long = `${'word '.repeat(60)}end`; // far past the 180-char ceiling
+    const out = cardDescription(long);
+    expect(out).not.toBeNull();
+    expect((out as string).length).toBeLessThanOrEqual(181); // ceiling + the ellipsis char
+    expect(out as string).toMatch(/…$/);
+    expect(out as string).not.toMatch(/ …$/); // trimmed at a word boundary, no dangling space before …
   });
 });

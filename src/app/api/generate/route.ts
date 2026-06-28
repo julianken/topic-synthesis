@@ -79,7 +79,20 @@ function startRun(runId: string, request: TopicRequest, ownerSub: string): void 
     // so the cheap+capped knobs read identically to the curriculum-era config.
     const run = await runLesson(request, new InlineEngine(), RUN_DEPS, APP_RUN);
     const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...CHEAP_MODELS };
-    await persistRun({ runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots, ownerSub });
+    // Thread the run's library-card presentation metadata — the dense Figma 6:2 card's eyebrow
+    // (category, from the isolated fail-safe classifier; null when none was derived) + description
+    // (summary = the brief's learningGoal). Conditionally spread so an absent one is OMITTED, not
+    // `undefined` (exactOptionalPropertyTypes); both are NULLABLE columns the card omits gracefully.
+    await persistRun({
+      runId,
+      request,
+      result: run.result,
+      costUsd: run.costUsd,
+      modelSnapshots,
+      ownerSub,
+      ...(run.category !== undefined ? { category: run.category } : {}),
+      ...(run.summary !== undefined ? { summary: run.summary } : {}),
+    });
   })();
   inflight.add(work);
   work

@@ -23,6 +23,13 @@ export interface PersistRunInput {
   eleaticRunId?: string;
   /** The owning user's verified Google `sub` (ADR 0002 §2) — omitted for unauthenticated/legacy runs. */
   ownerSub?: string;
+  /** The library poster-card subject eyebrow (BIOLOGY / MATHEMATICS / …) from the isolated, fail-safe
+   *  classifier — null/omitted when none could be derived (the card then omits the eyebrow). NOT a
+   *  pipeline stage; presentation metadata only. */
+  category?: string | null;
+  /** The library poster-card description (the lesson's learner-facing one-liner = the brief's
+   *  learningGoal — pure data plumbing, no extra generation). Omitted on degraded runs with no brief. */
+  summary?: string | null;
 }
 
 interface FlatPage {
@@ -56,7 +63,8 @@ export async function persistRun(
   input: PersistRunInput,
   deps: StoreDeps = { pool: getPool() },
 ): Promise<{ curriculumId: string }> {
-  const { runId, request, result, costUsd, modelSnapshots, eleaticRunId, ownerSub } = input;
+  const { runId, request, result, costUsd, modelSnapshots, eleaticRunId, ownerSub, category, summary } =
+    input;
   const bucket = bucketize(request.settings);
   const snapshotsJson = JSON.stringify(modelSnapshots);
   // The workflow_version IS the eval arm (schema.sql: "A workflow VERSION = an eval arm"; its id is
@@ -84,9 +92,20 @@ export async function persistRun(
       [runId, workflowVer, pages.length, costUsd, eleaticRunId ?? null],
     );
     await client.query(
-      `INSERT INTO curriculum (id, topic, settings_json, workflow_ver, run_id, owner_sub)
-       VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-      [runId, request.topic, JSON.stringify(request.settings), workflowVer, runId, ownerSub ?? null],
+      `INSERT INTO curriculum (id, topic, settings_json, workflow_ver, run_id, owner_sub, category, summary)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+      [
+        runId,
+        request.topic,
+        JSON.stringify(request.settings),
+        workflowVer,
+        runId,
+        ownerSub ?? null,
+        // Presentation metadata for the Figma 6:2 dense card — NULL when the classifier derived none
+        // (eyebrow omitted) or the run degraded before a brief (description omitted). Never fabricated.
+        category ?? null,
+        summary ?? null,
+      ],
     );
     for (const { tier, category, ordinal, page } of pages) {
       const artifact = artifactBySlug.get(page.slug);
@@ -321,13 +340,13 @@ export async function getStepEvents(
  *  design — only the card fields, NOT the full tiered hub `getCurriculum` reads. `id` is the
  *  curriculum id (the card's `/curriculum/[id]` href target).
  *
- *  Maps to the Figma `6:2` poster card footer-meta line ("beginner · d2 · 3h ago"): `level` + `depth`
- *  come from `curriculum.settings_json` (the request's saved Settings — REAL data, never fabricated) and
- *  the relative-time is derived from `createdAt`. The card's `level · depth` meta is the part of the
- *  Figma card the data CAN fill; the per-category eyebrow + the one-line description are NOT projected
- *  (no subject-category column, no description column — for a single-lesson run the hub `category` is the
- *  placeholder `'Lesson'`, not BIOLOGY/MATHEMATICS/…), so those two frame rows stay deferred rather than
- *  filled with a code identifier or a fabricated string (copy-appropriateness gate). */
+ *  Maps to the DENSE Figma `6:2` poster card. The `category` eyebrow (node `6:41`) + the `summary`
+ *  description (node `6:47`) are the two new dense rows: `category` is the subject label (BIOLOGY /
+ *  MATHEMATICS / …) the isolated fail-safe classifier derived (NULL → eyebrow omitted), `summary` is
+ *  the lesson's learner-facing one-liner (the brief's learningGoal — NULL → description omitted). The
+ *  footer-meta line ("beginner · d2 · 3h ago") is `level` + `depth` from `curriculum.settings_json`
+ *  (REAL saved Settings) + the relative-time from `createdAt`. Every field is REAL stored data — a NULL
+ *  category/summary (an old row or a classifier miss) just drops that row, never a fabricated value. */
 export interface LessonCard {
   /** The curriculum id — the card's href target, `/curriculum/[id]`. */
   id: string;
@@ -342,6 +361,12 @@ export interface LessonCard {
   depth: number;
   /** ISO string from `curriculum.created_at`, for newest-first ordering. */
   createdAt: string;
+  /** The dense card's subject eyebrow (Figma `6:41`) — the classifier's subject label, or null for an
+   *  old row / a classifier miss (the card then omits the eyebrow; show nothing > guess/leak). */
+  category: string | null;
+  /** The dense card's one-line description (Figma `6:47`) — the lesson's learningGoal, or null for an
+   *  old row / a degraded run with no brief (the card then omits the description row). */
+  summary: string | null;
 }
 
 /** List one poster-card descriptor per lesson the caller owns, newest-first — the reader the library
@@ -378,6 +403,8 @@ export async function listLessons(
     title: string;
     status: PageStatus;
     settings_json: Settings;
+    category: string | null;
+    summary: string | null;
   }>(
     // ONE card per curriculum, newest-first. The inner DISTINCT ON (c.id) ... ORDER BY c.id, cp.ordinal
     // collapses each curriculum to its lowest-ordinal (representative) page — so a multi-page curriculum
@@ -385,12 +412,13 @@ export async function listLessons(
     // (today every curriculum is single-page per ADR-0003, but the query enforces it regardless). The
     // outer query re-orders the representatives newest-first (DISTINCT ON forces ORDER BY c.id first).
     // settings_json is the request's saved Settings (NOT-NULL JSONB column) — its level + depth fill the
-    // Figma card meta line. It rides through DISTINCT ON on c.id (one settings per curriculum), so it
-    // can't fan a curriculum into duplicate cards.
-    `SELECT id, created_at, concept_slug, title, status, settings_json
+    // Figma card meta line. category + summary are the DENSE card's eyebrow + description (NULLABLE; NULL
+    // for an old row / a classifier miss → the card omits that row). All three ride through DISTINCT ON
+    // on c.id (one per curriculum), so they can't fan a curriculum into duplicate cards.
+    `SELECT id, created_at, concept_slug, title, status, settings_json, category, summary
        FROM (
          SELECT DISTINCT ON (c.id)
-                c.id, c.created_at, c.settings_json, p.concept_slug, p.title, p.status
+                c.id, c.created_at, c.settings_json, c.category, c.summary, p.concept_slug, p.title, p.status
            FROM curriculum c
            JOIN curriculum_page cp ON cp.curriculum_id = c.id
            JOIN concept_page p ON p.id = cp.page_id
@@ -409,5 +437,9 @@ export async function listLessons(
     depth: r.settings_json.depth,
     // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string (same as getStepEvents).
     createdAt: new Date(r.created_at).toISOString(),
+    // Dense-card rows — NULLABLE; an old row or a classifier miss reads back null (the card omits that
+    // row gracefully). `?? null` normalizes a missing column on a legacy fake/result to null.
+    category: r.category ?? null,
+    summary: r.summary ?? null,
   }));
 }

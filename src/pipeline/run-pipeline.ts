@@ -15,6 +15,7 @@ import type { Engine } from '../engine/engine';
 import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
 import { BriefOutputSchema } from './brief';
+import { classifyCategory } from './classify-category';
 import { gateGraph, type GateThresholds } from './coverage-gate';
 import { defaultDeps, type StageDeps } from './deps';
 import { assembleHub } from './hub';
@@ -35,6 +36,20 @@ export interface PipelineRunResult {
    * inspectable without running Synthesis.
    */
   brief?: LessonBrief;
+  /**
+   * The subject CATEGORY for the Figma `6:2` poster-card eyebrow (BIOLOGY / MATHEMATICS / …), or null
+   * when none could be safely derived. PRESENTATION METADATA, NOT a pipeline stage — produced by the
+   * isolated, FAIL-SAFE `classifyCategory` helper at the run TAIL (single-lesson path only). It never
+   * touches the `LessonBrief` contract, never feeds Synthesis, and a classifier fault yields null with
+   * the lesson unaffected. `persistRun` writes it onto the curriculum; null omits the card eyebrow.
+   */
+  category?: string | null;
+  /**
+   * The card DESCRIPTION for the Figma `6:2` poster-card body (node `6:47`) — pure data plumbing: the
+   * `brief.learningGoal` already assembled by Analysis, surfaced as the learner-facing one-liner. No
+   * extra generation. Single-lesson path only (it's read off the run's one canonical brief).
+   */
+  summary?: string;
 }
 
 export interface RunOptions {
@@ -320,9 +335,29 @@ export async function runLesson(
     // a null artifact → no fabricated page → status 'soon'). Surface it in the logs.
     console.warn(`[pipeline] lesson degraded to 'soon' after a synthesis failure — ${synth.degraded}`);
   }
+
+  // 6. PRESENTATION METADATA (NOT a pipeline stage) — the card eyebrow + description for the Figma 6:2
+  // poster. Derived at the run TAIL, after the lesson is fully synthesized, so it can NEVER affect what
+  // is taught. `classifyCategory` is isolated + FAIL-SAFE (it never throws — any fault → category null),
+  // so a classifier error or timeout leaves the lesson and its cost untouched; we still thread its tiny
+  // record into the cost array like every other LlmCallRecord. The summary is PURE DATA PLUMBING — the
+  // brief's already-assembled learningGoal, no extra generation. The category runs on the run's resolved
+  // ANALYSIS-tier model (the cheap researcher tier on `--cheap`/CHEAP), never the synthesis arm.
+  const classified = await classifyCategory(req.topic, deps, models.researcher);
+  records.push(...classified.records);
+  emit('researcher', classified.records);
+
   const costUsd = records.reduce((sum, r) => sum + r.costUsd, 0);
-  // Expose the assembled brief so a trace carries it as the analysis row's output (issue #50).
-  return { result: { hub, pages }, records, costUsd, brief: briefed.brief };
+  // Expose the assembled brief so a trace carries it as the analysis row's output (issue #50), plus the
+  // card eyebrow (category) + description (summary = the brief's learningGoal) for the library poster.
+  return {
+    result: { hub, pages },
+    records,
+    costUsd,
+    brief: briefed.brief,
+    category: classified.category,
+    summary: briefed.brief.learningGoal,
+  };
 }
 
 /** A human title for the one lesson: the brief's first keyPoint, else its learningGoal. */

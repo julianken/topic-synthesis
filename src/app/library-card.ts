@@ -80,10 +80,53 @@ export function metaLine(level: Level, depth: number, createdAtIso: string, now:
   return parts.filter(Boolean).join(' · ');
 }
 
-// No `kindLabel` / category eyebrow: the Figma `6:2` card eyebrow (node `6:41`) holds a user-meaningful
-// SUBJECT CATEGORY (BIOLOGY / MATHEMATICS / …), which the card has no data source for — a single-lesson
-// run's hub category is the placeholder `'Lesson'`, and there is no description column. An earlier build
-// mapped the eyebrow to the artifact's internal `interactionKind` enum (`svg`/`canvas`/`html`), which is
-// dev-speak on a user surface — dropped per the copy-appropriateness gate. The eyebrow + description stay
-// unrendered (show nothing > show a code identifier or a fabricated string) until a real category source
-// exists; the meta line (level · depth · time) IS filled from real data above.
+/**
+ * The Figma `6:2` dense-card EYEBROW (node `6:41`) text — the stored subject category, presented as the
+ * uppercase shelf label the frame shows (BIOLOGY / MATHEMATICS / …). The classifier already validated +
+ * uppercased it at the run tail; this is a defense-in-depth re-check on the READ side so a hand-edited /
+ * legacy DB value can never leak a code identifier or fabricated string onto a user surface. Returns
+ * null when the value is absent OR fails the copy-appropriateness check — the card then OMITS the
+ * eyebrow row entirely (show nothing > guess/leak), keeping the rhythm tight. Pure.
+ *
+ * The rule mirrors `classify-category.ts#normalizeCategory` (kept in sync by hand — this module is a
+ * `src/app` presentation helper and the import fence keeps `src/app` from importing core pipeline code):
+ * a short, purely-alphabetic word/phrase that is not an internal/render-backend token.
+ */
+const EYEBROW_MAX_LEN = 24;
+const FORBIDDEN_EYEBROW: ReadonlySet<string> = new Set([
+  'SVG', 'CANVAS', 'HTML', 'ADR', 'TS', 'PR', 'BLOB', 'V11', 'SPEC', 'CRITIC',
+  'LESSON', 'NULL', 'NONE', 'UNKNOWN', 'GENERAL', 'MISC', 'OTHER',
+]);
+
+export function categoryEyebrow(category: string | null | undefined): string | null {
+  if (typeof category !== 'string') return null;
+  const trimmed = category.trim();
+  if (trimmed.length === 0 || trimmed.length > EYEBROW_MAX_LEN) return null;
+  if (!/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(trimmed)) return null;
+  const upper = trimmed.toUpperCase();
+  for (const word of upper.split(' ')) {
+    if (FORBIDDEN_EYEBROW.has(word)) return null;
+  }
+  return upper;
+}
+
+/**
+ * The Figma `6:2` dense-card DESCRIPTION (node `6:47`) text — the lesson's learner-facing one-liner (the
+ * stored `summary` = the brief's learningGoal). The frame caps the description at ~two lines (248px,
+ * Inter 12.5px); the CSS `-webkit-line-clamp: 2` does the visual cap, and this is a coarse HARD ceiling
+ * so a runaway value can't blow the fixed card height even before the clamp paints. Returns null for an
+ * absent/blank value so the card omits the description row. Pure.
+ */
+const DESCRIPTION_MAX_LEN = 180;
+
+export function cardDescription(summary: string | null | undefined): string | null {
+  if (typeof summary !== 'string') return null;
+  const trimmed = summary.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length <= DESCRIPTION_MAX_LEN) return trimmed;
+  // Trim to the last word boundary within the ceiling, then ellipsize — the CSS clamp still handles the
+  // visual two-line cut; this only prevents an absurdly long string from ever reaching the DOM.
+  const cut = trimmed.slice(0, DESCRIPTION_MAX_LEN);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}

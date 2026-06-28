@@ -517,8 +517,8 @@ h1 {
   color: var(--text-faint);
 }
 
-/* Card body (Figma 6:38): pt 13 / pb 15 / px 15, the title and footer stacked with the title pinned to
-   the top and the footer to the bottom (the frame's flex-grow alignment). */
+/* Card body (Figma 6:38): pt 13 / pb 15 / px 15, the head block (eyebrow + title + description) pinned
+   to the top and the footer to the bottom (the frame's flex-grow alignment via the 6:59 align spacer). */
 .library-poster__body {
   display: flex;
   flex: 1;
@@ -526,6 +526,32 @@ h1 {
   justify-content: space-between;
   gap: var(--sp-3);
   padding: 13px 15px 15px;
+  /* Allow the title/desc clamps to shrink within the flex column rather than overflow the fixed card. */
+  min-height: 0;
+}
+
+/* The DENSE card's top block (Figma 6:39): eyebrow → title → description, stacked with a 6px gap (the
+   frame's 6:39 column gap). Pinned to the body top by the body's space-between. */
+.library-poster__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* Subject EYEBROW (Figma 6:41): uppercase mono 10px (= --fs-micro) in --warn (#f0ba59), tracking +1.6px
+   ≈ --ls-eyebrow. The shelf-subject label (BIOLOGY / MATHEMATICS / …) — only rendered when the stored
+   category passes the read-side copy-appropriateness check (page.tsx categoryEyebrow), else the row is
+   omitted entirely (no empty band). nowrap + ellipsis so a long label never wraps to a second line. */
+.library-poster__eyebrow {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--warn);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Card title (Figma 6:44): serif 18.5px (= --fs-card-title) in --fog-50, tracking -0.185px ≈ -0.01em
@@ -538,6 +564,21 @@ h1 {
   line-height: var(--lh-heading);
   letter-spacing: var(--ls-display);
   color: var(--fog-50);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* One-line DESCRIPTION (Figma 6:47): sans 12.5px (= --fs-caption) in --text-muted (#a4acb4), the gloss
+   line-height band. The lesson's learner-facing one-liner (summary = the brief's learningGoal). Clamped
+   to TWO lines (the frame's 248px / ~2-line description) so a long goal can't blow the fixed card height;
+   only rendered when the stored summary is non-null (page.tsx cardDescription), else the row is omitted. */
+.library-poster__desc {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -569,13 +610,11 @@ h1 {
   text-overflow: ellipsis;
 }
 
-/* The Figma `6:2` card eyebrow (node `6:41`, SUBJECT CATEGORY) and one-line description (node `6:47`) are
-   NOT rendered — neither has a data source (a single-lesson run's hub category is the placeholder
-   `'Lesson'`, and there is no description column). Filling them would leak the internal `interactionKind`
-   enum (svg/canvas/html — dev-speak) or fabricate copy, both copy-appropriateness defects, so they stay
-   deferred (show nothing > leak/fabricate) until a real subject-category source exists. The card still
-   echoes the frame's title-top / footer-bottom geometry via its fixed height + the bottom-pinned footer,
-   and the footer meta line (level · depth · time) IS filled from real data. */
+/* The Figma `6:2` card's eyebrow (node `6:41`, SUBJECT CATEGORY) and one-line description (node `6:47`)
+   are now RENDERED from real stored data — `.library-poster__eyebrow` (the fail-safe classifier's subject
+   label) + `.library-poster__desc` (the lesson's learningGoal). A null category/summary (an old row or a
+   classifier miss) OMITS that row in page.tsx — no empty band, the rhythm stays tight; nothing is ever
+   fabricated (copy-appropriateness gate). The footer meta line (level · depth · time) is real data too. */
 
 /* First-run prompt — never a bare blank grid (DESIGN.md — empty states are labeled, not void). A
    card-shaped panel matching the poster surface so the empty library still reads as the card wall. */

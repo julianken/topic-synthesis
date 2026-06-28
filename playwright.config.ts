@@ -56,6 +56,10 @@ const DESKTOP = { width: 1440, height: 900 };
 
 export default defineConfig({
   testDir: './e2e',
+  // Seed the deterministic DENSE library card for the e2e owner ONCE before the suite, so the library
+  // visual baseline (the seeded card grid) is byte-stable run to run. Requires a migrated Postgres
+  // (DATABASE_URL) — the same precondition the webServer already needs. See e2e/seed.ts.
+  globalSetup: './e2e/global-setup.ts',
   // The build-and-start cold path is the slow part; per-test work is fast.
   timeout: 60_000,
   expect: {

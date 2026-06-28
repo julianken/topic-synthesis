@@ -6,6 +6,7 @@ import {
   PageSpecSchema,
   PlanSchema,
 } from '../domain/stages';
+import { CATEGORY_SCHEMA } from './classify-category';
 import type { StageDeps } from './deps';
 
 /**
@@ -69,6 +70,11 @@ function cannedObject(schema: unknown): unknown {
   }
   if (schema === CriticVerdictSchema) {
     return { passed: true, critique: 'E2E stub: passes the rubric.' };
+  }
+  if (schema === CATEGORY_SCHEMA) {
+    // The isolated, fail-safe card-eyebrow classifier (run-pipeline tail). A canned subject label so a
+    // stubbed run persists a real `category` (the dense card renders its eyebrow), deterministic + free.
+    return { category: 'Science' };
   }
   throw new Error('e2e-stub-deps: unrecognized schema passed to completeObject');
 }

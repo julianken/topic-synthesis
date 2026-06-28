@@ -259,6 +259,40 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
     expect(sqls.find((s) => s.includes('INTO curriculum ('))).toContain('owner_sub');
   });
 
+  it('writes the dense-card category + summary onto the curriculum INSERT (NULL when omitted)', async () => {
+    // With both supplied, they ride the curriculum INSERT params; with neither, they persist as NULL so
+    // an old/classifier-miss run reads back as no-eyebrow/no-description (never a fabricated value).
+    const withMeta = fakePool();
+    await persistRun(
+      {
+        runId: 'lesson-meta',
+        request,
+        result: lessonResult,
+        costUsd: 0.05,
+        modelSnapshots: STAGE_MODELS,
+        ownerSub: 'owner-1',
+        category: 'BIOLOGY',
+        summary: 'How a plant turns sunlight into food.',
+      },
+      withMeta.deps,
+    );
+    const insertSql = sqlsOf(withMeta.client.query).find((s) => s.includes('INTO curriculum ('));
+    expect(insertSql).toContain('category');
+    expect(insertSql).toContain('summary');
+    const params = paramsOf(withMeta.client.query, 'INTO curriculum (');
+    expect(params).toContain('BIOLOGY');
+    expect(params).toContain('How a plant turns sunlight into food.');
+
+    // Omitted → both persist as NULL (the last two curriculum params).
+    const noMeta = fakePool();
+    await persistRun(
+      { runId: 'lesson-nometa', request, result: lessonResult, costUsd: 0.05, modelSnapshots: STAGE_MODELS, ownerSub: 'owner-1' },
+      noMeta.deps,
+    );
+    const noMetaParams = paramsOf(noMeta.client.query, 'INTO curriculum (') ?? [];
+    expect(noMetaParams.slice(-2)).toEqual([null, null]); // [category, summary] both NULL
+  });
+
   it('round-trips owner-scoped: the owner reads the single page back, a different owner reads null', async () => {
     // owner reads it back
     const owned = fakePool([
@@ -384,6 +418,8 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
     title: 'Fourier',
     status: 'built',
     settings_json: { level: 'intro', depth: 2, audience: 'curious' },
+    category: 'MATHEMATICS',
+    summary: 'How the Fourier transform decomposes a signal into frequencies.',
     ...over,
   });
 
@@ -430,6 +466,33 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
     expect(card?.depth).toBe(4);
     const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM curriculum c'));
     expect(sql).toContain('settings_json');
+  });
+
+  it('projects the DENSE card fields (category eyebrow + summary description) from the curriculum row', async () => {
+    // The Figma 6:2 dense card adds the subject eyebrow (category) + the one-line description (summary).
+    // Both are REAL stored columns on `curriculum` — the SQL must SELECT them (they ride DISTINCT ON c.id).
+    const fp = fakePool([{ match: 'FROM curriculum c', rows: [cardRow()] }]);
+    const [card] = await listLessons('owner-1', fp.deps);
+    expect(card?.category).toBe('MATHEMATICS');
+    expect(card?.summary).toBe('How the Fourier transform decomposes a signal into frequencies.');
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM curriculum c'));
+    expect(sql).toContain('category');
+    expect(sql).toContain('summary');
+  });
+
+  it('NULL-row tolerant: an old/legacy row (NULL category + summary) yields a valid card, no crash', async () => {
+    // Old rows predate the dense-card columns; a classifier-miss run also persists category NULL. The
+    // card must read those back as null (the UI omits the eyebrow/description row) — never crash, never
+    // a fabricated value. pg returns SQL NULL as JS null.
+    const fp = fakePool([
+      { match: 'FROM curriculum c', rows: [cardRow({ category: null, summary: null })] },
+    ]);
+    const [card] = await listLessons('owner-1', fp.deps);
+    expect(card?.category).toBeNull();
+    expect(card?.summary).toBeNull();
+    // the rest of the card is still valid
+    expect(card?.title).toBe('Fourier');
+    expect(card?.status).toBe('built');
   });
 
   it('historical sectioned row yields a valid card (spec shape is irrelevant — the card never reads it)', async () => {

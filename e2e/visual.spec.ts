@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
+import { SEED_RUN_ID } from './seed';
 
 // visual.spec — per-screen full-page VISUAL snapshots at the two DESIGN.md viewports (390×844 mobile +
 // 1440×900 desktop, set per-project in playwright.config.ts), under FORCED reduced motion (config
@@ -51,6 +52,29 @@ test.describe('visual — library (authed)', () => {
     const appbar = page.locator('.appbar');
     await expect(appbar).toBeVisible();
     await expect(appbar).toHaveScreenshot('library-appbar.png');
+  });
+
+  test('the DENSE library poster card (eyebrow + description) matches the committed baseline', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+    // The global setup (e2e/seed.ts) seeded ONE deterministic DENSE card (Figma 6:2: subject eyebrow +
+    // serif title + one-line description + built badge + meta) for the e2e owner. Snapshot just THAT card
+    // by its stable href, NOT the whole grid — the smoke spec's generate test can add another card for the
+    // same owner, so the grid count isn't deterministic, but the seeded card's pixels are. The seed uses a
+    // FIXED system serif (Iowan Old Style) for the title; unlike the intake's native <select>/range that AA-
+    // shimmer, a plain serif text card is stable, so this IS a pixel snapshot (the dense-card render gate).
+    const card = page.locator(`a.library-poster__card[href$="/curriculum/${SEED_RUN_ID}"]`);
+    await expect(card).toBeVisible();
+    // Assert the dense rows are present (the eyebrow + description the card adds), then pixel-grade it.
+    await expect(card.locator('.library-poster__eyebrow')).toHaveText('BIOLOGY');
+    await expect(card.locator('.library-poster__desc')).toBeVisible();
+    await expect(card).toHaveScreenshot('library-dense-card.png');
   });
 
   test('the library intake chrome renders its full load-bearing structure', async ({

@@ -3,7 +3,15 @@ import { getSessionIdentity } from './auth/require-session';
 import { listLessons } from '../store/repo';
 import { IntakeForm } from './intake-form';
 import { PosterMark } from './poster-mark';
-import { badgeClass, metaLine, morphName, STATUS_ICON, STATUS_LABEL } from './library-card';
+import {
+  badgeClass,
+  cardDescription,
+  categoryEyebrow,
+  metaLine,
+  morphName,
+  STATUS_ICON,
+  STATUS_LABEL,
+} from './library-card';
 
 // The library lists the signed-in owner's persisted lessons — Postgres data read per request, not at
 // build time (mirrors the reader route's `force-dynamic`).
@@ -26,20 +34,16 @@ export const dynamic = 'force-dynamic';
  * A SERVER component (the owner-scoped `listLessons` fetch must run behind the session gate, off the
  * client) with the `<IntakeForm>` client island embedded — mirroring `layout.tsx` server + `SessionNav`.
  *
- * Card fidelity to the Figma `6:2` poster (DESIGN.md §Components → Library): the card renders the wash,
- * the serif title, and a bottom-pinned footer (status badge LEFT + the "beginner · d2 · 3h ago" meta
- * RIGHT) at the frame's card height, so the title-top / footer-bottom rhythm matches the frame. The meta
- * line is REAL data — `level` + `depth` come from the request's saved Settings (`metaLine`), the relative
- * time from `createdAt`. The body is bottom-anchored so the footer pins to the card floor regardless of
- * how the (deferred) eyebrow/description rows would have grown it.
- *
- * Two of the frame's five rows stay deferred — they have NO data source, so filling them would fabricate:
- * the Figma card eyebrow (`6:41`) holds a SUBJECT CATEGORY (BIOLOGY / MATHEMATICS / …), but a single-
- * lesson run's hub category is the placeholder `'Lesson'`, not a subject; and there is no description
- * column. The card deliberately renders NEITHER rather than fill them with the artifact's internal
- * `interactionKind` render-backend enum (`svg`/`canvas`/`html`, dev-speak) or an invented sentence — show
- * nothing > leak a code identifier or fabricate copy (copy-appropriateness gate). Full eyebrow/description
- * fidelity is deferred to a subject-category data source; the footer + meta + frame geometry land now.
+ * Card fidelity to the DENSE Figma `6:2` poster (DESIGN.md §Components → Library): the card renders the
+ * wash, then the body's rows — the uppercase subject EYEBROW (`6:41`), the serif TITLE (`6:44`), the
+ * one-line DESCRIPTION (`6:47`), and a bottom-pinned FOOTER (status badge LEFT + the "beginner · d2 · 3h
+ * ago" meta RIGHT) at the frame's card height, so the eyebrow-top / footer-bottom rhythm matches the
+ * frame. Every value is REAL stored data: the eyebrow is the subject category the isolated FAIL-SAFE
+ * classifier derived (`categoryEyebrow` re-validates it on the read side — show nothing > leak/guess); the
+ * description is the lesson's learner-facing one-liner (`summary` = the brief's learningGoal, clamped to
+ * ~two lines via `cardDescription` + CSS); the meta is `level` + `depth` from the saved Settings + the
+ * relative time from `createdAt`. A NULL category or summary (an old row, or a classifier miss) OMITS that
+ * row — no empty band, the rhythm stays tight — never a fabricated value (copy-appropriateness gate).
  */
 export default async function Library() {
   const identity = await getSessionIdentity();
@@ -58,6 +62,10 @@ export default async function Library() {
         <ul className="library-grid">
           {lessons.map((lesson) => {
             const meta = metaLine(lesson.level, lesson.depth, lesson.createdAt);
+            // Dense-card rows — both REAL stored data, both re-validated on the read side. A null result
+            // (old row / classifier miss / blank summary) OMITS that row (show nothing > guess/leak).
+            const eyebrow = categoryEyebrow(lesson.category);
+            const description = cardDescription(lesson.summary);
             return (
               <li key={lesson.id} className="library-poster">
                 {/* Each card links CROSS-DOCUMENT to the reader via a PLAIN <a> anchor — deliberately
@@ -79,7 +87,15 @@ export default async function Library() {
                     <PosterMark />
                   </span>
                   <span className="library-poster__body">
-                    <span className="library-poster__title">{lesson.title}</span>
+                    <span className="library-poster__head">
+                      {/* Subject eyebrow (Figma 6:41) — omitted entirely when null, no empty band. */}
+                      {eyebrow ? <span className="library-poster__eyebrow">{eyebrow}</span> : null}
+                      <span className="library-poster__title">{lesson.title}</span>
+                      {/* One-line description (Figma 6:47) — omitted when null. */}
+                      {description ? (
+                        <span className="library-poster__desc">{description}</span>
+                      ) : null}
+                    </span>
                     <span className="library-poster__foot">
                       <span className={badgeClass(lesson.status)}>
                         <span className="badge__icon" aria-hidden="true">
