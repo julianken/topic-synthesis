@@ -16,7 +16,8 @@ const TICK_MS = 250; // how often the live in-progress timer re-renders
 
 /**
  * The SHARED live-research GENERATING view (the B view — Figma frame `1:2`). ONE component for BOTH the
- * reader route's generating state (`/curriculum/[id]`, when the run is in flight) and the create-form's
+ * reader route's generating state (`/curriculum/[id]` — concept-drift-ok: route identifier, deferred rename, ADR-0003 — when
+ * the run is in flight) and the create-form's
  * in-place generating shell (`/`), so the two never diverge. It is PRESENTATIONAL — it takes the status
  * poll's owner-scoped `steps` (the per-stage timeline) + `research` (the live-research feed, Stage 1 /
  * #153) + a `stalled` flag, and renders:
