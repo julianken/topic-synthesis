@@ -1133,3 +1133,287 @@ h1 {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════
+   CREATE-LESSON FORM FLOW (the library `/` create flow) — ADDITIVE only, NO §0 retoken.
+   The library `/` is the lessons index AND the create entry: a card grid whose FIRST cell is a dashed
+   `+ New lesson` card; clicking it GROWS that cell in place into the intake form (a same-document
+   container-transform reusing the shipped card→reader morph vocabulary — the shared `view-transition-name`
+   + `.morph-box` discipline, the §0 `--dur-*`/`--ease` tokens, the catalog `--tr-*` primitives, and the
+   `rail-reveal` stagger), and a successful submit hands off to an in-place generating shell (the typed
+   `begin-generate` transition: the topic text lifts via `specimen-topic`, the form root recedes). EVERY
+   value resolves to a §0 token or a catalog primitive — no raw ms/easing literal, no new §0 entry. Under
+   `prefers-reduced-motion: reduce` the global rule above zeroes every stagger/transition and the scripted
+   View-Transition simply never starts (the vtOff guard in library-morph.ts), so the swaps are instant.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* The card grid (reuses the library frame's FIXED 291px Figma-6:2 columns, left-clustered). This is the
+   FLIP-origin grid: the first cell is the `+New` card / the grown form, the rest are the poster cards. */
+.lessons-grid {
+  list-style: none;
+  margin: 0;
+  padding: 14px 26px 60px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 291px);
+  justify-content: start;
+  gap: 18px;
+}
+
+/* When the form is open, its cell spans the full grid row so the intake has room to breathe; the poster
+   cards reflow beneath it. The create cell otherwise occupies a single 291px column like any card. */
+.lessons-grid--form-open .lessons-grid__create {
+  grid-column: 1 / -1;
+}
+
+.lessons-grid__create {
+  display: flex;
+}
+
+/* The `+ New lesson` card (the morph ORIGIN) — a dashed --border card matching the poster card's 262px
+   height so the grid stays even, with a + glyph in --interactive and a label + mono sub-label. The
+   per-flow `view-transition-name: new-surface` is set INLINE in library-create.tsx (never a static rule);
+   this is the box geometry the same-document VT grows into the form. */
+.newcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  width: 100%;
+  height: 262px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--r-card-lg);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  /* TS-24: the catalog hover primitive (border-color + background @ --dur-fast/--ease); the global
+     reduced-motion rule makes the hover instant. */
+  transition: var(--tr-hover);
+}
+
+.newcard:hover {
+  border-color: var(--interactive);
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.newcard__plus {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--interactive-hover);
+  color: var(--interactive);
+  font-size: var(--fs-h2);
+  font-weight: 400;
+  line-height: 1;
+}
+
+.newcard__label {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--fog-300);
+}
+
+.newcard__sub {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The intake form surface (the morph DESTINATION the `+New` card grows into) — a --bg-raised card lifted
+   to a --interactive active border (the "selected/active" state of the field surface), radius --r-lg,
+   padding --sp-5. It carries `view-transition-name: new-surface` + `.morph-box` INLINE in the TSX. */
+.intake {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  background: var(--bg-raised);
+  border: 1.5px solid var(--interactive);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+}
+
+/* Header row: "New lesson" title + the Esc·Cancel control. */
+.intake__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.intake__title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-card-title);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+}
+
+.intake__close {
+  flex: none;
+  background: transparent;
+  border: 0.8px solid var(--badge-border-neutral);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+  /* TS-24: the catalog hover primitive — eased border/background on hover, instant under reduced motion. */
+  transition: var(--tr-hover);
+}
+
+.intake__close:hover {
+  border-color: var(--interactive-hover);
+  color: var(--text);
+}
+
+/* The Level + Depth row sit side by side at ≥520px, stacking below it on a phone (the form spans the grid
+   row, so it has the width on desktop and reflows narrow). */
+.field-row {
+  display: flex;
+  gap: var(--sp-4);
+}
+
+.field-row .field {
+  flex: 1;
+}
+
+@media (max-width: 520px) {
+  .field-row {
+    flex-direction: column;
+  }
+}
+
+/* Field FOCUS: the field's border eases toward --interactive on focus via the catalog --tr-color /
+   --tr-hover primitive, while the :focus-visible ring stays INSTANT (a11y — never animate the ring). This
+   is the catalog primitive the spec asks for, not a literal. (The base .field__input is defined above;
+   this adds only the eased transition + the focus border color.) */
+.intake .field__input {
+  transition: var(--tr-hover);
+}
+
+.intake .field__input:focus-visible {
+  outline: none;
+  border-color: var(--interactive);
+}
+
+/* The fields STAGGER in a beat after the box settles: hidden until `.fieldsin` is added one rAF after the
+   open VT commits, then `rail-reveal` runs with a per-field delay stepping off the inline `--rail-i`
+   (the SAME staggered-reveal vocabulary the generating rail uses). Under reduced motion the global rule
+   zeroes the animation + delay, so the fields are simply present (no stagger). */
+.intake .field {
+  opacity: 0;
+  transform: translateY(var(--sp-1));
+}
+
+.intake.fieldsin .field {
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+  animation-delay: calc(var(--rail-i, 0) * var(--dur-fast));
+}
+
+/* The error appearance: a bordered chip that eases its color + border-color in on appearance via the
+   catalog --tr-state primitive — the SAME "state changed" language the generating rail uses for
+   pending→running→error. Status is conveyed by the role="alert" text + the `!` icon, NEVER color alone
+   (§Accessibility). Hidden by default; the `--show` modifier reveals it when an error is set. */
+.intake__error {
+  display: none;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--status-error);
+  font-size: var(--fs-caption);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  /* TS-24: the catalog state primitive (color + border-color @ --dur-base/--ease); instant under reduced motion. */
+  transition: var(--tr-state);
+}
+
+.intake__error--show {
+  display: flex;
+  border-color: var(--status-error);
+}
+
+.intake__error-icon {
+  font-weight: 700;
+}
+
+.intake__note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--fs-caption);
+}
+
+/* The IN-PLACE generating shell (the submit handoff target on `/`). A bounded reading column matching the
+   chrome's .wrap width so the rail + spinner read like the reader route's generating state — it reuses
+   the shipped `.eyebrow` / `h1` / `.lead` / `.rail` / `.generating` styles, adding only its own column +
+   the `specimen-topic` topic accent. */
+.generating-shell {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--sp-6) 26px var(--sp-7);
+}
+
+/* The topic text the form's `specimen-topic` shared element morphs INTO — colored --interactive so the
+   user's typed topic reads as the live anchor of "what is being built". Set as the NEW-side endpoint name
+   inline in the TSX. */
+.generating-shell__topic {
+  color: var(--interactive);
+}
+
+/* ── Typed-root View-Transition CSS (the create-form flow) ──────────────────────────────────────────
+   Scoped inside `prefers-reduced-motion: no-preference` so the choreography is DECLARED only when motion
+   is allowed (matching the card→reader transport's scoping above); under reduced motion the rules are
+   absent AND the scripted View-Transition never starts (the vtOff guard). The morph-box group + the
+   specimen-topic group tween at --dur-slow/--ease (the box/element "last thing moving" cohesion rule);
+   the root cross-fade runs shorter at --dur-base, so the topic text outlasts the root fade. The
+   `begin-generate` typed-root choreography RECEDES the OLD (form) root via @keyframes vt-recede. NO raw
+   duration/easing literal — every value is a §0 token. */
+@media (prefers-reduced-motion: no-preference) {
+  /* The container-transform group (the +New card ↔ form box, AND the topic text element) tweens at the
+     --dur-slow tier — the same "last thing moving" timing the card→reader morph uses. overflow:clip keeps
+     the growing box from silly-putty-stretching its captured snapshot. */
+  ::view-transition-group(.morph-box) {
+    animation-duration: var(--dur-slow);
+    animation-timing-function: var(--ease);
+    overflow: clip;
+  }
+
+  ::view-transition-old(.morph-box),
+  ::view-transition-new(.morph-box) {
+    height: 100%;
+    width: auto;
+    object-fit: cover;
+    object-position: top left;
+  }
+
+  /* The specimen-topic shared text outlasts the root cross-fade (cohesion) — it runs at --dur-slow while
+     the root fade below stays at --dur-base. */
+  ::view-transition-group(specimen-topic) {
+    animation-duration: var(--dur-slow);
+    animation-timing-function: var(--ease);
+  }
+
+  /* SUBMIT (begin-generate typed transition): the OLD (form) root RECEDES — settles back + fades — as the
+     generating shell comes forward, rather than a flat cross-fade. Keyed to the typed transition so it
+     runs ONLY on submit, not on the open/close card↔form morph. */
+  html:active-view-transition-type(begin-generate) ::view-transition-old(root) {
+    animation: vt-recede var(--dur-base) var(--ease) both;
+  }
+}
+
+/* The form-recedes keyframe — fade + a slight settle-back. Used only by the begin-generate type above; a
+   browser without typed View-Transitions never selects that rule (and under reduced motion the global
+   ::view-transition-old(root) reset zeroes it). */
+@keyframes vt-recede {
+  to {
+    transform: translateY(2%) scale(0.985);
+    opacity: 0;
+  }
+}

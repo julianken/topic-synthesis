@@ -24,7 +24,7 @@ test.describe('smoke — auth gate', () => {
 });
 
 test.describe('smoke — test-auth seam (the allowlisted library render)', () => {
-  test('with the seeded e2e session, the authed library renders with the intake form', async ({
+  test('with the seeded e2e session, the authed library renders with the +New create card', async ({
     page,
     context,
     baseURL,
@@ -32,21 +32,25 @@ test.describe('smoke — test-auth seam (the allowlisted library render)', () =>
     await signInAsTestOwner(context, baseURL ?? '');
     await page.goto('/');
 
-    // Authed: NOT bounced to sign-in, and the library landmark + the generation entry are present.
+    // Authed: NOT bounced to sign-in, and the library landmark + the create affordance are present.
     await expect(page).toHaveURL(/\/$|\/(?!sign-in)/);
     await expect(page).not.toHaveURL(/\/sign-in/);
     await expect(page.getByRole('main')).toBeVisible();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    // The intake form is the library's sole generation entry — assert by role + accessible structure.
-    const topic = page.getByRole('textbox').first();
-    await expect(topic).toBeVisible();
+    // The library's generation entry is the `+ New lesson` card (the morph ORIGIN) — assert by its
+    // accessible name (a button), not brittle copy. Clicking it reveals the intake form.
+    const newCard = page.getByRole('button', { name: /new lesson/i });
+    await expect(newCard).toBeVisible();
+    await newCard.click();
+    // The revealed form exposes the topic textbox + the Generate submit.
+    await expect(page.getByRole('textbox').first()).toBeVisible();
     await expect(page.getByRole('button', { name: /generate/i })).toBeVisible();
   });
 });
 
 test.describe('smoke — generate → generating (pipeline + dispatch mocked)', () => {
-  test('submitting a topic redirects to the reader route and shows the generating state', async ({
+  test('opening +New, filling a topic, and submitting POSTs /api/generate with the right body', async ({
     page,
     context,
     baseURL,
@@ -54,12 +58,29 @@ test.describe('smoke — generate → generating (pipeline + dispatch mocked)', 
     await signInAsTestOwner(context, baseURL ?? '');
     await page.goto('/');
 
+    // Open the create form via the +New card (the card-grows-into-form reveal; under the harness's forced
+    // reduced motion the swap is instant, so the form is immediately interactive).
+    await page.getByRole('button', { name: /new lesson/i }).click();
+
+    // Capture the POST so we can assert the body shape the contract preserves: the four trimmed keys.
+    const requestBodyPromise = page
+      .waitForRequest((req) => req.url().endsWith('/api/generate') && req.method() === 'POST')
+      .then((req) => req.postDataJSON() as Record<string, unknown>);
+
     // Fill the topic and submit. The form POSTs /api/generate which (E2E=1) runs the NETWORK-FREE stub
-    // pipeline in-process and returns a runId; the client router.push()es to /curriculum/<id>.
+    // pipeline in-process and returns a runId; the in-place generating shell polls + navigates to
+    // /curriculum/<id> once the (fast) stub run lands.
     await page.getByRole('textbox').first().fill('Fourier transforms');
     await page.getByRole('button', { name: /generate/i }).click();
 
-    // Land on the reader route for the new run.
+    // The submit contract is UNCHANGED: POST /api/generate { topic, level, depth, audience } (trimmed).
+    const body = await requestBodyPromise;
+    expect(body.topic).toBe('Fourier transforms');
+    expect(body.level).toBe('intermediate'); // the default
+    expect(body.depth).toBe(3); // the default
+    expect(body).toHaveProperty('audience'); // present (empty string when unfilled)
+
+    // Land on the reader route for the new run (the in-place generating shell navigates on ready).
     await expect(page).toHaveURL(/\/curriculum\/[0-9a-f-]+$/i, { timeout: 30_000 });
 
     // The reader shows EITHER the generating state (run still in flight, polling status) OR — once the

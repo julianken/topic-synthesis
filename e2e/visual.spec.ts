@@ -38,9 +38,11 @@ test.describe('visual — library (authed)', () => {
   // a FULL-PAGE capture is non-deterministic — the lesson-card grid's count, titles, and total page
   // HEIGHT change run to run. So (per the existing element-scoped pattern) snapshot only the chrome that
   // is INVARIANT of the owner's lesson history: the shared app header (.appbar — wordmark + user chip,
-  // Figma 6:6) and the folded-in generation intake (.library-intake — "New lesson" heading + form, Figma
-  // 6:2 frame copy). The run-dependent card grid (.library-grid) and the section title's right-aligned
-  // hint are deliberately NOT captured here. DESIGN.md wins on any design conflict.
+  // Figma 6:6) and the dense seeded poster card. The generation entry is now the `+ New lesson` card (the
+  // first grid cell, which GROWS into the intake form on click — the create-form flow), so the always-open
+  // intake section is gone; the create card + the revealed form are graded structurally below. The
+  // run-dependent card grid count + the section title's right-aligned hint are deliberately NOT captured
+  // here. DESIGN.md wins on any design conflict.
 
   test('the library app-header chrome matches the committed baseline', async ({ page, context, baseURL }) => {
     await signInAsTestOwner(context, baseURL ?? '');
@@ -77,7 +79,7 @@ test.describe('visual — library (authed)', () => {
     await expect(card).toHaveScreenshot('library-dense-card.png');
   });
 
-  test('the library intake chrome renders its full load-bearing structure', async ({
+  test('the +New create card grows into the intake form with its full load-bearing structure', async ({
     page,
     context,
     baseURL,
@@ -86,19 +88,22 @@ test.describe('visual — library (authed)', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    // The intake section (the generation entry chrome — DESIGN.md "## Components" Library/Intake) is
-    // graded STRUCTURALLY here, NOT by a pixel snapshot. It is text-dense with a SERIF system heading
-    // (Iowan Old Style — NOT a self-hosted webfont) plus the native `<select>`/range controls, which on
-    // macOS font-SMOOTHING render with sub-pixel AA variance frame-to-frame — a whole-element shimmer no
-    // mask/scale/tolerance combination stabilised reliably across runs. Rather than ship a locally-flaky
-    // pixel baseline, this test asserts the intake's full load-bearing structure is present and correct
-    // (the "New lesson" heading, every labelled field, and the Generate pill). A re-skin that DROPS a
-    // field or the heading fails here; the deterministic pixel grading of the rebuilt library lives on
-    // the stable `.appbar` header snapshot above. (When the form's fonts/controls become deterministic
-    // — e.g. a self-hosted serif — promote this back to a pixel snapshot.)
-    const intake = page.locator('.library-intake');
+    // The generation entry is the `+ New lesson` card (the morph ORIGIN, the first grid cell) — present
+    // on a fresh account too, so the library is never an empty grid. Assert it, then open it.
+    const newCard = page.getByRole('button', { name: /new lesson/i });
+    await expect(newCard).toBeVisible();
+    await newCard.click();
+
+    // The revealed intake form (the generation entry chrome — DESIGN.md §Components → Intake form) is
+    // graded STRUCTURALLY, NOT by a pixel snapshot. It is text-dense with a SERIF system heading + the
+    // native `<select>`/range controls, which on macOS font-SMOOTHING render with sub-pixel AA variance
+    // frame-to-frame — a whole-element shimmer no mask/scale/tolerance combination stabilised reliably.
+    // So this asserts the form's full load-bearing structure (the "New lesson" header, every labelled
+    // field, and the Generate pill); a re-skin that DROPS a field or the header fails here. The
+    // deterministic pixel grading of the rebuilt library lives on the stable `.appbar` snapshot above.
+    const intake = page.locator('.intake');
     await expect(intake).toBeVisible();
-    await expect(intake.getByRole('heading', { name: /new lesson/i })).toBeVisible();
+    await expect(intake.getByText(/New lesson/)).toBeVisible();
     await expect(intake.getByText(/Topic/)).toBeVisible();
     await expect(intake.getByText(/Level/)).toBeVisible();
     await expect(intake.getByText(/Depth/)).toBeVisible();
@@ -107,5 +112,8 @@ test.describe('visual — library (authed)', () => {
     await expect(intake.getByRole('combobox')).toBeVisible();
     await expect(intake.getByRole('slider')).toBeVisible();
     await expect(intake.getByRole('button', { name: /generate/i })).toBeVisible();
+    // Cancel collapses the form back to the +New card (the morph in reverse).
+    await intake.getByRole('button', { name: /cancel/i }).click();
+    await expect(page.getByRole('button', { name: /new lesson/i })).toBeVisible();
   });
 });
