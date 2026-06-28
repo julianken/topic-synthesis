@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { deriveApparatus, type ApparatusModel } from './apparatus-state';
 import { INITIAL_READER_CHROME, reduceReaderMessage } from './reader-message';
 import { morphName } from './reader-morph';
 
@@ -27,12 +28,23 @@ import { morphName } from './reader-morph';
  * named-line CSS grid from DESIGN.md "## Lesson layout" + the measured prototype
  * (.superpowers/lesson-workspace/prototype.html) — `[screen-start] edge [read-start] measure [read-end]
  * gap [panel-start] panel [panel-end] scrub [scrub] edge [screen-end]`, capped at --frame-max and
- * centered. The [read] track holds the UNCHANGED #readerPanel.morph-box + sandboxed iframe; the [panel]
- * (apparatus) + [scrub] (dot-rail) tracks render EMPTY placeholders in PR-A — apparatus lands in PR-B,
- * the scrubber in PR-C. A per-section `grid-template-columns: subgrid` is the STABLE SPINE so prose
- * lands on one identical [read] track (Δ0px, pure CSS — no JS x-math). The grid metrics are
- * component-local --ws-* tokens (globals.css) consuming the existing §0 geometry tokens — NO §0 retoken.
- * The trust boundary, the iframe attrs, and the card→reader box-only morph are byte-unchanged.
+ * centered. The [read] track holds the UNCHANGED #readerPanel.morph-box + sandboxed iframe. A
+ * per-section `grid-template-columns: subgrid` is the STABLE SPINE so prose lands on one identical
+ * [read] track (Δ0px, pure CSS — no JS x-math). The grid metrics are component-local --ws-* tokens
+ * (globals.css) consuming the existing §0 geometry tokens — NO §0 retoken. The trust boundary, the
+ * iframe attrs, and the card→reader box-only morph are byte-unchanged.
+ *
+ * Apparatus panel (PR-B): the [panel] track now carries the apparatus stack (`container-type:
+ * inline-size`, so the cards scale to --panel-w, not the viewport), and the [scrub] track carries the
+ * section dot-rail. BOTH are fed ONLY by the SHIPPED coordinate-only `{ sections, scrollProgress }`
+ * channel (`deriveApparatus` folds it into the where-am-i + scrubber model) — the chrome NEVER reads the
+ * iframe DOM. The where-am-i widget (section title + NN/total + the segment strip + a blurb), the section
+ * list (moved OUT of the old flat pill strip INTO the widget), and the scrubber labels LIGHT UP from
+ * that data; the active section is DERIVED from `scrollProgress` (not posted). The RICHER cards (gloss,
+ * mini-figure, source, self-check, takeaways) render EMPTY/best-effort PLACEHOLDERS labeled as awaiting
+ * data — their real content is a coordinate-only payload EXTENSION that PR-F adds + the in-iframe sender
+ * pushes (lesson-message.ts is UNCHANGED here; no DOM scrape). Decision-13 best-effort: a lesson posting
+ * nothing leaves every card empty/zero and the shell fully usable.
  */
 export function ReaderShell({ id, href, title }: { id: string; href: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -56,6 +68,8 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
   }, []);
 
   const pct = Math.round(chrome.scrollProgress * 100);
+  // Fold the SHIPPED coordinate-only state into the apparatus model — coordinate-only, no DOM read.
+  const apparatus = deriveApparatus(chrome.sections, chrome.scrollProgress);
 
   return (
     <div className="reader reader--ws">
@@ -66,8 +80,9 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
         `[screen-start] edge [read-start] measure [read-end] gap [panel-start] panel [panel-end] scrub
         [scrub] edge [screen-end]` (globals.css), capped at --frame-max + centered. A single `.ws-section`
         is a `subgrid` (the stable spine) holding three tracks: the [read] reading column (the morph-box +
-        iframe, BELOW, byte-unchanged), and the EMPTY [panel] + [scrub] placeholders (apparatus = PR-B,
-        scrubber = PR-C). The empty tracks reserve the two-column shape today and exercise the spine.
+        iframe, byte-unchanged), the [panel] apparatus stack (PR-B — the where-am-i widget + section list
+        LIVE from the posted { sections, scrollProgress }, the richer cards best-effort placeholders), and
+        the [scrub] section dot-rail (PR-B). All apparatus is fed coordinate-only — no iframe DOM read.
       */}
       <div className="ws-grid">
         <section className="ws-section">
@@ -103,33 +118,139 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
           </div>
 
           {/*
-            The [panel] apparatus track — EMPTY placeholder in PR-A (the apparatus stack lands in PR-B).
-            Rendered (not omitted) so the two-column shell is real and the subgrid spine is exercised; it
-            carries `container-type: inline-size` already so PR-B's cards scale to --panel-w.
+            The [panel] apparatus track (PR-B). Carries `container-type: inline-size` (globals.css) so the
+            cards scale to --panel-w, not the viewport. The where-am-i widget + the section list LIGHT UP
+            from the SHIPPED { sections, scrollProgress } channel; the richer cards are best-effort
+            placeholders awaiting the PR-F payload extension. All copy is user-facing — no internals.
           */}
-          <aside className="ws-panel" aria-hidden="true" />
+          <aside className="ws-panel" aria-label="Lesson apparatus">
+            <ApparatusPanel model={apparatus} />
+          </aside>
 
           {/*
-            The [scrub] dot-rail track — EMPTY placeholder in PR-A (the scrubber lands in PR-C). Reserved
-            INSIDE the capped frame (never viewport-pinned), so the scrubber is never an orphaned track.
+            The [scrub] dot-rail track (PR-B). Reserved INSIDE the capped frame (never viewport-pinned).
+            Each dot is a labeled marker derived from the posted sections; the active dot tracks
+            scrollProgress. Status is encoded by style AND the aria-label (never color alone), and the
+            list is hidden when no sections have been posted (the empty state). It is NOT a jump control
+            in PR-B (in-document anchor jumps are the PR-C scrubber wire) — it is the section read-out.
           */}
-          <div className="ws-scrub" aria-hidden="true" />
+          <nav className="ws-scrub" aria-label="Section progress">
+            {apparatus.hasSections && (
+              <ol className="ws-scrub__rail">
+                {apparatus.marks.map((mark) => (
+                  <li key={mark.id}>
+                    <span
+                      className="ws-scrub__dot"
+                      data-done={mark.done || undefined}
+                      data-active={mark.active || undefined}
+                      // Status by LABEL, not color alone (§Accessibility): the ordinal + posted title +
+                      // the read state. The title is inert React-escaped text (validator-stripped to
+                      // {id, title}), never innerHTML/href.
+                      aria-label={`${String(mark.ordinal)}. ${mark.title}${
+                        mark.active ? ' (current)' : mark.done ? ' (read)' : ''
+                      }`}
+                    />
+                  </li>
+                ))}
+              </ol>
+            )}
+          </nav>
         </section>
       </div>
+    </div>
+  );
+}
 
-      {chrome.sections.length > 0 && (
-        <nav className="reader-sections" aria-label="Lesson sections">
-          <ol>
-            {chrome.sections.map((section) => (
-              // Coordinate-only data rendered as INERT text — the validator stripped every field but
-              // {id, title}; the title is set as a text child (React-escaped), never innerHTML/href.
-              <li key={section.id} className="reader-sections__item">
-                {section.title}
-              </li>
-            ))}
-          </ol>
-        </nav>
-      )}
+/**
+ * The apparatus panel (PR-B) — the [panel] track's card stack, fed ONLY by the SHIPPED coordinate-only
+ * `{ sections, scrollProgress }` channel (already folded into `model` by `deriveApparatus`). The
+ * where-am-i widget + the section list are LIVE (they light up from the posted data); the richer cards
+ * are best-effort placeholders that clearly read as awaiting data until PR-F extends the payload. Pure
+ * presentation — it reads no DOM and holds no state; a model with no sections renders the empty state.
+ */
+function ApparatusPanel({ model }: { model: ApparatusModel }) {
+  return (
+    <div className="ws-app">
+      {/* 1 — WHERE-AM-I widget: the active section title + NN/total + the segment strip + a blurb. LIVE. */}
+      <div className="ws-card ws-where">
+        <p className="ws-card__eyebrow">Where you are</p>
+        {model.hasSections ? (
+          <>
+            <p className="ws-where__title">{model.activeTitle}</p>
+            <p className="ws-where__count">
+              {String(model.activeOrdinal).padStart(2, '0')} / {String(model.total).padStart(2, '0')}
+            </p>
+            <div className="ws-where__strip" aria-hidden="true">
+              {model.marks.map((mark) => (
+                <span
+                  key={mark.id}
+                  className="ws-where__seg"
+                  data-done={mark.done || undefined}
+                  data-active={mark.active || undefined}
+                />
+              ))}
+            </div>
+            <p className="ws-where__blurb">{model.percent}% through this lesson.</p>
+            {/*
+              The section list — moved OUT of the old flat pill strip INTO the where-am-i widget. Inert,
+              React-escaped titles (the validator stripped each entry to {id, title}); the active one is
+              marked by style AND aria-current, never color alone.
+            */}
+            <ol className="ws-where__list">
+              {model.marks.map((mark) => (
+                <li
+                  key={mark.id}
+                  className="ws-where__item"
+                  data-done={mark.done || undefined}
+                  data-active={mark.active || undefined}
+                  aria-current={mark.active ? 'true' : undefined}
+                >
+                  <span className="ws-where__ord">{String(mark.ordinal).padStart(2, '0')}</span>
+                  {mark.title}
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : (
+          // Decision-13 best-effort empty state: a lesson that posts nothing leaves the widget usable
+          // and honest — never a blank card, never an error.
+          <p className="ws-where__blurb ws-empty">Section progress appears here as you read.</p>
+        )}
+      </div>
+
+      {/*
+        2–6 — the RICHER cards. Their real content is a coordinate-only payload EXTENSION (PR-F) the
+        in-iframe sender will push; in PR-B they render as best-effort placeholders that clearly read as
+        awaiting data, so the panel shape is real now and a lesson posting nothing never crashes. Each is
+        labeled with its purpose (user-facing copy, no internals) and a "soon" awaiting-data hint.
+      */}
+      <ApparatusPlaceholder className="ws-glosscard" eyebrow="Key terms" hint="Key terms appear here as you reach them." />
+      <ApparatusPlaceholder className="ws-fig" eyebrow="Figure" hint="Diagrams appear beside the steps they illustrate." />
+      <ApparatusPlaceholder className="ws-src" eyebrow="Source" hint="Cited sources appear beside the claims they support." />
+      <ApparatusPlaceholder className="ws-check" eyebrow="Self-check" hint="Check-yourself prompts appear here as you go." />
+      <ApparatusPlaceholder className="ws-take" eyebrow="Takeaways" hint="A recap appears here at the end." />
+    </div>
+  );
+}
+
+/**
+ * One best-effort apparatus card placeholder (PR-B). Renders its purpose eyebrow + an awaiting-data hint;
+ * marked `data-awaiting` so the styling + the e2e can recognize a card whose richer data (PR-F) has not
+ * arrived. Copy is user-facing — it never names a pipeline stage, a payload field, or any internal.
+ */
+function ApparatusPlaceholder({
+  className,
+  eyebrow,
+  hint,
+}: {
+  className: string;
+  eyebrow: string;
+  hint: string;
+}) {
+  return (
+    <div className={`ws-card ${className}`} data-awaiting="true">
+      <p className="ws-card__eyebrow">{eyebrow}</p>
+      <p className="ws-card__hint">{hint}</p>
     </div>
   );
 }

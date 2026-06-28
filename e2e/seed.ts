@@ -30,6 +30,47 @@ const SEED_REQUEST: TopicRequest = {
   settings: { level: 'intro', depth: 2, audience: 'a self-taught learner' },
 };
 
+/**
+ * The seeded built lesson's HTML carries a COORDINATE-ONLY stub sender so the lesson-workspace apparatus
+ * panel (PR-B) can be exercised deterministically end to end. It posts the SHIPPED { sections,
+ * scrollProgress } contract (lesson-message.ts — UNCHANGED) to `window.parent` on load (scrollProgress
+ * 0), and re-posts at a TEST-CHOSEN progress when the e2e driver sends a `lesson:set-progress`
+ * parent→child message. This mirrors how a real lesson's in-iframe sender will post on scroll, but is
+ * driven deterministically by the spec rather than by real scrolling — so the spec can assert the
+ * where-am-i widget + scrubber track a known scrollProgress. NO richer-card payload is posted (that is
+ * PR-F): the richer cards stay best-effort placeholders, exactly as PR-B ships them.
+ *
+ * The sender posts ONLY coordinate-only data (a section list of {id, title} + a number) — never HTML,
+ * never a URL — honoring the trust boundary the validator enforces on the receive side.
+ */
+const SEED_SECTIONS = [
+  { id: 's1', title: 'The tree puzzle' },
+  { id: 's2', title: 'Where the mass comes from' },
+  { id: 's3', title: 'Splitting water for light' },
+  { id: 's4', title: 'Measuring the gas exchange' },
+  { id: 's5', title: 'Predict, then check' },
+  { id: 's6', title: 'What to carry away' },
+];
+
+const SEED_SENDER_SCRIPT = `
+<script>
+  (function () {
+    var sections = ${JSON.stringify(SEED_SECTIONS)};
+    function post(p) {
+      try { parent.postMessage({ type: 'lesson:progress', sections: sections, scrollProgress: p }, '*'); } catch (e) {}
+    }
+    // TEST DRIVER: the e2e posts {type:'lesson:set-progress', scrollProgress} INTO this frame to drive
+    // a deterministic reading position; we re-emit the SHIPPED coordinate-only progress message outward.
+    window.addEventListener('message', function (e) {
+      var d = e.data;
+      if (d && d.type === 'lesson:set-progress' && typeof d.scrollProgress === 'number') post(d.scrollProgress);
+    });
+    post(0);
+  })();
+<\/script>`;
+
+const SEED_LESSON_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Photosynthesis</title></head><body><main><h1>Photosynthesis</h1><p>A lesson body.</p></main>${SEED_SENDER_SCRIPT}</body></html>`;
+
 // A built single-lesson result (one tier / one category / one built page) — the shape runLesson emits.
 const SEED_RESULT: PipelineResult = {
   hub: {
@@ -48,7 +89,7 @@ const SEED_RESULT: PipelineResult = {
   pages: [
     {
       nodeSlug: 'photosynthesis',
-      html: '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Photosynthesis</title></head><body><main><h1>Photosynthesis</h1></main></body></html>',
+      html: SEED_LESSON_HTML,
       learningGoal: 'How a plant turns sunlight, water, and air into food — and why leaves are green.',
       spec: { nodeSlug: 'photosynthesis', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
       passed: true,
