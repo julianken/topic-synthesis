@@ -397,43 +397,81 @@ h1 {
   padding: var(--sp-2) 0;
   display: grid;
   grid-auto-flow: row;
-  gap: 12px; /* 20px pitch − 8px dot (the prototype's --ws-scrub-pitch − --ws-scrub-dot) */
+  /* a11y (WCAG 2.2 AA, SC 2.5.8 Target Size Minimum): the HIT TARGET is the 24px button BOX, not the
+     8px visible dot. Each button is laid out at --ws-scrub-target (24px) tall, so the row pitch is
+     24px + gap ≥ 24px and adjacent 24px hit boxes never overlap — the spacing-exception failure of the
+     old 20px pitch is gone. A small gap keeps a visible breath between the 8px dots without dropping
+     pitch below 24px (24 + 4 = 28px pitch). */
+  gap: var(--sp-1); /* 4px → 28px center-to-center pitch (≥ the 24px target diameter, no overlap) */
 }
 .ws-scrub__rail li {
   display: block;
   line-height: 0;
 }
-/* Each dot is a keyboard-operable jump <button> (PR-C). The button defaults are reset to the bare dot;
-   the focusable control's hit area is the 8px dot itself (a larger invisible pad would widen the
-   --scrub-w track and risk the in-frame inset, so the rail keeps its measured width). */
+/* component-local a11y metrics — the 8px VISIBLE dot vs. the 24px CSS-px POINTER/touch hit target
+   (SC 2.5.8). No §0 retoken: both are --ws-* component tokens, like the rest of the workspace. */
+.ws-scrub {
+  --ws-scrub-dot: 8px; /* the visible dot — visually UNCHANGED from the prototype */
+  --ws-scrub-target: 24px; /* the WCAG 2.2 minimum pointer/touch target (≥ 24×24 CSS px) */
+}
+/* Each dot is a keyboard-operable jump <button> (PR-C). a11y (SC 2.5.8): the focusable control's HIT
+   target is the full --ws-scrub-target (24×24) button box — the visible 8px dot is painted by a
+   centered ::before, while the button itself carries transparent padding out to 24×24 so its
+   getBoundingClientRect (the real pointer/touch target) is ≥ 24×24 CSS px. The button is laid out at
+   24px tall (driving the row pitch) but its HORIZONTAL footprint in the narrow --scrub-w track is
+   pulled back to the 8px dot width by a negative inline margin — so the 24px hit box overflows the
+   track symmetrically (centered, never clipped) WITHOUT widening the [scrub] column. The track keeps
+   its measured ≈1.1rem width and stays inset inside the frame. */
 .ws-scrub__dot {
   appearance: none;
   -webkit-appearance: none;
+  box-sizing: border-box;
+  position: relative;
   display: block;
-  margin: 0;
+  /* 24×24 HIT TARGET (SC 2.5.8): the laid-out box is the pointer/touch target. */
+  width: var(--ws-scrub-target);
+  height: var(--ws-scrub-target);
+  /* keep the [scrub] track narrow: collapse the 24px hit box to the 8px dot's footprint for layout
+     width only — the extra 16px overflows the track centered, never widening it. (Vertical stays 24px
+     so it drives the ≥24px pitch.) */
+  margin-block: 0;
+  margin-inline: calc((var(--ws-scrub-dot) - var(--ws-scrub-target)) / 2); /* −8px each side */
   padding: 0;
-  width: 8px;
-  height: 8px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+/* The VISIBLE dot — the original 8px pill, centered inside the 24px hit box (visually UNCHANGED). */
+.ws-scrub__dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto; /* center the 8px dot in the 24px box */
+  width: var(--ws-scrub-dot);
+  height: var(--ws-scrub-dot);
   border-radius: var(--r-pill);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  cursor: pointer;
   /* TS-24: the active/done/hover swap rides the catalog --tr-state primitive (color+border @ --dur-base). */
   transition: var(--tr-state);
 }
-.ws-scrub__dot:hover {
+.ws-scrub__dot:hover::before {
   border-color: var(--accent);
 }
-/* A clear focus ring for keyboard operation (the dot is small — the ring is the focus affordance). */
+/* A clear focus ring for keyboard operation. The ring hugs the VISIBLE dot (the ::before), not the
+   invisible 24px hit box, so the focus affordance stays tight to what the user sees. */
 .ws-scrub__dot:focus-visible {
+  outline: none;
+}
+.ws-scrub__dot:focus-visible::before {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.ws-scrub__dot[data-done] {
+.ws-scrub__dot[data-done]::before {
   background: var(--pipeline);
   border-color: var(--badge-border-ok);
 }
-.ws-scrub__dot[data-active] {
+.ws-scrub__dot[data-active]::before {
   background: var(--accent);
   border-color: var(--accent);
   /* The active dot reads as the current position by SCALE too (status by style, not color alone). */

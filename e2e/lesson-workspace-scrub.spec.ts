@@ -192,6 +192,95 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
     // 0px horizontal overflow at this width.
     expect(g.scrollWidth).toBeLessThanOrEqual(g.innerWidth + PX);
   });
+
+  // ── a11y SC 2.5.8 (Target Size Minimum, WCAG 2.2 AA): each dot's POINTER hit target ≥ 24×24 CSS px ──
+  // The VISIBLE dot stays 8px (a centered ::before), but the focusable <button>'s OWN box (its
+  // getBoundingClientRect — the real pointer/touch target, padding included) is enlarged to ≥ 24×24
+  // CSS px, and adjacent hit boxes do NOT overlap (the 20px-pitch spacing-exception failure is gone).
+  // Crucially this is achieved WITHOUT widening the [scrub] track — re-asserted here so the a11y fix
+  // can't silently regress the in-frame layout the test above proves.
+  test('each dot has a ≥24×24 CSS-px POINTER hit target, non-overlapping, with the track unwidened', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openBuiltLesson(page, context, baseURL);
+    await driveProgress(page, 0.5);
+
+    const m = await page.evaluate(() => {
+      const buttons = Array.from(
+        document.querySelectorAll('.ws-scrub button.ws-scrub__dot'),
+      ) as HTMLElement[];
+      // The button's OWN box = its pointer/touch hit target (getBoundingClientRect includes the
+      // transparent padding that grows the 8px visible dot's button to the 24px target). The active
+      // dot's `transform: scale` is on the inner ::before, never the button box, so the hit rect is
+      // state-independent.
+      const hits = buttons.map((b) => {
+        const r = b.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: r.width, h: r.height };
+      });
+      // The visible dot (the ::before) stays 8px — read its rendered size so the fix is proven to keep
+      // the dot VISUALLY unchanged while only the hit box grew.
+      const firstDot = buttons[0];
+      const dotW = firstDot ? parseFloat(getComputedStyle(firstDot, '::before').width) : 0;
+      const dotH = firstDot ? parseFloat(getComputedStyle(firstDot, '::before').height) : 0;
+      const scrub = (() => {
+        const el = document.querySelector('.ws-scrub');
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, width: b.width };
+      })();
+      const grid = (() => {
+        const el = document.querySelector('.ws-grid');
+        return el ? el.getBoundingClientRect().right : null;
+      })();
+      return {
+        hits,
+        dotW,
+        dotH,
+        scrub,
+        gridRight: grid,
+        scrollWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+      };
+    });
+
+    expect(m.hits.length).toBe(SEED_SECTION_COUNT);
+
+    // (a) Every dot's POINTER hit target is ≥ 24×24 CSS px (SC 2.5.8 Target Size Minimum). PX tolerance
+    // is sub-pixel only — 24 is the hard floor, not a target to round down to.
+    for (const h of m.hits) {
+      expect(h.w).toBeGreaterThanOrEqual(24 - PX);
+      expect(h.h).toBeGreaterThanOrEqual(24 - PX);
+    }
+
+    // (b) Adjacent hit targets do NOT overlap: the vertical pitch is ≥ the 24px target height, so a
+    // dot's box never intrudes on its neighbour's (the failing exception of the old 20px pitch). Sorted
+    // top-to-bottom, each box's top is at or below the previous box's bottom (no vertical overlap).
+    const sorted = [...m.hits].sort((a, b) => a.top - b.top);
+    for (let i = 1; i < sorted.length; i += 1) {
+      const cur = sorted[i]!;
+      const prev = sorted[i - 1]!;
+      expect(cur.top).toBeGreaterThanOrEqual(prev.bottom - PX);
+    }
+
+    // (c) The VISIBLE dot is still 8px — the fix grew only the (transparent) hit box, not the dot.
+    expect(m.dotW).toBeGreaterThanOrEqual(8 - PX);
+    expect(m.dotW).toBeLessThanOrEqual(8 + PX);
+    expect(m.dotH).toBeGreaterThanOrEqual(8 - PX);
+    expect(m.dotH).toBeLessThanOrEqual(8 + PX);
+
+    // (d) The track was NOT widened to fit the 24px hit boxes: the [scrub] track stays the narrow
+    // ≈1.1rem column (< 40px), inside the capped frame, 0px horizontal overflow. The 24px hit box
+    // overflows the track centered (negative inline margin) instead of growing it.
+    expect(m.scrub).not.toBeNull();
+    expect(m.scrub!.width).toBeLessThan(40);
+    expect(m.gridRight).not.toBeNull();
+    expect(m.scrub!.right).toBeLessThanOrEqual(m.gridRight! + PX);
+    expect(m.innerWidth - m.scrub!.right).toBeGreaterThan(8);
+    expect(m.scrollWidth).toBeLessThanOrEqual(m.innerWidth + PX);
+  });
 });
 
 // ── Clicking dot i posts the coordinate-only { type:'lesson:scrollTo', id:<section i> } across the boundary ─
