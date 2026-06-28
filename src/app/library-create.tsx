@@ -9,13 +9,9 @@ import {
   SPECIMEN_TOPIC_NAME,
   vtOff,
 } from './library-morph';
-import {
-  deriveRail,
-  formatDuration,
-  STAGE_RAIL,
-  type RailStage,
-  type StepEvent,
-} from './curriculum/[id]/stage-rail'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+import { GeneratingView } from './curriculum/[id]/generating-view'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+import type { StepEvent } from './curriculum/[id]/stage-rail'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+import type { ResearchEvent } from '../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 
 /**
  * The library home's LIBRARY + CREATE client island (the create-form flow). It wraps the server-rendered
@@ -45,14 +41,6 @@ type View = 'index' | 'form' | 'generating';
 
 const POLL_MS = 2500;
 const MAX_ATTEMPTS = 160; // ~6-7 min, then stop polling and surface a hint (mirrors generating.tsx)
-const TICK_MS = 250;
-
-const RAIL_AFFORDANCE: Record<RailStage['state'], { icon: string; word: string }> = {
-  pending: { icon: '○', word: 'Pending' },
-  running: { icon: '◐', word: 'In progress' },
-  done: { icon: '✓', word: 'Done' },
-  error: { icon: '✗', word: 'Failed' },
-};
 
 export function LibraryCreate({ head, children }: { head: ReactNode; children: ReactNode }) {
   const router = useRouter();
@@ -176,6 +164,7 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
   // but, because the generating shell renders in-place on `/`, it NAVIGATES (router.replace) to the reader
   // route when the run lands rather than router.refresh()ing the library.
   const [steps, setSteps] = useState<StepEvent[]>([]);
+  const [research, setResearch] = useState<ResearchEvent[]>([]);
   const [stalled, setStalled] = useState(false);
   useEffect(() => {
     if (view !== 'generating' || !runId) return;
@@ -193,9 +182,14 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
           cache: 'no-store',
         });
         if (!res.ok) return;
-        const body = (await res.json()) as { ready?: boolean; steps?: StepEvent[] };
+        const body = (await res.json()) as {
+          ready?: boolean;
+          steps?: StepEvent[];
+          research?: ResearchEvent[];
+        };
         if (!active) return;
         if (body.steps) setSteps(body.steps);
+        if (body.research) setResearch(body.research);
         if (body.ready) {
           clearInterval(timer);
           router.replace(`/curriculum/${encodeURIComponent(runId)}`); // concept-drift-ok: route identifier, deferred rename (ADR-0003)
@@ -232,9 +226,23 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
 
   // GENERATING is a clean, focused screen — the library header (the "Lessons" title + the tap hint) is
   // DROPPED here (matching the prototype + SPEC §3c/§4), so no stale "Tap a built lesson" copy sits above
-  // a lesson that is mid-generation. The head only renders in the index/form views below.
+  // a lesson that is mid-generation. The head only renders in the index/form views below. The SHARED
+  // live-research view (the B view — Figma 1:2) renders the research node-graph + the LIVE RESEARCH panel
+  // + the rail; the typed topic LANDED here via the `specimen-topic` shared element (GeneratingView puts
+  // that name on its topic span), so the submit handoff morph still has its destination.
   if (view === 'generating') {
-    return <GeneratingShell topic={topic.trim()} steps={steps} stalled={stalled} />;
+    return (
+      <section className="generating-shell">
+        <GeneratingView
+          topic={topic.trim()}
+          level={level}
+          depth={depth}
+          steps={steps}
+          research={research}
+          stalled={stalled}
+        />
+      </section>
+    );
   }
 
   return (
@@ -406,103 +414,4 @@ function IntakeForm(props: {
       <p className="intake__note">Runs on Haiku, capped — about a minute and a few cents.</p>
     </form>
   );
-}
-
-/**
- * The IN-PLACE generating shell (the submit handoff target). The topic text LANDED here via the
- * `specimen-topic` shared element; this shell then polls the run's status (the same owner-scoped
- * `/api/curriculum/[id]/status` endpoint the reader route's poller uses) and renders the live six-stage // concept-drift-ok: route identifier, deferred rename (ADR-0003)
- * rail via the pure `deriveRail` core — until the run lands, when the island navigates to the reader
- * route. The shell's header carries `specimen-topic` (NEW side) so the topic morph has a destination.
- */
-function GeneratingShell({
-  topic,
-  steps,
-  stalled,
-}: {
-  topic: string;
-  steps: StepEvent[];
-  stalled: boolean;
-}) {
-  const rail = deriveRail(steps);
-  return (
-    <section className="generating-shell">
-      <p className="eyebrow">Lesson</p>
-      <h1>
-        Generating{' '}
-        <span
-          className="generating-shell__topic"
-          style={{ viewTransitionName: SPECIMEN_TOPIC_NAME } as CSSProperties}
-        >
-          {topic}
-        </span>
-        …
-      </h1>
-      <p className="lead">Researching and building your lesson. This usually takes a minute or two.</p>
-      <div role="status" aria-live="polite">
-        <ol className="rail" aria-label={`Generation progress — ${STAGE_RAIL.length} stages`}>
-          {rail.map((stage, i) => (
-            <RailStageRow key={stage.name} stage={stage} index={i} />
-          ))}
-        </ol>
-        <div className="generating">
-          <span className="generating__spinner" aria-hidden="true" />
-          <span>
-            {stalled
-              ? 'Still working — this is taking longer than usual. Leave this open, or check back soon.'
-              : 'Working…'}
-          </span>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function RailStageRow({ stage, index }: { stage: RailStage; index: number }) {
-  const { icon, word } = RAIL_AFFORDANCE[stage.state];
-  const running = stage.state === 'running';
-  const errored = stage.state === 'error';
-  return (
-    <li
-      className={`rail__stage rail__stage--${stage.state}`}
-      style={{ '--rail-i': index } as CSSProperties}
-    >
-      <span className="rail__icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span className="rail__label">
-        {stage.label}
-        <span className="rail__state-sr"> · {word}</span>
-        {errored && (
-          <span className="rail__tag" aria-hidden="true">
-            {' '}
-            · failed
-          </span>
-        )}
-      </span>
-      <span className="rail__time">
-        {running && stage.event ? (
-          <LiveTimer startedAt={stage.event.startedAt} />
-        ) : (
-          <FrozenTime event={stage.event} />
-        )}
-      </span>
-    </li>
-  );
-}
-
-function LiveTimer({ startedAt }: { startedAt: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(t);
-  }, []);
-  return <>{formatDuration(now - new Date(startedAt).getTime())}</>;
-}
-
-function FrozenTime({ event }: { event: StepEvent | null }) {
-  if (event === null) return null;
-  if (event.finishedAt === null) return <>—</>;
-  const ms = new Date(event.finishedAt).getTime() - new Date(event.startedAt).getTime();
-  return <>{formatDuration(ms)}</>;
 }
