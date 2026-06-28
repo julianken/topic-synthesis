@@ -8,7 +8,7 @@ export function SignOutButton() {
   const [busy, setBusy] = useState(false);
   return (
     <button
-      className="topbar__signout"
+      className="appbar__signout"
       disabled={busy}
       onClick={async () => {
         setBusy(true);

@@ -119,7 +119,11 @@ export function dumpPages(pages: CritiquedArtifact[], dir: string): string[] {
 }
 
 /** Assemble the persistRun input for a completed skeleton run (`--persist`). The
- *  workflow_version snapshot is STAGE_MODELS with the run's per-stage overrides merged in. */
+ *  workflow_version snapshot is STAGE_MODELS with the run's per-stage overrides merged in. Threads the
+ *  run's library-card presentation metadata (`category` eyebrow from the fail-safe classifier + the
+ *  `summary` = the brief's learningGoal) when the path produced them (the single-lesson path always
+ *  does; both may be absent on a degraded run), conditionally spread so an absent one is OMITTED, not
+ *  `undefined` (exactOptionalPropertyTypes). */
 export function persistInput(
   runId: string,
   request: TopicRequest,
@@ -127,7 +131,15 @@ export function persistInput(
   options: RunOptions,
 ): PersistRunInput {
   const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...(options.models ?? {}) };
-  return { runId, request, result: run.result, costUsd: run.costUsd, modelSnapshots };
+  return {
+    runId,
+    request,
+    result: run.result,
+    costUsd: run.costUsd,
+    modelSnapshots,
+    ...(run.category !== undefined ? { category: run.category } : {}),
+    ...(run.summary !== undefined ? { summary: run.summary } : {}),
+  };
 }
 
 /**

@@ -1,0 +1,45 @@
+/**
+ * The decorative line-art mark in a library poster card's top wash (Figma frame `6:2`, icon node `6:27`).
+ *
+ * Why a vector, not a per-lesson illustration: the FRAME-phase `LessonCard` (TS-16) carries no per-category
+ * thumbnail data source — the Figma's four distinct category illustrations have no metadata to drive them
+ * (DESIGN.md §Components → Library). So rather than fabricate a category icon (which would imply metadata the
+ * card does not hold), the wash carries a single neutral `topic·synthesis` motif: a node-graph (a ringed hub
+ * wired to two satellites), the product's own "synthesize a topic into a lesson" emblem. It is purely
+ * decorative chrome (`aria-hidden`), drawn in `currentColor` so the §0 wash tint drives its color (no
+ * hardcoded hex). DESIGN.md sanctions the single neutral mark; only its SCALE is fixed here.
+ *
+ * Scale + geometry mirror the Figma poster-icon silhouette (`6:27`/`6:28`). The Figma emblem is LARGE — its
+ * group bounding box (`6:28`) is ~168.6×56.5px centred in the 277.9×103.2px wash, i.e. the node-graph spreads
+ * ACROSS the band rather than huddling at its centre. The earlier 64×36 glyph read as a tiny mark in a near-
+ * empty band; this `viewBox` is the wash's own 278×104 coordinate space so the geometry maps 1:1, and the CSS
+ * sizes the SVG to fill ~78% of the wash width (the frame's silhouette footprint). The hub sits upper-left, a
+ * larger satellite upper-right and a smaller satellite lower-right, both wired to the hub by thin edges. Node
+ * positions/radii match the rendered `6:27` emblem (hub centre ~78,47 r26; satellites ~188,38 r13 / ~212,67
+ * r9). Strokes are thin (the Figma line weight) and the parent wash drives opacity via `--text-faint`.
+ */
+export function PosterMark() {
+  return (
+    <svg
+      className="library-poster__mark"
+      viewBox="0 0 278 104"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {/* edges first, so the nodes sit on top — hub → each satellite */}
+      <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round">
+        <line x1="78" y1="47" x2="188" y2="38" />
+        <line x1="78" y1="47" x2="212" y2="67" />
+      </g>
+      {/* hub: a ringed node, upper-left */}
+      <circle cx="78" cy="47" r="26" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="78" cy="47" r="4" fill="currentColor" />
+      {/* satellites: a larger one upper-right, a smaller one lower-right */}
+      <circle cx="188" cy="38" r="13" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="188" cy="38" r="2.4" fill="currentColor" />
+      <circle cx="212" cy="67" r="9" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="212" cy="67" r="2" fill="currentColor" />
+    </svg>
+  );
+}

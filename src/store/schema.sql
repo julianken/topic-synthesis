@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS curriculum (
 -- persistRun's transaction (ADR 0002 §2 — no second store). Owner-scoped reads land in a later PR.
 ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS owner_sub TEXT;
 
+-- Library poster-card presentation metadata (Figma 6:2 dense card). Additive + idempotent + NULLABLE
+-- so OLD rows (and any run whose classifier failed) read back as no-eyebrow/no-description — the card
+-- omits those rows gracefully, never a fabricated value. `category` is the subject eyebrow (BIOLOGY /
+-- MATHEMATICS / …) from the isolated fail-safe classifier (NULL when none could be safely derived);
+-- `summary` is the lesson's learner-facing one-liner (the brief's learningGoal — pure data plumbing,
+-- no extra generation). Both are written inside persistRun's transaction; neither is on a stage path.
+ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS summary  TEXT;
+
 -- Run ownership stamped at DISPATCH (before the curriculum persists), so the hub can tell a caller's
 -- own still-generating run (→ "generating") from a foreign/absent id (→ uniform 404) with no DB
 -- existence oracle. The Job later writes the same sub onto curriculum.owner_sub at persist. ADR 0002 §5.

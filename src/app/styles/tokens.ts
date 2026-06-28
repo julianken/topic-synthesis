@@ -110,6 +110,7 @@ export const lineHeightTokens = [
   '--lh-display',
   '--lh-heading',
   '--lh-gloss',
+  '--lh-card-desc',
 ] as const;
 
 /** Spacing scale — rem (DESIGN.md §0). */

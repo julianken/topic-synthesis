@@ -13,6 +13,7 @@ import type { StageModel } from '../llm/models';
 import type { Engine } from '../engine/engine';
 import { InlineEngine } from '../engine/inline-engine';
 import { SpanCollector } from '../trace/span';
+import { CATEGORY_SCHEMA } from './classify-category';
 import type { StageDeps } from './deps';
 import { defaultStages, type StageBundle } from './ports';
 import { runLesson, runPipeline } from './run-pipeline';
@@ -251,6 +252,11 @@ function lessonFakeDeps(questions: string[] = ['q1', 'q2'], criticPassed = true)
     if (opts.schema === CriticVerdictSchema) {
       return { object: { passed: criticPassed, critique: 'ok' }, record: mkRec() };
     }
+    if (opts.schema === CATEGORY_SCHEMA) {
+      // The isolated, fail-safe card-category classifier at the run TAIL (NOT a core stage). Return a
+      // valid subject so the happy path threads a category; a dedicated test overrides this to throw.
+      return { object: { category: 'Physics' }, record: mkRec() };
+    }
     throw new Error('unexpected schema');
   });
   const searchWeb = vi.fn(async () => ({
@@ -338,5 +344,72 @@ describe('runLesson (single-lesson path)', () => {
     expect(calls.filter(([o]) => o.schema === LessonBriefSchema)).toHaveLength(1);
     expect(calls.filter(([o]) => o.schema === CriticVerdictSchema)).toHaveLength(1);
     expect((deps.complete as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  // ── the dense card's presentation metadata (category eyebrow + summary description) ──────────────
+  // Both are produced at the run TAIL, isolated from the core stages: the category by the fail-safe
+  // classifier, the summary as pure data plumbing off the brief's learningGoal.
+  it('exposes the dense card metadata: category (classifier) + summary (= the brief learningGoal)', async () => {
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps());
+    expect(out.category).toBe('PHYSICS'); // the classifier's validated, uppercased subject label
+    expect(out.summary).toBe('understand T'); // pure data plumbing — the brief's learningGoal verbatim
+  });
+
+  it('classifier runs as the TAIL call (after the critic), so it can never affect what is taught', async () => {
+    const deps = lessonFakeDeps();
+    await runLesson(req, new InlineEngine(), deps);
+    const calls = (deps.completeObject as ReturnType<typeof vi.fn>).mock.calls;
+    const criticIdx = calls.findIndex(([o]) => o.schema === CriticVerdictSchema);
+    const categoryIdx = calls.findIndex(([o]) => o.schema === CATEGORY_SCHEMA);
+    expect(categoryIdx).toBeGreaterThan(criticIdx); // the category call is the run tail, after synthesis
+  });
+
+  it('PIPELINE-SAFETY: a THROWING classifier still produces the FULL built lesson with category null', async () => {
+    // The owner reverted a prior change for making generation slower/flakier — prove a classifier fault
+    // can NEVER do that: the lesson synthesizes fully (built), the run does not throw, category is null
+    // (the card omits the eyebrow), and the summary still plumbs through from the brief.
+    const deps = lessonFakeDeps();
+    // Override ONLY the category-schema arm to throw — every core stage still returns valid output.
+    (deps.completeObject as ReturnType<typeof vi.fn>).mockImplementation(
+      async (opts: { schema: unknown }) => {
+        if (opts.schema === CATEGORY_SCHEMA) throw new Error('classifier timeout');
+        if (opts.schema === PlanSchema) {
+          return { object: { scope: 'S', subtopics: ['a'], researchQuestions: ['q1'] }, record: mkRec() };
+        }
+        if (opts.schema === FindingsSchema) {
+          return { object: { findings: [{ claim: 'c', sourceIndex: 0 }] }, record: mkRec() };
+        }
+        if (opts.schema === LessonBriefSchema) {
+          return {
+            object: {
+              learningGoal: 'understand T',
+              keyPoints: ['key point one'],
+              findings: [{ claim: 'grounded fact', source: { url: 'https://s.example', title: 'S' } }],
+              audience: 'a',
+            },
+            record: mkRec(),
+          };
+        }
+        if (opts.schema === PageSpecSchema) {
+          return {
+            object: { nodeSlug: 'lesson', interactionKind: 'canvas', a11yContract: 'a', citations: [{ url: 'https://s.example', title: 'S' }] },
+            record: mkRec(),
+          };
+        }
+        if (opts.schema === CriticVerdictSchema) {
+          return { object: { passed: true, critique: 'ok' }, record: mkRec() };
+        }
+        throw new Error('unexpected schema');
+      },
+    );
+    const out = await runLesson(req, new InlineEngine(), deps);
+    // generation UNAFFECTED — a full built lesson
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.pages[0]?.passed).toBe(true);
+    const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
+    expect(hubPages[0]?.status).toBe('built');
+    // the classifier fault is contained: category null, summary still plumbed from the brief
+    expect(out.category).toBeNull();
+    expect(out.summary).toBe('understand T');
   });
 });

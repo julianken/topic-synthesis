@@ -27,7 +27,7 @@ import { describe, expect, it } from 'vitest';
  * One documented sub-threshold pairing is asserted as an ALLOWED exemption, not a
  * failure: `--text-faint` on `--bg-surface` (placeholder / meta / faint-stamp
  * only — never operable body copy; DESIGN.md "## Color & contrast" muted-text rule
- * and "## Components" — `.poster__when` / `.intake__note` faint stamps).
+ * and "## Components" — `.library-poster__when` / `.library__hint` faint stamps).
  */
 
 // ── §0 OKLCH primitives referenced below (transcribed from DESIGN.md ## 0 / globals.css :root) ──
@@ -188,7 +188,7 @@ describe('DESIGN.md "## Color & contrast" pairs (computed from §0 OKLCH)', () =
     const faint = pairs.find((p) => p.name === '{bg-surface} / {text-faint}');
     expect(faint?.exemption).toBe('faint-meta-only');
     // It actually clears AA comfortably today, but is tagged exempt because its ROLE is
-    // faint meta (.poster__when relative-time / .intake__note), never operable body copy —
+    // faint meta (.library-poster__when relative-time / .library__hint), never operable body copy —
     // so a future darkening below the floor would be sanctioned, not a failure.
     expect(faint?.ratio).toBeGreaterThan(0);
   });

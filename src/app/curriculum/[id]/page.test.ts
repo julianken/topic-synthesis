@@ -90,7 +90,7 @@ describe('TS-21 AC2 — the FLIP-origin card is a cross-document <a> (NOT next/l
   it('renders the FLIP-origin card as a plain <a> carrying the per-id view-transition-name endpoint', () => {
     // The plain anchor is the genuine cross-document navigation that activates the transport; it still
     // carries the inline per-id `morphName(lesson.id)` FLIP-origin endpoint the transport pairs.
-    expect(LIBRARY).toMatch(/<a\b[^>]*className="poster__card"/);
+    expect(LIBRARY).toMatch(/<a\b[^>]*className="library-poster__card"/);
     expect(LIBRARY).toContain('viewTransitionName: morphName(lesson.id)');
   });
 });
