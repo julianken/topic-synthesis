@@ -190,15 +190,19 @@ describe('formatDuration — compact ledger durations', () => {
 // ── AC2 (markup) — the generating view renders no graph rail position, by label or name ──────────────
 // The `.tsx` view can't mount in vitest's `environment: 'node'` (no DOM — the constraint
 // `lesson-message.test.ts` / `page.test.ts` note), so this is a SOURCE byte-pin: it asserts the rail
-// vocabulary present in the view and the absence of any graph/gate/hub stage entry.
-describe('generating.tsx — renders the stage rail, never a graph stage (TS-23 AC2)', () => {
-  const VIEW = readFileSync(fileURLToPath(new URL('./generating.tsx', import.meta.url)), 'utf8');
+// vocabulary present in the SHARED generating view and the absence of any graph/gate/hub stage entry.
+// The Figma-1:2 rebuild factored the view markup into `stage-rail-view.tsx` (the ONE GeneratingView used
+// by BOTH the /curriculum/[id] generating route AND the library `/` in-place shell — no divergence).
+describe('stage-rail-view.tsx — renders the stage rail, never a graph stage (TS-23 AC2)', () => {
+  const VIEW = readFileSync(fileURLToPath(new URL('./stage-rail-view.tsx', import.meta.url)), 'utf8');
   const RAIL = readFileSync(fileURLToPath(new URL('./stage-rail.ts', import.meta.url)), 'utf8');
 
   it('renders the rail from the canonical STAGE_RAIL via deriveRail', () => {
     expect(VIEW).toContain('deriveRail');
     expect(VIEW).toContain('STAGE_RAIL');
-    expect(VIEW).toContain('className="rail"');
+    // The six-column stage strip + the inline pipeline-progress ledger (Figma 1:2) are the rail surfaces.
+    expect(VIEW).toContain('className="stagestrip"');
+    expect(VIEW).toContain('genprogress__steps');
   });
 
   it('introduces NO graph/gate/hub stage entry in the view or the rail module', () => {
@@ -212,6 +216,32 @@ describe('generating.tsx — renders the stage rail, never a graph stage (TS-23 
     expect(VIEW).toContain('RAIL_AFFORDANCE');
     expect(VIEW).toContain('· failed');
     expect(VIEW).toContain('rail__state-sr'); // the visually-hidden accessible state word
+  });
+});
+
+// ── The shared GeneratingView is used by BOTH generating surfaces (no divergence) ────────────────────
+// The Figma-1:2 rebuild's load-bearing factoring: the /curriculum/[id] poller AND the library `/` in-place
+// shell import the SAME GeneratingView, so a future edit to one surface can't silently re-fork the rail.
+describe('GeneratingView — the ONE shared stage-rail design (Figma 1:2)', () => {
+  const POLLER = readFileSync(fileURLToPath(new URL('./generating.tsx', import.meta.url)), 'utf8');
+  const SHELL = readFileSync(
+    fileURLToPath(new URL('../../library-create.tsx', import.meta.url)),
+    'utf8',
+  );
+
+  it('is imported by the reader-route generating poller', () => {
+    expect(POLLER).toContain('GeneratingView');
+    expect(POLLER).toContain('./stage-rail-view');
+  });
+
+  it('is imported by the library in-place generating shell', () => {
+    expect(SHELL).toContain('GeneratingView');
+    expect(SHELL).toContain('stage-rail-view');
+  });
+
+  it('the in-place shell passes the specimen-topic morph destination to the shared view', () => {
+    // The form→generating topic morph needs its NEW-side endpoint name on the shared view's topic text.
+    expect(SHELL).toContain('topicVtName={SPECIMEN_TOPIC_NAME}');
   });
 });
 

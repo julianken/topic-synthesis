@@ -745,130 +745,376 @@ h1 {
   font-size: var(--fs-caption);
 }
 
-/* ── Generating state ─────────────────────────────────────────────────────── */
-.generating {
-  margin-top: var(--sp-5);
+/* ── Generating view (DESIGN.md §Components → Progress; Figma frame 1:2) ───────────────────────────
+   The SHARED stage-rail design (`stage-rail-view.tsx`'s GeneratingView) rendered by BOTH the
+   /curriculum/[id] generating route AND the library `/` in-place generating shell. The frame floats over
+   the §0 radial app-bg: a generating HEADER (wordmark + the static "plan → critic" sub-line · the live
+   current-stage status), the six-column STAGE STRIP (plan…critic, 01..06, state-bar underlines), the
+   TOPIC HEADER (eyebrow · topic · meta — the topic is the `specimen-topic` morph destination), the
+   PIPELINE-PROGRESS ledger (inline step pills with timing + the live-timer note), and the LEGEND
+   (solid/dashed/dotted = ran / in progress / pending). Driven entirely by the existing owner-scoped status
+   poll's `steps` (no new data path, no durable store — R8). All values resolve to §0 tokens. */
+
+.generating-frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  max-width: var(--frame-max);
+  margin: 0 auto;
+  padding: var(--sp-5) var(--edge-gap) var(--sp-7);
+}
+
+/* HEADER (Figma 1:2 node 1:81): the static pipeline-context line on the left + the live current-stage
+   status on the right (the running stage's label + a user-facing gloss of what it's doing). The Figma
+   frame's wordmark is the global `.appbar` chrome in this app, so this bar carries no second wordmark. */
+.genhead {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 0.8px solid var(--surface-divider);
+}
+
+.genhead__sub {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.genhead__status {
+  text-align: right;
+}
+
+.genhead__stage {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: var(--fs-small);
+  letter-spacing: var(--ls-meta);
+  color: var(--accent);
+}
+
+.genhead__gloss {
+  margin: var(--sp-1) 0 0;
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
   color: var(--text-muted);
 }
 
-.generating__spinner {
-  width: 1rem;
-  height: 1rem;
-  flex: none;
-  border: 2px solid var(--border);
-  border-top-color: var(--interactive);
-  border-radius: 50%;
-  /* TS-24: the bespoke `0.8s` literal is replaced with the §0 `--dur-slow` tier (440ms) — no raw
-     duration in the spinner rule. A continuous rotation must keep `linear` (the §0 `--ease` would
-     stutter the loop's seam); `linear` is a timing KEYWORD, not a duration/easing literal, so the
-     "no literal" catalog rule is satisfied while the loop stays smooth. */
-  animation: spin var(--dur-slow) linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ── Generating stage rail + ledger (TS-23, over the issue-#61 step stream) ───────────────────────
-   A FIXED six-stage rail (plan · research · brief · spec · code · critic — the LIVE single-lesson
-   stages, NO graph; see stage-rail.ts) with a per-stage ledger: each row shows a state affordance
-   (icon + text, never color alone — DESIGN.md §Accessibility), the stage label, and its timing
-   (pending → none; running → the live timer; done → the frozen duration; error → · failed). Driven
-   entirely by the existing owner-scoped status poll (no new data path, no durable store — R8). */
-.rail {
+/* STAGE STRIP (Figma 1:2 node 1:5): the six stages as labeled columns, each with a number and a state-bar
+   underline (solid/done · dashed/running · dotted/pending — the legend's vocabulary, applied as the border
+   style). The per-state transition rides the catalog's --tr-state primitive; the strip staggers in via
+   rail-reveal. State reads by the bar STYLE + the column color + the visually-hidden state word. */
+.stagestrip {
   list-style: none;
-  margin: var(--sp-5) 0 0;
+  margin: 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--sp-2);
+}
+
+.stagestrip__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-bottom: var(--sp-2);
+  text-align: center;
+  /* The state transition (color as a column moves pending → running → done) — catalog primitive. */
+  transition: var(--tr-state);
+  /* The strip staggers in (DESIGN.md §Motion — the unified rail-reveal); reduced motion zeroes it. */
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+  animation-delay: calc(var(--rail-i, 0) * var(--dur-fast));
+}
+
+.stagestrip__name {
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-eyebrow-wide);
+  text-transform: uppercase;
+}
+
+.stagestrip__num {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+}
+
+/* The state-bar underline (Figma 1:2 node 66:*): a 2px rule whose BORDER STYLE encodes the state — solid
+   (ran) · dashed (in progress) · dotted (pending) — the same vocabulary the legend spells out, so the bar
+   is decoded by the legend's text and the column's color, never color alone (DESIGN.md §Accessibility). */
+.stagestrip__bar {
+  width: 64%;
+  height: 0;
+  border-top-width: 2px;
+}
+
+.stagestrip__col--pending {
+  color: var(--text-faint);
+}
+.stagestrip__col--pending .stagestrip__bar {
+  border-top-style: dotted;
+  border-top-color: var(--border);
+}
+
+.stagestrip__col--running {
+  color: var(--accent);
+}
+.stagestrip__col--running .stagestrip__bar {
+  border-top-style: dashed;
+  border-top-color: var(--accent);
+}
+
+.stagestrip__col--done {
+  color: var(--pipeline);
+}
+.stagestrip__col--done .stagestrip__bar {
+  border-top-style: solid;
+  border-top-color: var(--pipeline);
+}
+
+.stagestrip__col--error {
+  color: var(--status-error);
+}
+.stagestrip__col--error .stagestrip__bar {
+  border-top-style: solid;
+  border-top-color: var(--status-error);
+}
+
+/* TOPIC HEADER (Figma 1:2 node 63:2): the subject eyebrow, the big Inter-Bold topic title (the
+   `specimen-topic` morph destination in --interactive), and the settings meta line. */
+.gentopic {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
 }
 
-.rail__stage {
-  display: grid;
-  grid-template-columns: 1.25rem 1fr auto;
-  align-items: baseline;
+.gentopic__eyebrow {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow-wide);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.gentopic__title {
+  margin: 0;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: var(--fs-h1);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-display);
+  color: var(--text);
+}
+
+/* The topic text the form's `specimen-topic` shared element morphs INTO — colored --interactive so the
+   user's typed topic reads as the live anchor of "what is being built". */
+.gentopic__topic {
+  color: var(--interactive);
+}
+
+.gentopic__meta {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+}
+
+/* PIPELINE-PROGRESS ledger (Figma 1:2 node 65:33): the six stages inline as step pills with timing,
+   inside a frosted panel; the live-timer note below. */
+.genprogress {
+  display: flex;
+  flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--bg-surface);
+}
+
+.genprogress__head {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.genprogress__steps {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) 0;
+  background: var(--surface-panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
+}
+
+/* One step pill: label + timing + state glyph (icon + text, never color alone), with the interpunct
+   separator after every step but the last. Each pill staggers in via rail-reveal. */
+.genstep {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
   font-size: var(--fs-small);
-  /* TS-24: the state transition (border/colour as a stage moves pending → running → done) is sourced
-     from the catalog's state primitive (color + border-color @ --dur-base/--ease); under
-     prefers-reduced-motion the global rule above makes the change instant (DESIGN.md §Motion). */
   transition: var(--tr-state);
-  /* The reveal as a rail row first paints (TS-24): a token-driven enter that staggers down the rail.
-     `--rail-i` is set inline per-row in generating.tsx so each row's delay steps off its rail index;
-     the global prefers-reduced-motion reset zeroes the animation, so reduced motion shows the rail
-     instantly with no stagger (DESIGN.md §Motion). */
   animation: rail-reveal var(--dur-base) var(--ease) both;
   animation-delay: calc(var(--rail-i, 0) * var(--dur-fast));
 }
 
-/* The timeline step reveal (DESIGN.md §Motion — "staggered hub-tile reveal" vocabulary, applied to the
-   generating rail). Token-driven: duration/easing come from the catalog tiers, the per-row delay from
-   the inline `--rail-i`. NO bespoke literal. */
-@keyframes rail-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(var(--sp-1));
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* The state glyph (○ pending · ◐ running · ✓ done · ✗ failed) — paired with the visually-hidden state
-   word in .rail__label, so state is icon + text, never color alone (DESIGN.md §Accessibility). */
-.rail__icon {
-  flex: none;
-  font-weight: 700;
-  text-align: center;
-}
-
-.rail__label {
-  min-width: 0;
-}
-
-.rail__stage--pending {
-  color: var(--text-faint);
-}
-
-.rail__stage--done {
-  color: var(--text-muted);
-}
-
-.rail__stage--running {
-  color: var(--text);
-  border-color: var(--interactive);
-}
-
-.rail__stage--error {
-  color: var(--status-error);
-  border-color: var(--status-error);
-}
-
-.rail__tag {
-  font-weight: 600;
+.genstep__label {
+  font-family: var(--mono);
+  font-weight: 500;
 }
 
 /* Monospace + tabular figures so the live timer doesn't jitter as the digits tick (DESIGN.md §Typography). */
-.rail__time {
-  flex: none;
+.genstep__time {
   font-family: var(--mono);
-  font-size: var(--fs-mono);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-/* The accessible state name — visually hidden but read by assistive tech, so the rail's state is
-   conveyed by TEXT (not the icon glyph or color alone) to a screen reader (DESIGN.md §Accessibility). */
+.genstep__icon {
+  font-weight: 700;
+}
+
+.genstep__tag {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.genstep__sep {
+  font-family: var(--mono);
+  color: var(--border);
+  padding: 0 var(--sp-2);
+}
+
+.genstep--pending {
+  color: var(--text-faint);
+}
+.genstep--pending .genstep__time {
+  color: var(--border);
+}
+
+.genstep--done {
+  color: var(--text);
+}
+.genstep--done .genstep__icon,
+.genstep--done .genstep__time {
+  color: var(--pipeline);
+}
+
+.genstep--running {
+  color: var(--text);
+}
+.genstep--running .genstep__icon,
+.genstep--running .genstep__time {
+  color: var(--accent);
+}
+
+.genstep--error {
+  color: var(--status-error);
+}
+.genstep--error .genstep__icon,
+.genstep--error .genstep__time,
+.genstep--error .genstep__tag {
+  color: var(--status-error);
+}
+
+.genprogress__note {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+}
+
+/* LEGEND (Figma 1:2 node 1:62): the state-bar vocabulary spelled out, so the strip's bar styles are
+   decoded by TEXT. The 30px mark mirrors the strip's underline style per state. */
+.genlegend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+
+.genlegend__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.genlegend__item strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.genlegend__mark {
+  flex: none;
+  width: 30px;
+  height: 0;
+  border-top-width: 2px;
+}
+
+.genlegend__item--done .genlegend__mark {
+  border-top-style: solid;
+  border-top-color: var(--pipeline);
+}
+.genlegend__item--running .genlegend__mark {
+  border-top-style: dashed;
+  border-top-color: var(--accent);
+}
+.genlegend__item--pending .genlegend__mark {
+  border-top-style: dotted;
+  border-top-color: var(--border);
+}
+
+/* MOBILE (≤640, DESIGN.md mobile viewport): the six-column strip is too narrow at 390px, so it wraps to a
+   2-up grid and the frame tightens its edge padding + gaps. The pipeline-progress pills still flow inline. */
+@media (max-width: 640px) {
+  .generating-frame {
+    gap: var(--sp-5);
+    padding: var(--sp-4) var(--sp-4) var(--sp-6);
+  }
+
+  .genhead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-2);
+  }
+
+  .genhead__status {
+    text-align: left;
+  }
+
+  .stagestrip {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-3) var(--sp-2);
+  }
+
+  .gentopic__title {
+    font-size: var(--fs-title);
+  }
+}
+
+/* The accessible state name — visually hidden but read by assistive tech, so the generating view's state
+   is conveyed by TEXT (not the bar style or color alone) to a screen reader (DESIGN.md §Accessibility). */
 .rail__state-sr {
   position: absolute;
   width: 1px;
@@ -879,6 +1125,20 @@ h1 {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* The timeline step reveal (DESIGN.md §Motion — the unified rail-reveal keyframe, reused by the generating
+   strip + step pills AND the intake form's staggered fields). Token-driven: duration/easing from the
+   catalog tiers, the per-element delay from the inline `--rail-i`. NO bespoke literal. */
+@keyframes rail-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--sp-1));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Status badge: a glyph + the text label (DESIGN.md — status by label + icon, never color alone). */
@@ -1350,21 +1610,12 @@ h1 {
   font-size: var(--fs-caption);
 }
 
-/* The IN-PLACE generating shell (the submit handoff target on `/`). A bounded reading column matching the
-   chrome's .wrap width so the rail + spinner read like the reader route's generating state — it reuses
-   the shipped `.eyebrow` / `h1` / `.lead` / `.rail` / `.generating` styles, adding only its own column +
-   the `specimen-topic` topic accent. */
+/* The IN-PLACE generating shell (the submit handoff target on `/`). It wraps the SHARED `.generating-frame`
+   (Figma 1:2) the reader route's generating view also renders — the frame owns its own width/padding, so
+   the shell is a thin block wrapper that just receives the `begin-generate` submit handoff. The topic
+   accent + the `specimen-topic` morph destination now live on the shared `.gentopic__topic`. */
 .generating-shell {
-  max-width: 48rem;
-  margin: 0 auto;
-  padding: var(--sp-6) 26px var(--sp-7);
-}
-
-/* The topic text the form's `specimen-topic` shared element morphs INTO — colored --interactive so the
-   user's typed topic reads as the live anchor of "what is being built". Set as the NEW-side endpoint name
-   inline in the TSX. */
-.generating-shell__topic {
-  color: var(--interactive);
+  display: block;
 }
 
 /* ── Typed-root View-Transition CSS (the create-form flow) ──────────────────────────────────────────

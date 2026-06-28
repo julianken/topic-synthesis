@@ -79,6 +79,68 @@ test.describe('visual — library (authed)', () => {
     await expect(card).toHaveScreenshot('library-dense-card.png');
   });
 
+});
+
+// ── generating view (Figma 1:2) — the in-place generating shell, status MOCKED to a frozen mid-run ──────
+test.describe('visual — generating (Figma 1:2, status mocked)', () => {
+  // Deterministic capture of the rebuilt generating view (Figma frame 1:2): sign in, open the +New form,
+  // and submit with BOTH /api/generate and /api/curriculum/[id]/status MOCKED — generate returns a fake
+  // id and status returns a FROZEN mid-run state (plan done, research running, the rest pending; never
+  // ready) so the in-place generating shell renders without a real LLM run. The live elapsed timer on the
+  // running step is the only non-deterministic pixel, so it is MASKED. DESIGN.md wins on any design conflict.
+  const FAKE_ID = '00000000-0000-4000-8000-000000000abc';
+
+  // A mid-run timeline computed RELATIVE to now (a fixed past date would show a huge elapsed span). plan
+  // ran 2.1s; research started ~11s ago with one researcher done and two still running.
+  function midRunStepsJSON(): string {
+    const now = Date.now();
+    const iso = (ms: number) => new Date(now - ms).toISOString();
+    return JSON.stringify({
+      id: FAKE_ID,
+      ready: false,
+      steps: [
+        { name: 'plan', stepKey: 'plan:k', startedAt: iso(14_000), finishedAt: iso(11_900), status: 'done' },
+        { name: 'research', stepKey: 'research:a', startedAt: iso(11_400), finishedAt: iso(4_000), status: 'done' },
+        { name: 'research', stepKey: 'research:b', startedAt: iso(11_400), finishedAt: null, status: 'running' },
+        { name: 'research', stepKey: 'research:c', startedAt: iso(11_400), finishedAt: null, status: 'running' },
+      ],
+    });
+  }
+
+  test('the generating view matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+
+    // Mock the generate POST → a fake run id, and the status poll → the frozen mid-run state (never ready).
+    await page.route('**/api/generate', (route) =>
+      route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: FAKE_ID }) }),
+    );
+    await page.route('**/api/curriculum/*/status', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: midRunStepsJSON() }),
+    );
+
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+    // Open the +New form, type a topic, submit → the in-place generating shell renders the Figma-1:2 frame.
+    await page.getByRole('button', { name: /new lesson/i }).click();
+    await page.getByRole('textbox').first().fill('Photosynthesis');
+    await page.getByRole('button', { name: /generate/i }).click();
+
+    // Wait for the first poll to fold the mocked steps onto the rail (a running + a done column appear).
+    const frame = page.locator('.generating-frame');
+    await expect(frame).toBeVisible();
+    await expect(page.locator('.stagestrip__col--running').first()).toBeVisible();
+    await expect(page.locator('.stagestrip__col--done').first()).toBeVisible();
+
+    // Mask the live elapsed timer on the running step (the one non-deterministic pixel) so the ticking
+    // value can't flake the diff; everything else in the frame is stable under the mocked timeline.
+    await expect(frame).toHaveScreenshot('generating.png', {
+      mask: [page.locator('.genstep--running .genstep__time')],
+    });
+  });
+});
+
+test.describe('visual — library (authed) — intake structure', () => {
   test('the +New create card grows into the intake form with its full load-bearing structure', async ({
     page,
     context,

@@ -20,12 +20,18 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   // writes the lesson row atomically on completion); a foreign/absent id is a uniform 404 (no oracle).
   if (!view) {
     if (!(await ownsRun(id, identity.sub))) notFound();
+    // The full generating frame (Figma 1:2) — the SAME shared stage-rail design the library `/` in-place
+    // shell renders (one component, no divergence). The topic isn't known on a cold deep-link to this
+    // route (it persists atomically with the run), so the title reads a neutral "Generating your lesson…";
+    // the in-place shell carries the typed topic forward via the `specimen-topic` morph. concept-drift-ok: route identifier, deferred rename (ADR-0003)
     return (
-      <main className="wrap">
-        <p className="eyebrow">Lesson</p>
-        <h1>Generating…</h1>
-        <p className="lead">Researching and building your lesson. This usually takes a minute or two.</p>
-        <GeneratingPoller id={id} />
+      <main className="generating-route">
+        <GeneratingPoller
+          id={id}
+          topic=""
+          eyebrow="Lesson"
+          meta="building one lesson"
+        />
       </main>
     );
   }

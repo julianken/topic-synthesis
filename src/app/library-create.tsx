@@ -9,13 +9,8 @@ import {
   SPECIMEN_TOPIC_NAME,
   vtOff,
 } from './library-morph';
-import {
-  deriveRail,
-  formatDuration,
-  STAGE_RAIL,
-  type RailStage,
-  type StepEvent,
-} from './curriculum/[id]/stage-rail'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+import { type StepEvent } from './curriculum/[id]/stage-rail'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+import { GeneratingView } from './curriculum/[id]/stage-rail-view'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
 
 /**
  * The library home's LIBRARY + CREATE client island (the create-form flow). It wraps the server-rendered
@@ -45,14 +40,6 @@ type View = 'index' | 'form' | 'generating';
 
 const POLL_MS = 2500;
 const MAX_ATTEMPTS = 160; // ~6-7 min, then stop polling and surface a hint (mirrors generating.tsx)
-const TICK_MS = 250;
-
-const RAIL_AFFORDANCE: Record<RailStage['state'], { icon: string; word: string }> = {
-  pending: { icon: '○', word: 'Pending' },
-  running: { icon: '◐', word: 'In progress' },
-  done: { icon: '✓', word: 'Done' },
-  error: { icon: '✗', word: 'Failed' },
-};
 
 export function LibraryCreate({ head, children }: { head: ReactNode; children: ReactNode }) {
   const router = useRouter();
@@ -411,9 +398,11 @@ function IntakeForm(props: {
 /**
  * The IN-PLACE generating shell (the submit handoff target). The topic text LANDED here via the
  * `specimen-topic` shared element; this shell then polls the run's status (the same owner-scoped
- * `/api/curriculum/[id]/status` endpoint the reader route's poller uses) and renders the live six-stage // concept-drift-ok: route identifier, deferred rename (ADR-0003)
- * rail via the pure `deriveRail` core — until the run lands, when the island navigates to the reader
- * route. The shell's header carries `specimen-topic` (NEW side) so the topic morph has a destination.
+ * `/api/curriculum/[id]/status` endpoint the reader route's poller uses) and renders the live generating // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+ * frame via the SHARED {@link GeneratingView} — the SAME stage-rail design (Figma 1:2) the reader route's
+ * `generating.tsx` poller renders, so the two surfaces can NEVER diverge. The shell passes the
+ * `specimen-topic` view-transition-name onto the topic text so the form→generating topic morph has a
+ * destination; the poll loop in the island above navigates to the reader route when the run lands.
  */
 function GeneratingShell({
   topic,
@@ -424,85 +413,16 @@ function GeneratingShell({
   steps: StepEvent[];
   stalled: boolean;
 }) {
-  const rail = deriveRail(steps);
   return (
     <section className="generating-shell">
-      <p className="eyebrow">Lesson</p>
-      <h1>
-        Generating{' '}
-        <span
-          className="generating-shell__topic"
-          style={{ viewTransitionName: SPECIMEN_TOPIC_NAME } as CSSProperties}
-        >
-          {topic}
-        </span>
-        …
-      </h1>
-      <p className="lead">Researching and building your lesson. This usually takes a minute or two.</p>
-      <div role="status" aria-live="polite">
-        <ol className="rail" aria-label={`Generation progress — ${STAGE_RAIL.length} stages`}>
-          {rail.map((stage, i) => (
-            <RailStageRow key={stage.name} stage={stage} index={i} />
-          ))}
-        </ol>
-        <div className="generating">
-          <span className="generating__spinner" aria-hidden="true" />
-          <span>
-            {stalled
-              ? 'Still working — this is taking longer than usual. Leave this open, or check back soon.'
-              : 'Working…'}
-          </span>
-        </div>
-      </div>
+      <GeneratingView
+        topic={topic}
+        eyebrow="Lesson"
+        meta="building one lesson"
+        steps={steps}
+        stalled={stalled}
+        topicVtName={SPECIMEN_TOPIC_NAME}
+      />
     </section>
   );
-}
-
-function RailStageRow({ stage, index }: { stage: RailStage; index: number }) {
-  const { icon, word } = RAIL_AFFORDANCE[stage.state];
-  const running = stage.state === 'running';
-  const errored = stage.state === 'error';
-  return (
-    <li
-      className={`rail__stage rail__stage--${stage.state}`}
-      style={{ '--rail-i': index } as CSSProperties}
-    >
-      <span className="rail__icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span className="rail__label">
-        {stage.label}
-        <span className="rail__state-sr"> · {word}</span>
-        {errored && (
-          <span className="rail__tag" aria-hidden="true">
-            {' '}
-            · failed
-          </span>
-        )}
-      </span>
-      <span className="rail__time">
-        {running && stage.event ? (
-          <LiveTimer startedAt={stage.event.startedAt} />
-        ) : (
-          <FrozenTime event={stage.event} />
-        )}
-      </span>
-    </li>
-  );
-}
-
-function LiveTimer({ startedAt }: { startedAt: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(t);
-  }, []);
-  return <>{formatDuration(now - new Date(startedAt).getTime())}</>;
-}
-
-function FrozenTime({ event }: { event: StepEvent | null }) {
-  if (event === null) return null;
-  if (event.finishedAt === null) return <>—</>;
-  const ms = new Date(event.finishedAt).getTime() - new Date(event.startedAt).getTime();
-  return <>{formatDuration(ms)}</>;
 }
