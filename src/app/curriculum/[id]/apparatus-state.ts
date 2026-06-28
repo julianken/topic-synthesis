@@ -9,42 +9,59 @@
  *
  * COORDINATE-ONLY (the non-negotiable trust boundary): this reads ONLY the two posted scalars — the
  * `sections` list (id + title) and the `scrollProgress` number in [0, 1]. It NEVER reads the iframe DOM
- * and introduces NO new postMessage field. The "active section" is DERIVED from `scrollProgress` × the
- * section count (not posted) — so the where-am-i widget + scrubber light up from exactly the data the
- * shipped channel already carries (`{sections, scrollProgress}`); the richer cards (gloss / figure /
- * source / self-check / takeaways) stay best-effort placeholders until PR-F extends the coordinate-only
- * payload + the in-iframe sender pushes their data (NOT this PR).
+ * and introduces NO new postMessage field. The richer cards (gloss / figure / source / self-check /
+ * takeaways) stay best-effort placeholders until a future pass extends the coordinate-only payload + the
+ * in-iframe sender pushes their data (NOT this PR).
+ *
+ * HONESTY OF THE "WHERE-AM-I" CUE (the reviewer's MAJOR data-contract finding, resolved). The shipped
+ * channel carries only an OVERALL `scrollProgress` scalar — there is NO per-section position, no posted
+ * active-section id/index. So this derivation deliberately does NOT claim a confident, tracked discrete
+ * "you are in section N of M": deriving a precise `NN/total` from one overall scalar would be a fabricated
+ * mapping (AGENTS.md anti-invention; DESIGN.md §Lesson layout decision 1 "where-am-I/progress cue"). What
+ * IS truthful from `{sections, scrollProgress}` and all this returns is: (a) the OVERALL percent (the
+ * posted scalar verbatim), (b) the full section LIST (posted verbatim), and (c) an APPROXIMATE position —
+ * `floor(scrollProgress × count)` — surfaced explicitly as an estimate ("≈ section N", `approximate:true`)
+ * for the strip fill + a soft highlight, never as a hard tracked "current section" readout. When the
+ * payload later carries a real active-section signal, the cue can be promoted to exact (and `approximate`
+ * flipped to false) without changing the channel's trust discipline.
  */
 
 import type { LessonSection } from './lesson-message';
 
-/** One segment of the where-am-i strip / one scrubber dot — derived purely from the active index. */
+/** One segment of the where-am-i strip / one scrubber dot — derived purely from the approximate index. */
 export interface SectionMark {
   /** The section's posted id (the React key + the dot's stable handle). */
   id: string;
   /** The section's posted, React-escaped title (the scrubber label `N. <title>`). */
   title: string;
-  /** 1-based ordinal for the `N. <title>` label + the `NN / total` readout. */
+  /** 1-based ordinal for the `N. <title>` label. */
   ordinal: number;
-  /** A section the reader has scrolled PAST (before the active one) — the "done" style + label. */
+  /** A section BEFORE the approximate position (overall progress has passed it) — the "done" style/label. */
   done: boolean;
-  /** The section the reader is currently in (derived from scrollProgress) — the "active" style + label. */
+  /** The APPROXIMATE current section (estimated from overall scrollProgress, NOT a posted active-section
+   *  signal — see the file header). Surfaced as a soft "≈ here" hint, never a hard tracked readout. */
   active: boolean;
 }
 
-/** The where-am-i widget model: the active section's identity + the `NN / total` readout + the strip. */
+/** The where-am-i widget model. From `{sections, scrollProgress}` only the OVERALL percent + the section
+ *  LIST are exact; the position is an ESTIMATE (`approximate`), so the widget shows "≈ section N", never a
+ *  confident `NN/total` tracked count (the reviewer's MAJOR finding — honest degradation). */
 export interface ApparatusModel {
   /** True when at least one section was posted (a lesson that posts nothing → an empty, usable shell). */
   hasSections: boolean;
-  /** The active section's title, or null when nothing has been posted yet (the empty state). */
+  /** True whenever the position is INFERRED from the overall scalar (i.e. always, with today's contract) —
+   *  the widget renders the "≈"/estimated framing while this is true. Flips false only when a future payload
+   *  carries a real active-section signal. */
+  approximate: boolean;
+  /** The APPROXIMATE current section's title, or null when nothing has been posted yet (the empty state). */
   activeTitle: string | null;
-  /** 1-based active ordinal (0 when no sections) — the left of the `NN / total` readout. */
+  /** 1-based approximate-position ordinal (0 when no sections) — shown as "≈ section N", not a tracked count. */
   activeOrdinal: number;
-  /** Total posted sections — the right of the `NN / total` readout. */
+  /** Total posted sections — the "of M" the approximate position is stated against. */
   total: number;
-  /** Reading progress as an integer percent in [0, 100] — the blurb's legible-by-number readout. */
+  /** Reading progress as an integer percent in [0, 100] — the EXACT, posted legible-by-number readout. */
   percent: number;
-  /** One mark per posted section — the strip segments + the scrubber dots (done/active by index). */
+  /** One mark per posted section — the strip segments + the scrubber dots (done/active by approximate index). */
   marks: SectionMark[];
 }
 
@@ -83,6 +100,9 @@ export function deriveApparatus(sections: LessonSection[], scrollProgress: numbe
 
   return {
     hasSections: total > 0,
+    // With today's contract the position is ALWAYS inferred from the overall scalar — there is no posted
+    // active-section signal — so the cue is always approximate. A future payload extension flips this false.
+    approximate: true,
     activeTitle: activeIndex >= 0 ? sections[activeIndex]!.title : null,
     activeOrdinal: activeIndex >= 0 ? activeIndex + 1 : 0,
     total,

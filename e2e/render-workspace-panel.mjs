@@ -14,13 +14,13 @@ const E2E_SESSION_COOKIE = 'e2e-session';
 const SEED_RUN_ID = 'e2e-seed-photosynthesis';
 
 async function driveProgress(page, p) {
-  // Retry the post until the chrome's where-am-i count reflects it (absorbs the sender's load race).
+  // Retry the post until the chrome's where-am-i percent reflects it (absorbs the sender's load race).
   for (let i = 0; i < 40; i++) {
     await page.evaluate((prog) => {
       const f = document.querySelector('iframe.artifact-frame');
       f?.contentWindow?.postMessage({ type: 'lesson:set-progress', scrollProgress: prog }, '*');
     }, p);
-    if ((await page.locator('.ws-where__count').count()) > 0) return;
+    if ((await page.locator('.ws-where__percent').count()) > 0) return;
     await page.waitForTimeout(100);
   }
 }

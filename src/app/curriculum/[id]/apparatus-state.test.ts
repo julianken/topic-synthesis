@@ -53,16 +53,20 @@ describe('deriveApparatus', () => {
     expect(m.marks).toEqual([]);
   });
 
-  it('lights up the active section title + NN/total + percent from scrollProgress', () => {
-    const m = deriveApparatus(SECTIONS, 0.6); // → index 2 (third section)
+  it('reports the EXACT overall percent + section list, with position flagged APPROXIMATE (no posted active-section signal)', () => {
+    const m = deriveApparatus(SECTIONS, 0.6); // overall 60% → approximate index 2 (third section)
     expect(m.hasSections).toBe(true);
+    // Position is an ESTIMATE from the overall scalar, never claimed exact — the reviewer's MAJOR finding.
+    expect(m.approximate).toBe(true);
+    // EXACT: the posted overall percent + the full section list/total.
+    expect(m.percent).toBe(60);
+    expect(m.total).toBe(4);
+    // APPROXIMATE: the inferred position (surfaced as "≈ around section N of M", never a tracked count).
     expect(m.activeTitle).toBe('Splitting water for light');
     expect(m.activeOrdinal).toBe(3);
-    expect(m.total).toBe(4);
-    expect(m.percent).toBe(60);
   });
 
-  it('marks sections BEFORE the active one done, the active one active, the rest neither', () => {
+  it('marks sections BEFORE the approximate position done, the approximate one active, the rest neither', () => {
     const m = deriveApparatus(SECTIONS, 0.6); // active index 2
     expect(m.marks.map((x) => x.done)).toEqual([true, true, false, false]);
     expect(m.marks.map((x) => x.active)).toEqual([false, false, true, false]);

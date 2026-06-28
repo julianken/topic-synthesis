@@ -567,41 +567,52 @@ h1 {
   border-style: dashed;
 }
 
-/* The where-am-i widget — the active section title + NN/total + the segment strip + the section list. */
-.ws-where__title {
+/* The where-am-i widget — the EXACT overall percent + a progress-fill strip, an EXPLICITLY APPROXIMATE
+   position line ("≈ around section N of M"), and the posted section list. The shipped channel carries only
+   an overall scalar, so the widget leads with what's exact (percent + list) and frames position as an
+   estimate — never a confident tracked NN/total count (the reviewer's MAJOR data-contract finding). */
+.ws-where__percent {
   margin: 0;
   font-family: var(--serif);
   font-size: var(--fs-card-title);
   line-height: var(--lh-heading);
   color: var(--fog-50);
-}
-.ws-where__count {
-  margin: var(--sp-1) 0 0;
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-meta);
-  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.ws-where__strip {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 4px;
-  margin: var(--sp-3) 0;
+.ws-where__pct-sign {
+  font-size: 0.7em;
+  color: var(--text-muted);
 }
-.ws-where__seg {
+/* the overall-progress strip: a track + a fill whose width is the EXACT posted percent (not the estimate). */
+.ws-where__strip {
   height: 4px;
   border-radius: 2px;
   background: var(--bg-raised);
-  /* TS-24: the done/active swap rides the catalog --tr-state primitive (@ --dur-base/--ease). */
-  transition: var(--tr-state);
+  margin: var(--sp-3) 0 var(--sp-2);
+  overflow: hidden;
 }
-.ws-where__seg[data-done] {
-  background: var(--pipeline);
-}
-.ws-where__seg[data-active] {
+.ws-where__seg-fill {
+  display: block;
+  height: 100%;
+  width: var(--ws-where-pct, 0%);
+  border-radius: 2px;
   background: var(--accent);
+  /* TS-24: the fill width rides the catalog --tr-progress primitive (@ --dur-base/--ease). */
+  transition: var(--tr-progress);
+}
+/* the explicitly-approximate position line — muted, so it reads as a soft estimate, not a hard readout. */
+.ws-where__approx {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+.ws-where__approx-sign {
+  font-family: var(--mono);
+  color: var(--text-faint);
+}
+.ws-where__approx-title {
+  color: var(--text);
 }
 .ws-where__blurb {
   margin: 0;

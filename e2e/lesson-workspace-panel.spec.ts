@@ -8,9 +8,11 @@ import { SEED_RUN_ID } from './seed';
 // The seeded built lesson's HTML carries a coordinate-only STUB SENDER (e2e/seed.ts) that posts that
 // contract on load and re-posts at a TEST-CHOSEN progress when the spec posts a `lesson:set-progress`
 // driver message INTO the iframe. So the spec drives a deterministic reading position and asserts:
-//   • the where-am-i widget shows the active section title + NN/total + the segment strip;
+//   • the where-am-i widget shows the EXACT overall percent + an overall-progress fill strip, and an
+//     EXPLICITLY APPROXIMATE position ("around section N of M") — never a confident tracked NN/total
+//     (the data-contract limit: the channel carries only an overall scalar, no active-section signal);
 //   • the section list (moved INTO the widget) populates from the posted sections;
-//   • the active section TRACKS scrollProgress (re-driving progress moves the active marker);
+//   • the percent + the approximate marker TRACK scrollProgress (re-driving progress moves both);
 //   • the 6 apparatus card slots render in the [panel] track within --panel-w with NO overflow;
 //   • NO message → the empty state renders + no crash (decision-13 best-effort);
 //   • the [read] spine stays Δ0 across the chrome [read]-track blocks;
@@ -41,7 +43,7 @@ async function openBuiltLesson(
  * Drive the lesson iframe to a deterministic scrollProgress by POSTING the test-only `lesson:set-progress`
  * message INTO it (the seed stub sender re-emits the SHIPPED coordinate-only progress outward). Coordinate-
  * only: posts a number, reads no iframe DOM. Resilient: the post is retried via expect.poll until the
- * chrome's where-am-i count reflects it (the seed sender registers its listener on load — a race the poll
+ * chrome's where-am-i percent reflects it (the seed sender registers its listener on load — a race the poll
  * absorbs without a fixed sleep).
  */
 async function driveProgress(page: Page, progress: number): Promise<void> {
@@ -52,8 +54,8 @@ async function driveProgress(page: Page, progress: number): Promise<void> {
           const iframe = document.querySelector('iframe.artifact-frame') as HTMLIFrameElement | null;
           iframe?.contentWindow?.postMessage({ type: 'lesson:set-progress', scrollProgress: p }, '*');
         }, progress);
-        // The where-am-i count appears only once a valid message lands — its presence is the signal.
-        return page.locator('.ws-where__count').count();
+        // The where-am-i percent appears only once a valid message lands — its presence is the signal.
+        return page.locator('.ws-where__percent').count();
       },
       { timeout: 10_000 },
     )
@@ -62,7 +64,7 @@ async function driveProgress(page: Page, progress: number): Promise<void> {
 
 // ── The where-am-i widget + section list LIGHT UP from the posted { sections, scrollProgress } ─────────
 test.describe('lesson-workspace apparatus — where-am-i widget (live from postMessage)', () => {
-  test('the widget shows the active section title + NN/total + the strip; the section list populates; the active section tracks scrollProgress', async ({
+  test('the widget shows the EXACT percent + an explicitly-approximate position; the section list populates; both track scrollProgress', async ({
     page,
     context,
     baseURL,
@@ -70,29 +72,33 @@ test.describe('lesson-workspace apparatus — where-am-i widget (live from postM
     await page.setViewportSize({ width: 1440, height: 1000 });
     await openBuiltLesson(page, context, baseURL);
 
-    // Drive to ~mid-lesson: 6 sections, progress 0.6 → floor(0.6*6)=3 → the 4th section (1-based ordinal 4).
+    // Drive to ~mid-lesson: overall 60% → EXACT percent read, APPROXIMATE position floor(0.6*6)=3 → ~4th.
     await driveProgress(page, 0.6);
 
     const where = page.locator('.ws-where');
-    await expect(where.locator('.ws-where__title')).toHaveText('Measuring the gas exchange');
-    await expect(where.locator('.ws-where__count')).toHaveText('04 / 06');
+    // EXACT, from the posted scalar: the overall percent read (the load-bearing honest fact).
+    await expect(where.locator('.ws-where__percent')).toContainText('60');
+    // APPROXIMATE, explicitly labeled: the position is stated as an estimate ("≈ around section 4 of 6"),
+    // NEVER a confident tracked NN/total — the reviewer's MAJOR data-contract finding, honest degradation.
+    await expect(where.locator('.ws-where__approx')).toContainText('around section 4 of 6');
+    await expect(where.locator('.ws-where__approx')).toContainText('Measuring the gas exchange');
 
-    // The segment strip has one segment per posted section, exactly one ACTIVE, three DONE before it.
-    await expect(where.locator('.ws-where__seg')).toHaveCount(SEED_SECTION_COUNT);
-    await expect(where.locator('.ws-where__seg[data-active]')).toHaveCount(1);
-    await expect(where.locator('.ws-where__seg[data-done]')).toHaveCount(3);
+    // The progress strip is a single OVERALL fill (mirrors the exact percent), not per-section segments.
+    await expect(where.locator('.ws-where__seg-fill')).toHaveCount(1);
 
-    // The section list (moved INTO the widget) populates with the posted titles, the active one marked.
+    // The section list (moved INTO the widget) populates with the posted titles; the approximate position
+    // gets a SOFT highlight (style + aria-current), framed by the "around section" copy as an estimate.
     await expect(where.locator('.ws-where__item')).toHaveCount(SEED_SECTION_COUNT);
     await expect(where.locator('.ws-where__item[aria-current="true"]')).toHaveText(/Measuring the gas exchange/);
 
-    // Re-drive to a LATER position → the active marker MOVES (it tracks scrollProgress, not a fixed value).
+    // Re-drive to a LATER position → the EXACT percent AND the approximate marker both MOVE (they track
+    // scrollProgress, not a fixed value).
     await driveProgress(page, 1);
-    await expect(where.locator('.ws-where__title')).toHaveText('What to carry away');
-    await expect(where.locator('.ws-where__count')).toHaveText('06 / 06');
+    await expect(where.locator('.ws-where__percent')).toContainText('100');
+    await expect(where.locator('.ws-where__approx')).toContainText('around section 6 of 6');
     await expect(where.locator('.ws-where__item[aria-current="true"]')).toHaveText(/What to carry away/);
 
-    // The scrubber dot-rail mirrors the same active marker (status by style AND label).
+    // The scrubber dot-rail mirrors the same approximate marker (status by style AND label).
     await expect(page.locator('.ws-scrub__dot[data-active]')).toHaveCount(1);
     await expect(page.locator('.ws-scrub__dot')).toHaveCount(SEED_SECTION_COUNT);
   });
@@ -154,9 +160,10 @@ test.describe('lesson-workspace apparatus — empty state (no message)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expect(page.locator('.ws-panel .ws-app')).toBeVisible();
 
-    // No active section was ever posted → no count/title/strip, the empty-state blurb instead.
-    await expect(page.locator('.ws-where__count')).toHaveCount(0);
-    await expect(page.locator('.ws-where__seg')).toHaveCount(0);
+    // Nothing was ever posted → no percent/position/strip, the empty-state blurb instead.
+    await expect(page.locator('.ws-where__percent')).toHaveCount(0);
+    await expect(page.locator('.ws-where__approx')).toHaveCount(0);
+    await expect(page.locator('.ws-where__seg-fill')).toHaveCount(0);
     await expect(page.locator('.ws-where .ws-empty')).toBeVisible();
     // The scrubber rail is empty (no posted sections) but does not crash the shell.
     await expect(page.locator('.ws-scrub__dot')).toHaveCount(0);
@@ -260,7 +267,7 @@ test.describe('lesson-workspace apparatus @ 390 (mobile collapse)', () => {
     // The in-frame dot-rail folds away on the narrow column.
     expect(g.scrubVisible).toBe(false);
     // The where-am-i widget still works in the collapsed panel.
-    await expect(page.locator('.ws-where__count')).toBeVisible();
+    await expect(page.locator('.ws-where__percent')).toBeVisible();
     // 0px horizontal overflow at 390.
     expect(g.scrollWidth).toBeLessThanOrEqual(g.innerWidth + PX);
   });

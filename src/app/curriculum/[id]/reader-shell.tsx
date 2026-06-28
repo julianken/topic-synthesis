@@ -38,9 +38,12 @@ import { morphName } from './reader-morph';
  * inline-size`, so the cards scale to --panel-w, not the viewport), and the [scrub] track carries the
  * section dot-rail. BOTH are fed ONLY by the SHIPPED coordinate-only `{ sections, scrollProgress }`
  * channel (`deriveApparatus` folds it into the where-am-i + scrubber model) — the chrome NEVER reads the
- * iframe DOM. The where-am-i widget (section title + NN/total + the segment strip + a blurb), the section
- * list (moved OUT of the old flat pill strip INTO the widget), and the scrubber labels LIGHT UP from
- * that data; the active section is DERIVED from `scrollProgress` (not posted). The RICHER cards (gloss,
+ * iframe DOM. The where-am-i widget surfaces only what that channel TRUTHFULLY carries: the EXACT overall
+ * percent + a progress-fill strip, the posted section LIST (moved OUT of the old flat pill strip INTO the
+ * widget), and an EXPLICITLY APPROXIMATE position ("≈ around section N of M") — because the channel has no
+ * posted active-section signal, deriving a confident discrete NN/total would be a fabricated mapping
+ * (the reviewer's MAJOR finding; AGENTS.md anti-invention). The scrubber's approximate dot is labeled
+ * "(approx. here)" for the same reason. The RICHER cards (gloss,
  * mini-figure, source, self-check, takeaways) render EMPTY/best-effort PLACEHOLDERS labeled as awaiting
  * data — their real content is a coordinate-only payload EXTENSION that PR-F adds + the in-iframe sender
  * pushes (lesson-message.ts is UNCHANGED here; no DOM scrape). Decision-13 best-effort: a lesson posting
@@ -146,8 +149,10 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
                       // Status by LABEL, not color alone (§Accessibility): the ordinal + posted title +
                       // the read state. The title is inert React-escaped text (validator-stripped to
                       // {id, title}), never innerHTML/href.
+                      // Status by LABEL not color alone; the active label says "approx." because the dot
+                      // position is estimated from overall scroll, not a posted active-section signal.
                       aria-label={`${String(mark.ordinal)}. ${mark.title}${
-                        mark.active ? ' (current)' : mark.done ? ' (read)' : ''
+                        mark.active ? ' (approx. here)' : mark.done ? ' (read)' : ''
                       }`}
                     />
                   </li>
@@ -171,30 +176,45 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
 function ApparatusPanel({ model }: { model: ApparatusModel }) {
   return (
     <div className="ws-app">
-      {/* 1 — WHERE-AM-I widget: the active section title + NN/total + the segment strip + a blurb. LIVE. */}
+      {/*
+        1 — WHERE-AM-I widget. HONESTY (the reviewer's MAJOR finding): the SHIPPED channel carries only an
+        OVERALL `scrollProgress` scalar — no posted active-section signal — so the widget leads with the two
+        EXACT facts (the percent read + the full section list) and presents position as an explicit ESTIMATE
+        ("≈ section N of M", `model.approximate`), never a confident tracked `NN/total` count. The segment
+        strip is an OVERALL-progress visualization (its filled count mirrors the scalar), aria-hidden because
+        the legible-by-number percent already conveys it. When a future payload adds a real active-section
+        signal, `model.approximate` flips false and the "≈" framing can become exact — no channel change.
+      */}
       <div className="ws-card ws-where">
         <p className="ws-card__eyebrow">Where you are</p>
         {model.hasSections ? (
           <>
-            <p className="ws-where__title">{model.activeTitle}</p>
-            <p className="ws-where__count">
-              {String(model.activeOrdinal).padStart(2, '0')} / {String(model.total).padStart(2, '0')}
+            {/* EXACT, posted: the overall reading percent, legible by number. */}
+            <p className="ws-where__percent" aria-label={`${String(model.percent)} percent through this lesson`}>
+              {model.percent}
+              <span className="ws-where__pct-sign">%</span> read
             </p>
-            <div className="ws-where__strip" aria-hidden="true">
-              {model.marks.map((mark) => (
-                <span
-                  key={mark.id}
-                  className="ws-where__seg"
-                  data-done={mark.done || undefined}
-                  data-active={mark.active || undefined}
-                />
-              ))}
+            <div
+              className="ws-where__strip"
+              aria-hidden="true"
+              // overall-progress fill width, driven by the EXACT posted percent (not the estimated index).
+              style={{ ['--ws-where-pct' as string]: `${String(model.percent)}%` }}
+            >
+              <span className="ws-where__seg-fill" />
             </div>
-            <p className="ws-where__blurb">{model.percent}% through this lesson.</p>
+            {/* ESTIMATE, clearly labeled: position inferred from the overall scalar, never claimed exact. */}
+            <p className="ws-where__approx">
+              <span className="ws-where__approx-sign" aria-hidden="true">
+                ≈{' '}
+              </span>
+              around section {model.activeOrdinal} of {model.total}
+              {model.activeTitle ? <span className="ws-where__approx-title"> · {model.activeTitle}</span> : null}
+            </p>
             {/*
-              The section list — moved OUT of the old flat pill strip INTO the where-am-i widget. Inert,
-              React-escaped titles (the validator stripped each entry to {id, title}); the active one is
-              marked by style AND aria-current, never color alone.
+              The section LIST (exact, posted) — moved OUT of the old flat pill strip INTO the widget. Inert,
+              React-escaped titles (the validator stripped each entry to {id, title}). The approximate
+              position gets a SOFT highlight by style AND aria-current — but the heading copy above makes
+              clear it is an estimate, so the highlight reads as "about here", not a tracked "you are here".
             */}
             <ol className="ws-where__list">
               {model.marks.map((mark) => (
