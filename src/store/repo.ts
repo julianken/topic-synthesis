@@ -2,8 +2,14 @@ import type { Pool } from 'pg';
 import { contentHash, contentIdentityKey } from '../domain/identity';
 import { bucketize, type Level, type Settings } from '../domain/settings';
 import type { PageStatus, SitemapHub, SitemapPage } from '../domain/sitemap';
-import { LESSON_BRIEF_SCHEMA_HASH, type PipelineResult, type TopicRequest } from '../domain/stages';
+import {
+  LESSON_BRIEF_SCHEMA_HASH,
+  type PipelineResult,
+  type Research,
+  type TopicRequest,
+} from '../domain/stages';
 import type { Stage, StageModel } from '../llm/models';
+import type { ResearchSink } from '../pipeline/ports';
 import { PROMPTS_VERSION } from '../pipeline/prompts';
 import { getPool } from './db';
 
@@ -140,18 +146,25 @@ export async function persistRun(
         [runId, pageId, tier, category, ordinal],
       );
     }
-    // Prune this run's transient per-run rows now that the curriculum has persisted. All three are
+    // Prune this run's transient per-run rows now that the curriculum has persisted. All FOUR are
     // useful only during the run and have NO post-persist consumer: step_result is the engine's
     // crash-resume memoization (only read mid-run, on retry); run_owner is the dispatch-time
     // ownership stamp for the pre-persist poll window (redundant once curriculum.owner_sub exists);
     // step_event is the live generating-UI timeline (read only while the run is in flight — the
     // finished lesson page shows the artifact, not the timeline, and step_event is intentionally NOT
-    // kept for cross-run analysis: no such view exists). Deleting them here bounds these tables at
-    // exactly their useful lifetime. The deletes run AFTER the inserts and inside the SAME
-    // transaction, so a persist failure rolls them back too — leaving the run fully resumable.
+    // kept for cross-run analysis: no such view exists); research_event is the live-research feed
+    // (live-research generating Stage 1 — the planned questions + each question's grounded
+    // findings/sources, also read ONLY by the in-flight generating UI; the finished lesson folds the
+    // research into the durable brief→lesson, so the live rows have no post-persist consumer and are
+    // likewise NOT kept for cross-run analysis). Deleting them here bounds these tables at exactly
+    // their useful lifetime. The deletes run AFTER the inserts and inside the SAME transaction, so a
+    // persist failure rolls them back too — leaving the run fully resumable. (A fire-and-forget sink
+    // write that lands AFTER this prune is a harmless straggler — bounded, owner-scoped, never read
+    // post-persist; the sink's 'done' UPDATE simply matches zero rows once they're gone.)
     await client.query('DELETE FROM step_result WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM run_owner WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM step_event WHERE run_id = $1', [runId]);
+    await client.query('DELETE FROM research_event WHERE run_id = $1', [runId]);
     await client.query('COMMIT');
     client.release();
     return { curriculumId: runId };
@@ -334,6 +347,155 @@ export async function getStepEvents(
     finishedAt: r.finished_at === null ? null : new Date(r.finished_at).toISOString(),
     status: r.status,
   }));
+}
+
+/** One grounded finding as the live-research feed surfaces it (live-research generating Stage 1):
+ *  the claim plus its retrieved source resolved to user-facing {url, title} — NEVER the internal
+ *  sourceIndex (the sink denormalizes it away before the write). COPY-SAFE: only learner-facing text. */
+export interface ResearchFinding {
+  claim: string;
+  url: string;
+  title: string;
+}
+
+/** One research question's live state as the status poll surfaces it (live-research generating Stage 1):
+ *  the REAL question, its subtopic framing, and — once it resolves — the grounded findings + retrieved
+ *  sources + counts. `status` is 'pending' (announced, no result yet) | 'done' (findings landed) |
+ *  'error' (a best-effort skip). Timestamps are ISO strings (the client computes elapsed/duration);
+ *  `finishedAt` null ⇔ still pending. The interface exposes ONLY copy-safe fields (question/subtopic/
+ *  claim/url/title/counts) — no run-internal key, no sourceIndex. */
+export interface ResearchEvent {
+  question: string;
+  subtopic: string | null;
+  status: string;
+  findings: ResearchFinding[];
+  sources: { url: string; title: string }[];
+  findingCount: number | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+/** Read a run's per-question live-research feed, oldest-first by `ordinal` (live-research generating
+ *  Stage 1). NOT owner-scoped here — the caller (the status route) gates on `ownsRun` FIRST, then reads
+ *  this; a non-owner never reaches it (the SAME contract as getStepEvents). The research_event rows
+ *  live only while the run is in flight: `persistRun` PRUNES them (with step_event + step_result +
+ *  run_owner) once the curriculum lands, so this read only ever serves the pre-persist poll window.
+ *
+ *  TOLERANT BY CONSTRUCTION (the listLessons precedent): `findings`/`sources` are JSONB that is NULL on
+ *  a pending row and an object once resolved — pg returns JSONB already parsed, so this normalizes a
+ *  NULL/absent value to `[]` and never re-parses, so a malformed/absent column can't crash the poll. */
+export async function getResearchEvents(
+  runId: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<ResearchEvent[]> {
+  const res = await deps.pool.query<{
+    question: string;
+    subtopic: string | null;
+    status: string;
+    findings: ResearchFinding[] | null;
+    sources: { url: string; title: string }[] | null;
+    finding_count: number | null;
+    started_at: string | Date;
+    finished_at: string | Date | null;
+  }>(
+    `SELECT question, subtopic, status, findings, sources, finding_count, started_at, finished_at
+       FROM research_event WHERE run_id = $1 ORDER BY ordinal`,
+    [runId],
+  );
+  return res.rows.map((r) => ({
+    question: r.question,
+    subtopic: r.subtopic ?? null,
+    status: r.status,
+    // JSONB passes through already-parsed from pg; NULL on a pending row → []. No Zod re-parse — a
+    // malformed/absent value reads as [] rather than crashing the live poll (the listLessons precedent).
+    findings: Array.isArray(r.findings) ? r.findings : [],
+    sources: Array.isArray(r.sources) ? r.sources : [],
+    findingCount: r.finding_count ?? null,
+    // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string for the JSON poll response.
+    startedAt: new Date(r.started_at).toISOString(),
+    finishedAt: r.finished_at === null ? null : new Date(r.finished_at).toISOString(),
+  }));
+}
+
+/**
+ * The Postgres-backed live-research sink (live-research generating Stage 1) — the durable adapter the
+ * deployed Cloud Run **Job** injects into `runLesson` so the generating UI can show the REAL planned
+ * questions then each question's grounded findings as they land. The local-dev fallback, the CLI, and
+ * every test use `noopResearchSink` instead (no DB, no live rows) — exactly how `noopSink` keeps the
+ * Next app off the eleatic adapter.
+ *
+ * FAIL-SAFE by construction, the SAME load-bearing-vs-observability pattern `GcpEngine`'s
+ * `markStepStarted`/`markStepFinished` prove for `step_event`: research_event is KEPT observability
+ * data, not load-bearing, so a write failure (the table not yet migrated during a deploy window, a
+ * transient DB error) must NEVER abort the paid pipeline. EVERY method body is wrapped in try/catch +
+ * `console.warn(...)` + a return, so it resolves rather than throws. The caller (run-pipeline) ALSO
+ * fires these fire-and-forget (`void sink.on*().catch(...)`, never awaited on the critical path), so
+ * even an uncaught rejection couldn't reach `runLesson` — the inner try/catch makes it doubly safe and
+ * silent (the UI degrades to the stage-rail timeline).
+ *
+ * REAL DATA ONLY: `onResearch` denormalizes each `Finding.sourceIndex` against `research.sources` (the
+ * SAME join the brief does) IN THE SINK, so a row holds `{claim, {url, title}}` — never a fabricated
+ * claim, never a leaked internal index. An out-of-range index (already filtered by the researcher) is
+ * skipped defensively.
+ *
+ * WRITE SHAPE: `onQuestions` INSERTs one 'pending' row per question (ON CONFLICT DO NOTHING — the
+ * dedup already collapses duplicates; the PK makes a defensive re-announce a no-op). `onResearch`
+ * UPDATEs that row to 'done' — the SAME insert-then-update shape as markStepStarted→markStepFinished.
+ * Because 'done' is an UPDATE (not an upsert), a write that lands AFTER `persistRun` pruned the rows
+ * matches ZERO rows — a straggler can't resurrect a pruned run's feed.
+ */
+export class PgResearchSink implements ResearchSink {
+  constructor(
+    private readonly runId: string,
+    private readonly deps: { pool: Pool } = { pool: getPool() },
+  ) {}
+
+  /** Announce the deduped/capped questions as 'pending' rows, in fan-out order (ordinal = index). */
+  async onQuestions(questions: string[]): Promise<void> {
+    try {
+      for (let i = 0; i < questions.length; i++) {
+        await this.deps.pool.query(
+          `INSERT INTO research_event (run_id, question, status, ordinal)
+           VALUES ($1, $2, 'pending', $3)
+           ON CONFLICT (run_id, question) DO NOTHING`,
+          [this.runId, questions[i], i],
+        );
+      }
+    } catch (err) {
+      console.warn('[research] research_event write failed (ignored)', this.runId, err);
+    }
+  }
+
+  /** A question's grounded research landed — UPDATE its row to 'done' with the denormalized
+   *  findings/sources + count. UPDATE (not upsert), so a post-prune straggler matches zero rows. */
+  async onResearch(question: string, research: Research): Promise<void> {
+    try {
+      // Denormalize each finding's sourceIndex → {claim, {url,title}} HERE, so the internal index
+      // never reaches the DB or client (COPY-SAFE). The researcher already drops out-of-range indices;
+      // skip any that slip through rather than store a half-resolved finding.
+      const findings: ResearchFinding[] = research.findings.flatMap((f) => {
+        const src = research.sources[f.sourceIndex];
+        return src ? [{ claim: f.claim, url: src.url, title: src.title }] : [];
+      });
+      const sources = research.sources.map((s) => ({ url: s.url, title: s.title }));
+      await this.deps.pool.query(
+        `UPDATE research_event
+            SET status = 'done', subtopic = $3, findings = $4, sources = $5,
+                finding_count = $6, finished_at = now()
+          WHERE run_id = $1 AND question = $2`,
+        [
+          this.runId,
+          question,
+          research.subtopic,
+          JSON.stringify(findings),
+          JSON.stringify(sources),
+          findings.length,
+        ],
+      );
+    } catch (err) {
+      console.warn('[research] research_event write failed (ignored)', this.runId, err);
+    }
+  }
 }
 
 /** One poster-card descriptor the library home (TS-17) renders a card grid from (TS-16). Thin by

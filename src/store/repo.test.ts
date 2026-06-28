@@ -6,13 +6,16 @@ import {
   type TopicRequest,
 } from '../domain/stages';
 import { STAGE_MODELS } from '../llm/models';
+import type { Research } from '../domain/stages';
 import {
   getCurriculum,
   getOwnedPage,
+  getResearchEvents,
   getStepEvents,
   listLessons,
   ownsRun,
   persistRun,
+  PgResearchSink,
   rebuildHub,
   recordRunOwner,
   type StoreDeps,
@@ -148,24 +151,22 @@ describe('persistRun (transaction shape, fake pool)', () => {
       deps,
     );
     const sqls = sqlsOf(client.query);
-    // the three transient tables are each deleted, scoped to this run
-    const stepResultDel = sqls.findIndex((s) => s.includes('DELETE FROM step_result'));
-    const runOwnerDel = sqls.findIndex((s) => s.includes('DELETE FROM run_owner'));
-    const stepEventDel = sqls.findIndex((s) => s.includes('DELETE FROM step_event'));
-    expect(stepResultDel).toBeGreaterThan(-1);
-    expect(runOwnerDel).toBeGreaterThan(-1);
-    expect(stepEventDel).toBeGreaterThan(-1);
+    // the FOUR transient tables are each deleted, scoped to this run (research_event is the new 4th —
+    // live-research generating Stage 1, pruned at persist like step_event).
+    const dels = ['DELETE FROM step_result', 'DELETE FROM run_owner', 'DELETE FROM step_event', 'DELETE FROM research_event'];
+    const delIdxs = dels.map((d) => sqls.findIndex((s) => s.includes(d)));
+    for (const idx of delIdxs) expect(idx).toBeGreaterThan(-1);
     // each delete is run-scoped (WHERE run_id = $1) and carries this runId as its only param
-    for (const del of ['DELETE FROM step_result', 'DELETE FROM run_owner', 'DELETE FROM step_event']) {
+    for (const del of dels) {
       expect(sqls.find((s) => s.includes(del))).toContain('WHERE run_id = $1');
       expect(paramsOf(client.query, del)).toEqual(['run-prune']);
     }
     // ORDER: the deletes come AFTER the last insert (so the writes are committed-to before pruning)…
     const lastInsert = Math.max(...sqls.map((s, i) => (s.includes('INSERT INTO') ? i : -1)));
-    expect(Math.min(stepResultDel, runOwnerDel, stepEventDel)).toBeGreaterThan(lastInsert);
+    expect(Math.min(...delIdxs)).toBeGreaterThan(lastInsert);
     // …and all BEFORE the COMMIT, so they share the run's atomic transaction.
     const commit = sqls.indexOf('COMMIT');
-    expect(Math.max(stepResultDel, runOwnerDel, stepEventDel)).toBeLessThan(commit);
+    expect(Math.max(...delIdxs)).toBeLessThan(commit);
   });
 
   it('keeps the deletes INSIDE the tx — a persist failure ROLLBACKs them too (run stays resumable)', async () => {
@@ -398,6 +399,161 @@ describe('getStepEvents (issue #61 — the live timeline read)', () => {
 
   it('returns [] for a run with no recorded steps', async () => {
     expect(await getStepEvents('absent', fakePool().deps)).toEqual([]);
+  });
+});
+
+// ── getResearchEvents — the live-research feed read (live-research generating Stage 1) ───────────
+describe('getResearchEvents (the live-research feed read)', () => {
+  it('maps rows to camelCase + ISO timestamps, ordered by ordinal; pending row → empty findings/sources', async () => {
+    const { deps, client } = fakePool([
+      {
+        match: 'FROM research_event',
+        rows: [
+          {
+            question: 'What is photosynthesis?',
+            subtopic: 'Overview',
+            status: 'done',
+            // pg returns JSONB already parsed — copy-safe {claim, url, title}, no sourceIndex.
+            findings: [{ claim: 'Plants convert light to energy', url: 'https://x.example', title: 'X' }],
+            sources: [{ url: 'https://x.example', title: 'X' }],
+            finding_count: 1,
+            started_at: new Date('2026-06-21T00:00:00.000Z'),
+            finished_at: new Date('2026-06-21T00:00:04.000Z'),
+          },
+          {
+            question: 'How do chloroplasts work?',
+            subtopic: null, // not yet framed (pending)
+            status: 'pending',
+            findings: null, // NULL while pending → normalized to []
+            sources: null,
+            finding_count: null,
+            started_at: new Date('2026-06-21T00:00:00.500Z'),
+            finished_at: null, // still pending → a live timer client-side
+          },
+        ],
+      },
+    ]);
+    const events = await getResearchEvents('run-1', deps);
+    expect(events).toEqual([
+      {
+        question: 'What is photosynthesis?',
+        subtopic: 'Overview',
+        status: 'done',
+        findings: [{ claim: 'Plants convert light to energy', url: 'https://x.example', title: 'X' }],
+        sources: [{ url: 'https://x.example', title: 'X' }],
+        findingCount: 1,
+        startedAt: '2026-06-21T00:00:00.000Z',
+        finishedAt: '2026-06-21T00:00:04.000Z',
+      },
+      {
+        question: 'How do chloroplasts work?',
+        subtopic: null,
+        status: 'pending',
+        findings: [], // NULL JSONB → [] (the listLessons precedent: no crash on a NULL column)
+        sources: [],
+        findingCount: null,
+        startedAt: '2026-06-21T00:00:00.500Z',
+        finishedAt: null,
+      },
+    ]);
+    // ordered by ordinal — the read query carries the ORDER BY (questions arrive concurrently, so
+    // started_at alone is racy).
+    expect(sqlsOf(client.query).some((s) => s.includes('ORDER BY ordinal'))).toBe(true);
+  });
+
+  it('COPY-SAFE: the SELECT projects only user-facing columns — never sourceIndex / step_key / run_id echo', async () => {
+    const { deps, client } = fakePool([{ match: 'FROM research_event', rows: [] }]);
+    await getResearchEvents('run-1', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('FROM research_event')) ?? '';
+    // only the copy-safe columns are selected
+    expect(sql).toContain('question');
+    expect(sql).toContain('subtopic');
+    expect(sql).toContain('findings');
+    expect(sql).toContain('sources');
+    // and NONE of the internal identifiers
+    expect(sql).not.toContain('sourceIndex');
+    expect(sql).not.toContain('source_index');
+    expect(sql).not.toContain('step_key');
+  });
+
+  it('returns [] for a run with no research events (no existence oracle — same shape as a fresh run)', async () => {
+    expect(await getResearchEvents('absent', fakePool().deps)).toEqual([]);
+  });
+});
+
+// ── PgResearchSink — the FAIL-SAFE live-research writer (live-research generating Stage 1) ───────
+describe('PgResearchSink (the live-research writer)', () => {
+  const research: Research = {
+    subtopic: 'Overview',
+    sources: [
+      { url: 'https://a.example', title: 'A' },
+      { url: 'https://b.example', title: 'B' },
+    ],
+    findings: [
+      { claim: 'claim about A', sourceIndex: 0 },
+      { claim: 'claim about B', sourceIndex: 1 },
+    ],
+  };
+
+  it('onQuestions INSERTs one pending row per question with its ordinal (ON CONFLICT DO NOTHING)', async () => {
+    const { deps, client } = fakePool();
+    await new PgResearchSink('run-1', deps).onQuestions(['q1', 'q2']);
+    const calls = client.query.mock.calls as unknown[][];
+    const inserts = calls.filter((c) => (c[0] as string).includes('INTO research_event'));
+    expect(inserts).toHaveLength(2);
+    expect(inserts[0]?.[0] as string).toContain("'pending'");
+    expect(inserts[0]?.[0] as string).toContain('ON CONFLICT (run_id, question) DO NOTHING');
+    // ordinals reflect fan-out order — each insert's params are [runId, question, ordinal]
+    expect((inserts[0]?.[1] as unknown[])).toEqual(['run-1', 'q1', 0]);
+    expect((inserts[1]?.[1] as unknown[])).toEqual(['run-1', 'q2', 1]);
+  });
+
+  it('onResearch DENORMALIZES sourceIndex → {claim,{url,title}} in the sink (no index ever stored)', async () => {
+    const { deps, client } = fakePool();
+    await new PgResearchSink('run-1', deps).onResearch('q1', research);
+    const calls = client.query.mock.calls as unknown[][];
+    const update = calls.find((c) => (c[0] as string).includes('UPDATE research_event'));
+    expect(update).toBeTruthy();
+    const params = update?.[1] as unknown[];
+    // [runId, question, subtopic, findingsJson, sourcesJson, findingCount]
+    const findingsJson = JSON.parse(params[3] as string);
+    expect(findingsJson).toEqual([
+      { claim: 'claim about A', url: 'https://a.example', title: 'A' },
+      { claim: 'claim about B', url: 'https://b.example', title: 'B' },
+    ]);
+    // the internal sourceIndex never appears in the serialized JSON
+    expect(params[3] as string).not.toContain('sourceIndex');
+    expect(params[5]).toBe(2); // finding_count
+    // it is an UPDATE (not an upsert), so a post-prune straggler matches zero rows
+    expect(update?.[0]).toContain('UPDATE research_event');
+    expect(update?.[0]).not.toContain('INSERT');
+  });
+
+  it('onResearch defensively SKIPS a finding whose sourceIndex is out of range (no half-resolved row)', async () => {
+    const { deps, client } = fakePool();
+    const bad: Research = { subtopic: 's', sources: [{ url: 'https://a.example', title: 'A' }], findings: [{ claim: 'orphan', sourceIndex: 5 }] };
+    await new PgResearchSink('run-1', deps).onResearch('q1', bad);
+    const calls = client.query.mock.calls as unknown[][];
+    const update = calls.find((c) => (c[0] as string).includes('UPDATE research_event'));
+    const params = update?.[1] as unknown[];
+    expect(JSON.parse(params[3] as string)).toEqual([]); // the orphan finding is dropped
+    expect(params[5]).toBe(0); // finding_count 0
+  });
+
+  it('FAIL-SAFE: onQuestions resolves (does NOT throw) when the pool write fails — logs + returns', async () => {
+    const pool = { query: vi.fn(async () => { throw new Error('db down'); }) } as unknown as import('pg').Pool;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(new PgResearchSink('run-1', { pool }).onQuestions(['q1'])).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('FAIL-SAFE: onResearch resolves (does NOT throw) when the pool write fails — logs + returns', async () => {
+    const pool = { query: vi.fn(async () => { throw new Error('db down'); }) } as unknown as import('pg').Pool;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(new PgResearchSink('run-1', { pool }).onResearch('q1', research)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

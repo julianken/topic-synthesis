@@ -6,8 +6,8 @@ import { cheapModels } from '../llm/models';
 import { defaultDeps } from '../pipeline/deps';
 import { defaultStages, noopSink } from '../pipeline/ports';
 import { runLesson, type RunOptions } from '../pipeline/run-pipeline';
-import { closePool } from '../store/db';
-import { persistRun } from '../store/repo';
+import { closePool, getPool } from '../store/db';
+import { PgResearchSink, persistRun } from '../store/repo';
 import { persistInput } from './run-skeleton';
 
 /**
@@ -63,7 +63,21 @@ async function main(): Promise<void> {
     // NOT InlineEngine. persist is unconditional: the curriculum IS the deliverable + the app's
     // status-poll target. noopSink: no trace in the Job. `MAX_NODES` is inert here (the path builds
     // exactly one page) but stays in the env contract (dispatch.ts) so no Terraform change is needed.
-    const run = await runLesson(request, new GcpEngine(runId), defaultDeps, options, defaultStages, noopSink);
+    // PgResearchSink (live-research generating Stage 1): emits the REAL planned questions + each
+    // question's grounded findings/sources to research_event as they land, so the generating UI shows
+    // a live research feed. FAIL-SAFE + FIRE-AND-FORGET (every write self-wrapped; never awaited on the
+    // critical path), so a DB-write fault yields no live rows and the run completes identically. The
+    // rows are pruned at persist (transient per-run, like step_event). Shares the run's pool.
+    const researchSink = new PgResearchSink(runId, { pool: getPool() });
+    const run = await runLesson(
+      request,
+      new GcpEngine(runId),
+      defaultDeps,
+      options,
+      defaultStages,
+      noopSink,
+      researchSink,
+    );
     // The owning user's sub — set by the Service as the RUN_OWNER override at gated dispatch (the Job
     // has no session to re-verify; it trusts the override, which is set only AFTER the spend gate). §5.
     const base = persistInput(runId, request, run, options);
