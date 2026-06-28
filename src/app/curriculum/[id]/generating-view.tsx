@@ -20,16 +20,25 @@ const TICK_MS = 250; // how often the live in-progress timer re-renders
  * the run is in flight) and the create-form's
  * in-place generating shell (`/`), so the two never diverge. It is PRESENTATIONAL — it takes the status
  * poll's owner-scoped `steps` (the per-stage timeline) + `research` (the live-research feed, Stage 1 /
- * #153) + a `stalled` flag, and renders:
+ * #153) + a `stalled` flag + the run's settings where they're known, and renders, matching Figma `1:2`:
  *
- *   1. A "Generating <topic>…" HEADER — the topic in `--interactive`. `topic` is optional: the create-
- *      form path passes the typed topic (it morphs in via the `specimen-topic` shared element); the
- *      reader-route refresh path has no topic pre-persist (the run isn't persisted, `run_owner` carries
- *      no topic — not the pipeline's to surface here), so it degrades to a bare "Generating…".
- *   2. The research NODE-GRAPH — the plan→questions→brief DAG (`research-graph.ts`), nodes lighting as
+ *   1. A TOP STAGE STEPPER (`.genb__stepper`) — the six pipeline stages as a row of `NAME / 0N` columns
+ *      with an under-bar whose style encodes state (solid ✓ ran · dashed ⟳ in progress · dotted pending).
+ *   2. The TOPIC HEADER (`.genb__head`) — an eyebrow (the REAL subject category where known, else omitted),
+ *      the topic as the large H1, and a `<level> · depth <n> · building one lesson` settings sub-line where
+ *      those values are known. `topic`/`level`/`depth`/`category` are all OPTIONAL: the create-form path
+ *      passes the typed topic + settings; the reader-route refresh path has none pre-persist (the run isn't
+ *      persisted, `run_owner` carries no settings), so each degrades honestly (bare "Generating…", no
+ *      sub-line, no eyebrow) — never a fabricated value. The subject category is classified at the run TAIL
+ *      and is NOT in the live poll, so the eyebrow is shown only when a caller can truthfully supply it.
+ *   3. The research NODE-GRAPH — the plan→questions→brief DAG (`research-graph.ts`), nodes lighting as
  *      each question extracts, curved SVG edges. Empty feed ⇒ the honest plan→brief spine.
- *   3. The LIVE RESEARCH PANEL — "LIVE RESEARCH · N/M extracted" + the grounded findings + source hosts.
- *   4. The fixed six-stage RAIL + spinner (the TS-23 ledger, retained) — "step N of 6" + per-stage timing.
+ *   4. The LIVE RESEARCH PANEL — "LIVE RESEARCH · N/M extracted" + the grounded findings + source hosts.
+ *   5. The COMPACT HORIZONTAL PROGRESS PILL (`.genb__progress`) — one bordered row of `stage Xs glyph`
+ *      segments (`plan 2.1s ✓ · research 11.4s ⟳ · brief — · …`) + a single mono caption line for the
+ *      in-progress stage with its LIVE ticking timer. Same real per-step data as the old vertical rail, in
+ *      the frame's compact form.
+ *   6. The bottom STATE LEGEND (`.genb__legend`) — solid/dashed/dotted = ran/in progress/pending.
  *
  * REAL DATA ONLY: every node/finding/source is derived from the feed the run emitted (the pure
  * `research-graph.ts` core); nothing is fabricated. Motion is the §0 catalog ONLY (the `rail-reveal`
@@ -38,11 +47,21 @@ const TICK_MS = 250; // how often the live in-progress timer re-renders
  */
 export function GeneratingView({
   topic,
+  level,
+  depth,
+  category,
   steps,
   research,
   stalled,
 }: {
   topic?: string;
+  /** The run's level (intro/intermediate/advanced), where known — create-form path only. */
+  level?: string;
+  /** The run's depth (1..5), where known — create-form path only. */
+  depth?: number;
+  /** The REAL subject category (e.g. BIOLOGY), where truthfully known. Classified at the run TAIL, so it
+   *  is NOT in the live poll — omitted (not fabricated) on every live path today. */
+  category?: string;
   steps: StepEvent[];
   research: ResearchEvent[];
   stalled: boolean;
@@ -53,10 +72,19 @@ export function GeneratingView({
   const graph = buildResearchGraph(research, planStage, briefStage);
   const ledger = buildLedger(research);
 
+  // The settings sub-line ("<level> · depth <n> · building one lesson"), shown only when the run's level +
+  // depth are known to this caller (the create-form path). Mirrors the persisted reader route's meta line.
+  const settingsLine =
+    level && typeof depth === 'number'
+      ? `${level} · depth ${String(depth)} · building one lesson`
+      : null;
+
   return (
     <section className="genb" role="status" aria-live="polite">
+      <StageStepper rail={rail} />
+
       <header className="genb__head">
-        <p className="eyebrow">Lesson</p>
+        {category ? <p className="genb__eyebrow">{category}</p> : null}
         <h1 className="genb__title">
           Generating
           {topic ? (
@@ -72,7 +100,7 @@ export function GeneratingView({
           ) : null}
           …
         </h1>
-        <p className="lead">Researching and building your lesson. This usually takes a minute or two.</p>
+        {settingsLine ? <p className="genb__settings">{settingsLine}</p> : null}
       </header>
 
       <div className="genb__body">
@@ -84,8 +112,53 @@ export function GeneratingView({
         />
       </div>
 
-      <PipelineRail rail={rail} stalled={stalled} />
+      <ProgressPill rail={rail} stalled={stalled} />
+
+      <StateLegend />
     </section>
+  );
+}
+
+// ── Top stage stepper ──────────────────────────────────────────────────────────────────────────────────
+
+/** The state's under-bar style class (solid ✓ ran · dashed ⟳ in progress · dotted pending/failed). The
+ *  same border-style language as the graph nodes + the bottom legend, so state reads by style, not color. */
+const STEPPER_STATE: Record<RailStage['state'], string> = {
+  done: 'genb__step--done',
+  running: 'genb__step--running',
+  pending: 'genb__step--pending',
+  error: 'genb__step--error',
+};
+
+/** The accessible state word per stepper/pill state (state by text, never color/glyph alone). */
+const STATE_WORD: Record<RailStage['state'], string> = {
+  pending: 'pending',
+  running: 'in progress',
+  done: 'ran',
+  error: 'failed',
+};
+
+/**
+ * The top STAGE STEPPER (Figma `1:2` stage columns 1:7..1:53 + the under-bars 66:2..66:7): the six
+ * pipeline stages as a row of `NAME / 0N` columns, each with a thin under-bar whose STYLE encodes state
+ * (solid ran · dashed in progress · dotted pending) — state by style + the visually-hidden word, never
+ * color alone (§Accessibility). The stage name is the engine `name` uppercased (`PLAN`/`RESEARCH`/…), the
+ * ordinal its 1-based position. The row scrolls horizontally on a narrow viewport (it never wraps mid-row).
+ */
+function StageStepper({ rail }: { rail: RailStage[] }) {
+  return (
+    <ol className="genb__stepper" aria-label={`Generation progress — ${String(rail.length)} stages`}>
+      {rail.map((stage, i) => (
+        <li key={stage.name} className={`genb__step ${STEPPER_STATE[stage.state]}`}>
+          <span className="genb__step-name">
+            {stage.name}
+            <span className="genb__sr"> · {STATE_WORD[stage.state]}</span>
+          </span>
+          <span className="genb__step-ord">{String(i + 1).padStart(2, '0')}</span>
+          <span className="genb__step-bar" aria-hidden="true" />
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -254,71 +327,121 @@ function LiveResearchPanel({
   );
 }
 
-// ── Pipeline rail (the retained TS-23 six-stage ledger) ──────────────────────────────────────────────────
+// ── Compact horizontal progress pill (the Figma 1:2 PIPELINE PROGRESS) ────────────────────────────────────
 
-/** The per-state rail affordance glyph + screen-reader word (state by icon + text, never color alone). */
-const RAIL_AFFORDANCE: Record<RailStage['state'], { icon: string; word: string }> = {
-  pending: { icon: '○', word: 'Pending' },
-  running: { icon: '◐', word: 'In progress' },
-  done: { icon: '✓', word: 'Done' },
-  error: { icon: '✗', word: 'Failed' },
+/** The per-state glyph + screen-reader word for the pill (state by icon + text, never color alone). */
+const PILL_AFFORDANCE: Record<RailStage['state'], { icon: string; word: string }> = {
+  pending: { icon: '—', word: 'pending' },
+  running: { icon: '⟳', word: 'in progress' },
+  done: { icon: '✓', word: 'done' },
+  error: { icon: '✗', word: 'failed' },
 };
 
-/** The fixed six-stage rail + spinner under the graph — the run's pipeline position (plan → critic). */
-function PipelineRail({ rail, stalled }: { rail: RailStage[]; stalled: boolean }) {
+/**
+ * The COMPACT HORIZONTAL PROGRESS PILL (Figma `1:2` node `65:33`): one bordered row of `stage Xs glyph`
+ * segments, dot-separated (`plan 2.1s ✓ · research 11.4s ⟳ · brief — · …`), then a single mono caption
+ * line naming the in-progress stage with its LIVE ticking timer ("research · 11.4s and counting"). This
+ * carries the SAME real per-step data the old vertical six-row rail did — the stage names, durations, the
+ * current-stage glyph (✓/⟳/—), and the live ticking timer — in the frame's compact horizontal form.
+ */
+function ProgressPill({ rail, stalled }: { rail: RailStage[]; stalled: boolean }) {
+  const running = rail.find((s) => s.state === 'running');
   return (
-    <div className="genb__rail-wrap">
-      <p className="genb__rail-label">PIPELINE PROGRESS</p>
-      <ol className="rail" aria-label={`Generation progress — ${String(rail.length)} stages`}>
+    <div className="genb__progress">
+      <p className="genb__progress-label">PIPELINE PROGRESS</p>
+      <ol className="genb__pill" aria-label={`Generation progress — ${String(rail.length)} stages`}>
         {rail.map((stage, i) => (
-          <RailStageRow key={stage.name} stage={stage} index={i} />
+          <PillSegment key={stage.name} stage={stage} last={i === rail.length - 1} />
         ))}
       </ol>
-      <div className="generating">
-        <span className="generating__spinner" aria-hidden="true" />
-        <span>
-          {stalled
-            ? 'Still working — this is taking longer than usual. Leave this open, or check back soon.'
-            : 'Working…'}
-        </span>
-      </div>
+      <ProgressCaption running={running ?? null} stalled={stalled} />
     </div>
   );
 }
 
-/** One rail row — a state affordance (icon + screen-reader word), the stage label, and its timing. */
-function RailStageRow({ stage, index }: { stage: RailStage; index: number }) {
-  const { icon, word } = RAIL_AFFORDANCE[stage.state];
+/** One pill segment — the stage name, its timing, and its state glyph — plus the `·` divider after it
+ *  (except the last). The running segment shows a LIVE elapsed timer; finished shows the frozen duration;
+ *  pending/not-started shows an em-dash. */
+function PillSegment({ stage, last }: { stage: RailStage; last: boolean }) {
+  const { icon, word } = PILL_AFFORDANCE[stage.state];
   const running = stage.state === 'running';
-  const errored = stage.state === 'error';
   return (
-    <li
-      className={`rail__stage rail__stage--${stage.state}`}
-      style={{ '--rail-i': index } as CSSProperties}
-    >
-      <span className="rail__icon" aria-hidden="true">
-        {icon}
+    <li className={`genb__seg genb__seg--${stage.state}`}>
+      <span className="genb__seg-name">
+        {stage.name}
+        <span className="genb__sr"> · {word}</span>
       </span>
-      <span className="rail__label">
-        {stage.label}
-        <span className="rail__state-sr"> · {word}</span>
-        {errored && (
-          <span className="rail__tag" aria-hidden="true">
-            {' '}
-            · failed
-          </span>
-        )}
-      </span>
-      <span className="rail__time">
+      <span className="genb__seg-time">
         {running && stage.event ? (
           <LiveTimer startedAt={stage.event.startedAt} />
         ) : (
           <FrozenTime event={stage.event} />
         )}
       </span>
+      <span className="genb__seg-glyph" aria-hidden="true">
+        {icon}
+      </span>
+      {!last ? (
+        <span className="genb__seg-sep" aria-hidden="true">
+          ·
+        </span>
+      ) : null}
     </li>
   );
 }
+
+/** The single caption line under the pill: names the in-progress stage with its live elapsed timer
+ *  ("research · 11.4s and counting — live timer ticks until the step lands"); when nothing is in flight
+ *  it falls back to a generic "Working…" (or the stalled hint). */
+function ProgressCaption({ running, stalled }: { running: RailStage | null; stalled: boolean }) {
+  if (stalled) {
+    return (
+      <p className="genb__caption">
+        Still working — this is taking longer than usual. Leave this open, or check back soon.
+      </p>
+    );
+  }
+  if (running && running.event) {
+    return (
+      <p className="genb__caption">
+        {running.name} · <LiveTimer startedAt={running.event.startedAt} /> and counting — live timer
+        ticks until the step lands
+      </p>
+    );
+  }
+  return <p className="genb__caption">Working…</p>;
+}
+
+// ── Bottom state legend ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The bottom STATE LEGEND (Figma `1:2` node `1:62`): solid — ran · dashed — in progress · dotted —
+ * pending, each a short sample bar in the matching border style. It tells the reader how to read the
+ * graph nodes + the stepper under-bars by STYLE (the same vocabulary the §Accessibility rule mandates).
+ */
+function StateLegend() {
+  return (
+    <dl className="genb__legend" aria-label="State legend">
+      <div className="genb__legend-row">
+        <span className="genb__legend-bar genb__legend-bar--solid" aria-hidden="true" />
+        <dt className="genb__legend-term">solid</dt>
+        <dd className="genb__legend-def">— ran</dd>
+      </div>
+      <div className="genb__legend-row">
+        <span className="genb__legend-bar genb__legend-bar--dashed" aria-hidden="true" />
+        <dt className="genb__legend-term">dashed</dt>
+        <dd className="genb__legend-def">— in progress</dd>
+      </div>
+      <div className="genb__legend-row">
+        <span className="genb__legend-bar genb__legend-bar--dotted" aria-hidden="true" />
+        <dt className="genb__legend-term">dotted</dt>
+        <dd className="genb__legend-def">— pending</dd>
+      </div>
+    </dl>
+  );
+}
+
+// ── Shared timers ────────────────────────────────────────────────────────────────────────────────────────
 
 /** A live elapsed timer for the in-progress stage: re-renders every TICK_MS off the wall clock. */
 function LiveTimer({ startedAt }: { startedAt: string }) {
@@ -330,10 +453,10 @@ function LiveTimer({ startedAt }: { startedAt: string }) {
   return <>{formatDuration(now - new Date(startedAt).getTime())}</>;
 }
 
-/** A non-running stage's timing readout: pending ⇒ nothing; finished ⇒ frozen duration; errored-with-end
- *  ⇒ that partial duration, else an em-dash. */
+/** A non-running stage's timing readout: pending ⇒ an em-dash; finished ⇒ frozen duration; errored-with-
+ *  end ⇒ that partial duration, else an em-dash. */
 function FrozenTime({ event }: { event: StepEvent | null }) {
-  if (event === null) return null;
+  if (event === null) return <>—</>;
   if (event.finishedAt === null) return <>—</>;
   const ms = new Date(event.finishedAt).getTime() - new Date(event.startedAt).getTime();
   return <>{formatDuration(ms)}</>;

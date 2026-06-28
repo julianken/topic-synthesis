@@ -233,7 +233,14 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
   if (view === 'generating') {
     return (
       <section className="generating-shell">
-        <GeneratingView topic={topic.trim()} steps={steps} research={research} stalled={stalled} />
+        <GeneratingView
+          topic={topic.trim()}
+          level={level}
+          depth={depth}
+          steps={steps}
+          research={research}
+          stalled={stalled}
+        />
       </section>
     );
   }

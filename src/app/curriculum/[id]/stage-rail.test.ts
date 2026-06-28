@@ -195,13 +195,16 @@ describe('formatDuration — compact ledger durations', () => {
 // absence of any graph/gate/hub PIPELINE-STAGE entry. (The B view's research NODE-GRAPH is a research
 // DAG over the real `research` feed — NOT a pipeline `graph` stage; the pin below targets the stage
 // vocabulary, `name: 'graph'`, which never appears.)
-describe('generating-view.tsx — renders the stage rail, never a graph stage (TS-23 AC2)', () => {
+describe('generating-view.tsx — renders the compact progress pill, never a graph stage (TS-23 AC2)', () => {
   const VIEW = readFileSync(fileURLToPath(new URL('./generating-view.tsx', import.meta.url)), 'utf8');
   const RAIL = readFileSync(fileURLToPath(new URL('./stage-rail.ts', import.meta.url)), 'utf8');
 
-  it('renders the rail from the canonical stage list via deriveRail', () => {
+  it('renders the progress pill + the top stepper from the canonical stage list via deriveRail', () => {
     expect(VIEW).toContain('deriveRail');
-    expect(VIEW).toContain('className="rail"');
+    // The Figma 1:2 compact horizontal progress pill + the top stage stepper (replacing the old
+    // vertical six-row rail). Both fold over the SAME `deriveRail` six-stage list.
+    expect(VIEW).toContain('className="genb__pill"');
+    expect(VIEW).toContain('className="genb__stepper"');
   });
 
   it('introduces NO graph/gate/hub stage entry in the view or the rail module', () => {
@@ -211,10 +214,10 @@ describe('generating-view.tsx — renders the stage rail, never a graph stage (T
     expect(RAIL).not.toMatch(/name:\s*'(graph|gate|hub)'/);
   });
 
-  it('conveys state by icon + text, not color alone (a per-state affordance map + the · failed tag)', () => {
-    expect(VIEW).toContain('RAIL_AFFORDANCE');
-    expect(VIEW).toContain('· failed');
-    expect(VIEW).toContain('rail__state-sr'); // the visually-hidden accessible state word
+  it('conveys state by icon + text, not color alone (a per-state affordance map + the accessible word)', () => {
+    expect(VIEW).toContain('PILL_AFFORDANCE'); // the pill's per-state glyph + screen-reader word map
+    expect(VIEW).toContain('STATE_WORD'); // the stepper's per-state accessible word map
+    expect(VIEW).toContain('genb__sr'); // the visually-hidden accessible state word
   });
 });
 

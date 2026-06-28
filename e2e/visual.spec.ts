@@ -158,10 +158,11 @@ test.describe('visual — generating (live-research, mid-run)', () => {
     await expect(page.getByText('LIVE RESEARCH')).toBeVisible();
     await expect(page.getByText(/2 \/ 3 extracted/)).toBeVisible();
 
-    // Mask the one live cell: the in-progress `research` rail timer ticks off the wall clock (a JS
-    // setInterval, which `animations: 'disabled'` can't freeze), so a re-render at a different ms would
-    // flake the diff. Mask just that cell; every other surface is static fixture data.
-    const liveTimer = page.locator('.rail__stage--running .rail__time');
+    // Mask the live cells: the in-progress `research` segment timer in the compact pill + the caption
+    // line (both tick off the wall clock via a JS setInterval, which `animations: 'disabled'` can't
+    // freeze), so a re-render at a different ms would flake the diff. Mask just those; everything else is
+    // static fixture data.
+    const liveTimer = page.locator('.genb__seg--running .genb__seg-time, .genb__caption');
     await expect(page).toHaveScreenshot('generating.png', {
       fullPage: true,
       mask: [liveTimer],
@@ -221,7 +222,7 @@ test.describe('visual — generating (live-research, mid-run)', () => {
     await expect(page.getByText('Where does a plant’s mass come from?')).toBeVisible();
     await expect(page.getByText(/2 \/ 3 extracted/)).toBeVisible();
 
-    const liveTimer = page.locator('.rail__stage--running .rail__time');
+    const liveTimer = page.locator('.genb__seg--running .genb__seg-time, .genb__caption');
     await expect(page).toHaveScreenshot('generating-create.png', {
       fullPage: true,
       mask: [liveTimer],

@@ -112,9 +112,11 @@ try {
     await page.locator('.genb__topic').filter({ hasText: TOPIC }).waitFor({ timeout: 15000 });
     await page.getByText('2 / 3 extracted').waitFor({ timeout: 15000 });
     await page.getByText('Where does a plant’s mass come from?').waitFor();
-    // Hide the one live cell (the in-progress rail timer ticks off the wall clock) so the clean render
-    // has no flicker and no mask — the rest is fixed fixture data. Injected AFTER load so it applies.
-    await page.addStyleTag({ content: '.rail__stage--running .rail__time{visibility:hidden}' });
+    // Hide the live cells (the in-progress pill timer + the caption timer tick off the wall clock) so the
+    // clean render has no flicker and no mask — the rest is fixed fixture data. Injected AFTER load.
+    await page.addStyleTag({
+      content: '.genb__seg--running .genb__seg-time,.genb__caption{visibility:hidden}',
+    });
     await page.screenshot({ path: vp.out, fullPage: true, animations: 'disabled' });
     console.log(`wrote ${vp.out} (${vp.width}x${vp.height})`);
     await context.close();
