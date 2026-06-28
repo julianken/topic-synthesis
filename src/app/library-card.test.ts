@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badgeClass, kindLabel, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
+import { badgeClass, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
 
 describe('library-card — status presentation (TS-17)', () => {
   it('labels every PageStatus with a word + a glyph (label + icon, never color alone)', () => {
@@ -30,18 +30,6 @@ describe('library-card — morphName, the FLIP-origin view-transition-name endpo
 
   it('is distinct per lesson id (each card box is its own morph endpoint)', () => {
     expect(morphName('one')).not.toBe(morphName('two'));
-  });
-});
-
-describe('library-card — kindLabel, the best-effort kind affordance (mixed-arm tolerant)', () => {
-  it('shows a blob-arm interactionKind', () => {
-    expect(kindLabel('svg')).toBe('svg');
-  });
-
-  it('shows nothing for v11-arm / degraded rows (null interactionKind — decision §13)', () => {
-    expect(kindLabel(null)).toBeNull();
-    expect(kindLabel('')).toBeNull();
-    expect(kindLabel('   ')).toBeNull();
   });
 });
 

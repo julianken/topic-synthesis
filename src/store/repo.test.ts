@@ -369,19 +369,19 @@ describe('getStepEvents (issue #61 — the live timeline read)', () => {
 
 // ── listLessons — the owner-scoped library-card reader (TS-16) ────────────────
 // One thin card row per owned lesson, newest-first. Mixed-arm tolerant (library Key decision §13,
-// no backfill): it lists blob-arm rows (flat interactionKind — the live default), any historical
-// sectioned-spec rows (no interactionKind), AND degraded soon/text rows (spec_json NULL). The
-// `spec_json ->> 'interactionKind'` JSONB extraction is done IN Postgres, so the fake pool returns
-// the already-extracted `interaction_kind` column (string | null) exactly as pg would.
+// no backfill): it lists blob-arm rows (the live default), any historical sectioned-spec rows, AND
+// degraded soon/text rows (spec_json NULL) IDENTICALLY — the card projects only NOT-NULL columns
+// (title/status/concept_slug) and does NOT read into `spec_json` at all, so no per-arm spec shape can
+// reach the card. (The render-backend `interactionKind` is no longer surfaced — it was an internal
+// identifier leaking onto the card eyebrow, dropped per the copy-appropriateness gate.)
 describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
-  // The card row shape the SQL `SELECT ... AS interaction_kind` projects (pre-extracted by Postgres).
+  // The card row shape the SQL `SELECT id, created_at, concept_slug, title, status` projects.
   const cardRow = (over: Partial<Record<string, unknown>> = {}) => ({
     id: 'cur-1',
     created_at: new Date('2026-06-21T00:00:00.000Z'),
     concept_slug: 'fourier',
     title: 'Fourier',
     status: 'built',
-    interaction_kind: 'canvas',
     ...over,
   });
 
@@ -397,42 +397,41 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
     expect(await listLessons('someone-else', fakePool().deps)).toEqual([]);
   });
 
-  it('blob-arm row: a flat PageSpec yields a card whose interactionKind is the extracted value', async () => {
-    // spec_json was a blob PageSpec ({ interactionKind: 'diagram', ... }) → pg `->>` extracts 'diagram'.
-    const blob = fakePool([{ match: 'FROM curriculum c', rows: [cardRow({ interaction_kind: 'diagram' })] }]);
+  it('does NOT surface the render-backend kind and never reads spec_json: the SQL projects no interactionKind', async () => {
+    // The render-backend enum is an internal identifier (copy-appropriateness gate) — the card neither
+    // carries it nor extracts it, so the query must not touch `spec_json`/`interactionKind` at all.
+    const blob = fakePool([{ match: 'FROM curriculum c', rows: [cardRow()] }]);
     const [card] = await listLessons('owner-1', blob.deps);
-    expect(card?.interactionKind).toBe('diagram');
+    expect(card).not.toHaveProperty('interactionKind');
     expect(card?.id).toBe('cur-1');
     expect(card?.slug).toBe('fourier');
     expect(card?.title).toBe('Fourier');
     expect(card?.status).toBe('built');
+    // the projection is spec-shape-free — no JSONB extraction can crash the library home
+    for (const s of sqlsOf(blob.client.query)) {
+      expect(s).not.toContain('spec_json');
+      expect(s).not.toContain('interactionKind');
+    }
   });
 
-  it('historical sectioned row (no interactionKind key) yields interactionKind: null', async () => {
-    // spec_json was a sectioned spec persisted before the v11 revert (a `sections` array, NO
-    // interactionKind) → pg `->>` yields NULL. The reader stays tolerant of such legacy rows.
+  it('historical sectioned row yields a valid card (spec shape is irrelevant — the card never reads it)', async () => {
+    // A row persisted before the v11 revert (a sectioned `spec_json`) reads back identically: the card
+    // projects only NOT-NULL columns, so the per-arm spec shape never reaches it.
     const sectioned = fakePool([
-      {
-        match: 'FROM curriculum c',
-        rows: [cardRow({ interaction_kind: null, title: 'Diffusion', status: 'built' })],
-      },
+      { match: 'FROM curriculum c', rows: [cardRow({ title: 'Diffusion', status: 'built' })] },
     ]);
     const [card] = await listLessons('owner-1', sectioned.deps);
-    expect(card?.interactionKind).toBeNull(); // the reader does NOT assume the blob shape
     expect(card?.title).toBe('Diffusion');
     expect(card?.status).toBe('built');
   });
 
-  it('degraded row: NULL spec_json (a soon/text synthesis failure) yields interactionKind: null, no crash', async () => {
-    // spec_json itself is NULL (no artifact persisted) → pg `->>` yields NULL; the card still renders.
+  it('degraded row: a soon/text synthesis failure (NULL spec_json) still yields a valid card, no crash', async () => {
+    // spec_json itself is NULL (no artifact persisted); because the card never reads spec_json it renders
+    // regardless — the degraded status is carried by the NOT-NULL `status` column.
     const degraded = fakePool([
-      {
-        match: 'FROM curriculum c',
-        rows: [cardRow({ interaction_kind: null, status: 'soon', title: 'Half-built' })],
-      },
+      { match: 'FROM curriculum c', rows: [cardRow({ status: 'soon', title: 'Half-built' })] },
     ]);
     const [card] = await listLessons('owner-1', degraded.deps);
-    expect(card?.interactionKind).toBeNull(); // NULL spec_json cannot crash the reader
     expect(card?.status).toBe('soon');
     expect(card?.title).toBe('Half-built');
   });

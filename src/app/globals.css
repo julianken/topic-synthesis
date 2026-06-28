@@ -451,14 +451,19 @@ h1 {
   color: var(--text-faint);
 }
 
-/* The card grid (FLIP origin). Fixed ~291px columns matching the Figma card wall, reflowing to fewer
-   columns (then one) on narrow viewports via auto-fill. */
+/* The card grid (FLIP origin). FIXED 291px columns matching the Figma `6:2` card wall (node `6:25` is
+   291.5px), LEFT-justified (`justify-content: start`) so the cards keep their fixed size and CLUSTER LEFT
+   instead of a `1fr` stretching each to fill the row — the frame's wall is a tight left cluster with empty
+   space at the right, not a full-bleed grid. `auto-fill` still reflows the fixed columns down to one on a
+   narrow viewport (a 291px column fits once inside the ~338px mobile content width), keeping the mobile
+   one-column reflow. */
 .library-grid {
   list-style: none;
   margin: 0;
   padding: 14px 26px 60px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, 291px);
+  justify-content: start;
   gap: 18px;
 }
 
@@ -550,15 +555,12 @@ h1 {
   gap: var(--sp-2);
 }
 
-/* The kind chip (Figma 6:41 eyebrow voice): uppercase mono 10px (= --fs-micro) in --warn, wide
-   tracking. Blob-arm rows only — null on v11/degraded rows (library decision §13). */
-.library-poster__kind {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-eyebrow);
-  text-transform: uppercase;
-  color: var(--warn);
-}
+/* No kind chip: the Figma `6:2` card eyebrow (node `6:41`) holds a user-meaningful SUBJECT CATEGORY
+   (BIOLOGY / MATHEMATICS / …), which the thin TS-16 `LessonCard` has no data source for. The earlier
+   build filled that slot with the raw `interactionKind` render-backend enum (`svg`/`canvas`/`html`) —
+   internal dev-speak that tells a learner nothing — so the chip is DROPPED (Copy-appropriateness gate)
+   until a real category source exists, rather than leaking a code identifier into user copy. The eyebrow
+   is therefore a deferred frame reduction, matching the description/category deferral above. */
 
 /* Relative-time meta (Figma 6:57): mono ~10.5px in --text-faint, tracking +0.21px ≈ --ls-meta band. */
 .library-poster__when {

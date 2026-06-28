@@ -319,11 +319,13 @@ export async function getStepEvents(
 
 /** One poster-card descriptor the library home (TS-17) renders a card grid from (TS-16). Thin by
  *  design — only the card fields, NOT the full tiered hub `getCurriculum` reads. `id` is the
- *  curriculum id (the card's `/curriculum/[id]` href target); `interactionKind` is best-effort: it
- *  is JSONB-extracted from `spec_json` and is `null` for historical v11-arm rows (a sectioned spec
- *  with no `interactionKind` key) and degraded soon/text rows (their `spec_json` is `NULL`). The card
- *  surfaces no per-arm badge by default (library Key decision §13), so `null` simply means "no flat
- *  kind to show". */
+ *  curriculum id (the card's `/curriculum/[id]` href target).
+ *
+ *  No `interactionKind`: the artifact's render-backend enum (`svg`/`canvas`/`html`) is an internal
+ *  representation, not user copy. It was once projected here to fill the Figma card eyebrow, but that
+ *  surfaced a code identifier onto a user surface (copy-appropriateness gate), so the eyebrow is dropped
+ *  and the field with it — no remaining consumer. The eyebrow's real fill is a subject CATEGORY, which a
+ *  TS-16 contract widening (a `concept_page.category` column) would add when it lands. */
 export interface LessonCard {
   /** The curriculum id — the card's href target, `/curriculum/[id]`. */
   id: string;
@@ -334,9 +336,6 @@ export interface LessonCard {
   status: PageStatus;
   /** ISO string from `curriculum.created_at`, for newest-first ordering. */
   createdAt: string;
-  /** Best-effort flat `interactionKind` from `spec_json` — present on blob-arm rows, `null` on
-   *  v11-arm rows (no such key) and degraded rows (`spec_json` is `NULL`). */
-  interactionKind: string | null;
 }
 
 /** List one poster-card descriptor per lesson the caller owns, newest-first — the reader the library
@@ -356,13 +355,12 @@ export interface LessonCard {
  *  outer query re-orders newest-first — so the one-card-per-curriculum contract holds even once the
  *  wrapper milestone lands a multi-page curriculum in the DB.
  *
- *  MIXED-ARM TOLERANT (library Key decision §13 — "old lessons stay old," no backfill): the live
- *  pipeline writes blob-arm rows (a flat spec with `interactionKind`), but the library may durably
- *  hold HISTORICAL rows persisted before the v11 pipeline was reverted — a sectioned spec with no
- *  `interactionKind` key — AND degraded soon/text rows (a synthesis failure wrote no artifact →
- *  `spec_json` is `NULL`). `spec_json ->> 'interactionKind'` yields the field for blob rows and `NULL`
- *  for the other two — the desired tri-state, with no Zod re-parse of a column that may legitimately
- *  hold either shape or be NULL. So a malformed/absent spec can never crash the library home. */
+ *  MIXED-ARM TOLERANT (library Key decision §13 — "old lessons stay old," no backfill): the card row
+ *  projects only columns that exist on every row regardless of which synthesis arm wrote it — `title`
+ *  and `status` are NOT-NULL columns and `concept_slug` is the page key, so a blob row, a historical
+ *  sectioned-spec row, and a degraded soon/text row (NULL `spec_json`) all yield a valid card. No
+ *  `spec_json` JSONB extraction is done — the card never reads into the per-arm spec shape, so a
+ *  malformed/absent spec can never crash the library home. */
 export async function listLessons(
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
@@ -373,18 +371,16 @@ export async function listLessons(
     concept_slug: string;
     title: string;
     status: PageStatus;
-    interaction_kind: string | null;
   }>(
     // ONE card per curriculum, newest-first. The inner DISTINCT ON (c.id) ... ORDER BY c.id, cp.ordinal
     // collapses each curriculum to its lowest-ordinal (representative) page — so a multi-page curriculum
     // (the RETAINED runPipeline path) emits ONE card, not N duplicates sharing one /curriculum/[id] href
     // (today every curriculum is single-page per ADR-0003, but the query enforces it regardless). The
     // outer query re-orders the representatives newest-first (DISTINCT ON forces ORDER BY c.id first).
-    `SELECT id, created_at, concept_slug, title, status, interaction_kind
+    `SELECT id, created_at, concept_slug, title, status
        FROM (
          SELECT DISTINCT ON (c.id)
-                c.id, c.created_at, p.concept_slug, p.title, p.status,
-                p.spec_json ->> 'interactionKind' AS interaction_kind
+                c.id, c.created_at, p.concept_slug, p.title, p.status
            FROM curriculum c
            JOIN curriculum_page cp ON cp.curriculum_id = c.id
            JOIN concept_page p ON p.id = cp.page_id
@@ -401,8 +397,5 @@ export async function listLessons(
     status: r.status,
     // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string (same as getStepEvents).
     createdAt: new Date(r.created_at).toISOString(),
-    // pg returns the JSONB `->>` extraction as string | null straight through — no TS null-guard
-    // needed: NULL on v11-arm rows (no key) and degraded rows (NULL spec_json).
-    interactionKind: r.interaction_kind,
   }));
 }

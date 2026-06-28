@@ -3,7 +3,7 @@ import { getSessionIdentity } from './auth/require-session';
 import { listLessons } from '../store/repo';
 import { IntakeForm } from './intake-form';
 import { PosterMark } from './poster-mark';
-import { badgeClass, kindLabel, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
+import { badgeClass, morphName, relativeTime, STATUS_ICON, STATUS_LABEL } from './library-card';
 
 // The library lists the signed-in owner's persisted lessons — Postgres data read per request, not at
 // build time (mirrors the reader route's `force-dynamic`).
@@ -30,6 +30,12 @@ export const dynamic = 'force-dynamic';
  * category, no description, and no level/depth meta, so this renders the Figma card's title + poster
  * wash + status badge + relative-time only — the per-category eyebrow/icon and the one-line description
  * have no data source. Reaching full `6:2` card fidelity is deferred to a TS-16 contract widening.
+ *
+ * The Figma card eyebrow (`6:41`) holds a user-meaningful SUBJECT CATEGORY (BIOLOGY / MATHEMATICS / …).
+ * The card deliberately renders NO eyebrow rather than fill that slot with the artifact's internal
+ * `interactionKind` render-backend enum (`svg`/`canvas`/`html`) — that is dev-speak that tells a learner
+ * nothing and leaks an internal representation onto a user surface, so it is dropped per the
+ * copy-appropriateness gate (show nothing > show a code identifier). Same deferral as the description.
  */
 export default async function Library() {
   const identity = await getSessionIdentity();
@@ -47,7 +53,6 @@ export default async function Library() {
       {lessons.length > 0 ? (
         <ul className="library-grid">
           {lessons.map((lesson) => {
-            const kind = kindLabel(lesson.interactionKind);
             const when = relativeTime(lesson.createdAt);
             return (
               <li key={lesson.id} className="library-poster">
@@ -79,7 +84,6 @@ export default async function Library() {
                         {STATUS_LABEL[lesson.status]}
                       </span>
                       <span className="library-poster__meta">
-                        {kind ? <span className="library-poster__kind">{kind}</span> : null}
                         {when ? <span className="library-poster__when">{when}</span> : null}
                       </span>
                     </span>

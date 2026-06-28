@@ -4,8 +4,8 @@
  * These live in a `.ts` module (NOT the `page.tsx` server component) so they unit-test under vitest's
  * `environment: 'node'` (the `.tsx` server component can't mount there — same constraint
  * `lesson-message.ts`/`page.test.ts` note). The card's DATA is TS-16's `LessonCard`
- * (`{ id, slug, title, status, createdAt, interactionKind }`); this module turns that thin row into the
- * status label/icon, the relative-time string, and the per-card `view-transition-name` endpoint — no I/O.
+ * (`{ id, slug, title, status, createdAt }`); this module turns that thin row into the status label/icon,
+ * the relative-time string, and the per-card `view-transition-name` endpoint — no I/O.
  */
 import type { PageStatus } from '../domain/sitemap';
 
@@ -56,11 +56,7 @@ export function relativeTime(createdAtIso: string, now: Date = new Date()): stri
   return `${Math.round(days / 365)}y ago`;
 }
 
-/** The card's small "kind" affordance (Figma `6:2` shows it beside the status). Best-effort: blob-arm
- *  rows carry a flat `interactionKind`; v11-arm + degraded rows are `null` (no key) — the card simply
- *  shows no kind chip then (library Key decision §13 — no per-arm badge, `null` means "nothing to show"). */
-export function kindLabel(interactionKind: string | null): string | null {
-  if (!interactionKind) return null;
-  const trimmed = interactionKind.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
+// No `kindLabel`: the Figma `6:2` card eyebrow holds a user-meaningful SUBJECT CATEGORY, not a
+// render-backend identifier. An earlier build mapped that slot to the artifact's internal
+// `interactionKind` enum (`svg`/`canvas`/`html`), which is dev-speak on a user surface — dropped per the
+// copy-appropriateness gate. The eyebrow stays unrendered until a real category data source exists.
