@@ -54,8 +54,10 @@ import { morphName } from './reader-morph';
  * Each dot is a <button> labeled with its section name + position (status by style AND aria-label, never
  * color alone); the active/done state is driven by the SHIPPED { sections, scrollProgress } channel
  * (`deriveApparatus`). Activating a dot posts the COORDINATE-ONLY parent→child message
- * `{ type: 'lesson:scrollTo', id }` INTO the iframe via `postScrollTo` (targeting the opaque-origin token
- * 'null', NEVER '*' — lesson-scroll-sender.ts), the OUTBOUND counterpart to lesson-message.ts's receive
+ * `{ type: 'lesson:scrollTo', id }` INTO the iframe via `postScrollTo` (which TRIES the documented opaque-
+ * origin token 'null' but, because Chromium rejects 'null' for an opaque-origin frame, actually ships on
+ * the '*' fallback — safe for this non-navigable sandbox; see lesson-scroll-sender.ts), the OUTBOUND
+ * counterpart to lesson-message.ts's receive
  * side. The chrome NEVER reaches into the iframe DOM to scroll it — the post is the only legal channel
  * across the opaque boundary. PR-C ships the SENDER (best-effort): the post is harmless + inert until PR-F
  * teaches the generated lesson to RECEIVE this verb and scroll itself; lesson-message.ts is UNCHANGED.
@@ -155,8 +157,9 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
             Space-activated by the platform). The active/done state is driven by { sections, scrollProgress }
             (deriveApparatus). Status is encoded by style AND the aria-label (never color alone). Activating
             a dot posts the COORDINATE-ONLY parent→child message `{ type:'lesson:scrollTo', id }` INTO the
-            iframe (postScrollTo → opaque-origin token 'null', never '*') — the chrome NEVER reaches into
-            the iframe DOM. Best-effort: the scroll LANDS once PR-F teaches the lesson to receive it. The
+            iframe (postScrollTo → tries 'null', ships on the '*' fallback Chromium forces for an opaque
+            frame; safe for this non-navigable sandbox) — the chrome NEVER reaches into the iframe DOM.
+            Best-effort: the scroll LANDS once PR-F teaches the lesson to receive it. The
             rail is hidden when no sections have been posted (the empty state) and folds away on the ≤900
             single-column collapse (globals.css → a TOC there).
           */}

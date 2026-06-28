@@ -376,11 +376,16 @@ h1 {
   container-type: inline-size;
 }
 
-/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned, `justify-self: center`
-   in the --scrub-w track). PR-C fills it with the section dot-rail of KEYBOARD-OPERABLE jump <button>s
-   (one per posted section, active dot tracks scrollProgress). The rail is sticky so it tracks the reader. */
+/* The scrub column — the NARROW --scrub-w track between [panel-end] and the [scrub] line, INSIDE the
+   frame (never viewport-pinned, `justify-self: center` in the --scrub-w track). The track is the
+   `panel-end / scrub` span (the 1.1rem --ws-scrub-w track) — NOT the `scrub / screen-end` OUTER 1fr
+   gutter (placing the rail there would orphan it ~140px to the right against the viewport edge, the
+   exact "scrubber not against the screen edge" anti-pattern of DESIGN.md §Lesson layout decisions 3/4
+   + the named-grid-set note "[scrub] reserved … parked inside the capped frame"). PR-C fills the track
+   with the section dot-rail of KEYBOARD-OPERABLE jump <button>s (one per posted section, active dot
+   tracks scrollProgress). The rail is sticky so it tracks the reader. */
 .ws-scrub {
-  grid-column: scrub / scrub;
+  grid-column: panel-end / scrub;
   min-inline-size: 0;
   justify-self: center;
 }
@@ -465,6 +470,19 @@ h1 {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+}
+
+/* Inside the workspace reader (.wrap--reader is capped at --frame-max with padding-inline:0 so the grid
+   owns its own --edge-gap gutters), constrain the progress bar + percent readout to the SAME capped,
+   --edge-gap-guttered frame the grid uses — otherwise the assembly spans the full bleed and the "NN%"
+   tabular readout is clipped at the true viewport edge (DESIGN.md §Lesson layout anti-pattern "clipped
+   figures or labels" + the invariant "no horizontal overflow at 390"). Centered like the grid. */
+.reader--ws .reading-progress {
+  max-inline-size: var(--ws-frame-max);
+  margin-inline: auto;
+  padding-inline: var(--ws-edge-gap);
+  box-sizing: border-box;
+  inline-size: 100%;
 }
 
 .reading-progress__track {

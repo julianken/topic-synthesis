@@ -11,7 +11,9 @@ import {
 // guarantees the sender must hold (no renderer / DOM env needed — the message build is pure and the post
 // targets a hand-built fake contentWindow):
 //   • the payload is coordinate-only — EXACTLY { type: 'lesson:scrollTo', id } and nothing else;
-//   • the post targets the documented opaque-origin token 'null', NEVER '*';
+//   • the post TRIES the documented opaque-origin token 'null' first, then falls back to '*' when the
+//     engine rejects 'null' (the real Chromium behavior for an opaque-origin frame — so '*' is what
+//     actually ships at the wire; both legs are exercised below);
 //   • a null contentWindow is a guarded no-op (a not-yet-loaded iframe never throws).
 
 describe('buildScrollToMessage — the coordinate-only payload shape (PR-F receiver contract)', () => {

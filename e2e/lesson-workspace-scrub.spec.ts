@@ -8,9 +8,11 @@ import { SEED_RUN_ID } from './seed';
 // scrollProgress } postMessage, lesson-message.ts UNCHANGED), sticky, justify-self:center INSIDE the
 // --scrub-w track (never viewport/edge-pinned), active/done by style + aria-label (not color alone), the
 // active dot driven by { sections, scrollProgress }. Activating a dot posts the COORDINATE-ONLY
-// parent→child message `{ type:'lesson:scrollTo', id }` to iframe.contentWindow at targetOrigin 'null'
-// (NEVER '*') — the chrome NEVER reaches into the iframe DOM. PR-C ships the SENDER; the lesson acts on
-// it once PR-F adds the receiver (best-effort here).
+// parent→child message `{ type:'lesson:scrollTo', id }` to iframe.contentWindow — it tries targetOrigin
+// 'null' but Chromium rejects 'null' for an opaque-origin frame, so it actually ships on the '*' fallback
+// (safe: a non-navigable sandbox under strict CSP has no foreign-origin frame to leak to). The chrome
+// NEVER reaches into the iframe DOM. PR-C ships the SENDER; the lesson acts on it once PR-F adds the
+// receiver (best-effort here).
 //
 // The seeded built lesson's HTML carries a coordinate-only STUB SENDER (e2e/seed.ts) that posts the
 // SHIPPED { sections, scrollProgress } contract on load + re-posts at a TEST-CHOSEN progress when the
@@ -64,8 +66,9 @@ async function driveProgress(page: Page, progress: number): Promise<void> {
  * seed stub (e2e/seed.ts) ACTS as a minimal PR-F-stand-in receiver: it gets the chrome's coordinate-only
  * `{type:'lesson:scrollTo', id}` jump and echoes a `{type:'lesson:scrollTo-ack', id}` back OUT. The ack
  * ARRIVING on the parent PROVES the jump message actually crossed the opaque boundary carrying the right id.
- * (The targetOrigin-'null'-never-'*' guarantee is pinned at the UNIT level — lesson-scroll-sender.test.ts —
- * since arrival alone can't distinguish 'null' from '*'.) Returns the recorded ack ids.
+ * (The targetOrigin behavior — tries 'null', ships on the '*' fallback Chromium forces for an opaque frame
+ * — is pinned at the UNIT level, lesson-scroll-sender.test.ts; arrival alone can't distinguish the two.)
+ * Returns the recorded ack ids.
  */
 async function installAckListener(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -141,8 +144,12 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
         const el = document.querySelector(sel);
         if (!el) return null;
         const b = el.getBoundingClientRect();
-        return { left: b.left, right: b.right };
+        return { left: b.left, right: b.right, width: b.width };
       };
+      const panel = (() => {
+        const el = document.querySelector('.ws-panel');
+        return el ? el.getBoundingClientRect().right : null;
+      })();
       const dots = Array.from(document.querySelectorAll('.ws-scrub__dot')).map((el) => {
         const b = el.getBoundingClientRect();
         // The center is robust to the active dot's `transform: scale(1.4)` (which symmetrically enlarges
@@ -152,6 +159,7 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
       return {
         scrub: r('.ws-scrub'),
         grid: r('.ws-grid'),
+        panelRight: panel,
         dots,
         scrollWidth: document.documentElement.scrollWidth,
         innerWidth: window.innerWidth,
@@ -168,6 +176,15 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
       expect(dot.center).toBeGreaterThanOrEqual(g.scrub!.left - PX);
       expect(dot.center).toBeLessThanOrEqual(g.scrub!.right + PX);
     }
+    // The track is the NARROW --scrub-w track (1.1rem ≈ 17.6px), NOT the wide outer 1fr gutter: it sits
+    // in the `panel-end / scrub` span immediately right of the panel, not orphaned in the screen-edge
+    // gutter (the MAJOR finding — a rail in the `scrub / screen-end` track would be ~--scrub-w wide but
+    // floated ~140px right against the viewport edge). Assert (a) the track is narrow, and (b) it abuts
+    // the panel's right edge — both false if it were placed in the outer gutter.
+    expect(g.panelRight).not.toBeNull();
+    expect(g.scrub!.width).toBeLessThan(40); // ≈1.1rem track, not a ~140px+ gutter
+    expect(g.scrub!.left).toBeGreaterThanOrEqual(g.panelRight! - PX); // immediately right of [panel-end]
+    expect(g.scrub!.left - g.panelRight!).toBeLessThan(8); // abuts the panel, not floated into the gutter
     // The track sits INSIDE the capped frame (its right edge ≤ the grid's right edge) and is clearly OFF
     // the viewport edge — NOT pinned to the screen edge (DESIGN.md §Lesson layout decision 3).
     expect(g.scrub!.right).toBeLessThanOrEqual(g.grid!.right + PX);
