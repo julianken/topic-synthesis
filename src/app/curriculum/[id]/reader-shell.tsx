@@ -22,6 +22,17 @@ import { morphName } from './reader-morph';
  * Best-effort chrome (decision 13): a lesson that posts nothing (a blob-arm lesson, or one that
  * doesn't emit the sender) leaves the chrome at its empty/zero initial state — the shell stays fully
  * usable over a bare iframe, never an error, never a blank frame.
+ *
+ * Lesson-workspace grid (PR-A — the grid foundation): the shell lays the reader out on the LOCKED
+ * named-line CSS grid from DESIGN.md "## Lesson layout" + the measured prototype
+ * (.superpowers/lesson-workspace/prototype.html) — `[screen-start] edge [read-start] measure [read-end]
+ * gap [panel-start] panel [panel-end] scrub [scrub] edge [screen-end]`, capped at --frame-max and
+ * centered. The [read] track holds the UNCHANGED #readerPanel.morph-box + sandboxed iframe; the [panel]
+ * (apparatus) + [scrub] (dot-rail) tracks render EMPTY placeholders in PR-A — apparatus lands in PR-B,
+ * the scrubber in PR-C. A per-section `grid-template-columns: subgrid` is the STABLE SPINE so prose
+ * lands on one identical [read] track (Δ0px, pure CSS — no JS x-math). The grid metrics are
+ * component-local --ws-* tokens (globals.css) consuming the existing §0 geometry tokens — NO §0 retoken.
+ * The trust boundary, the iframe attrs, and the card→reader box-only morph are byte-unchanged.
  */
 export function ReaderShell({ id, href, title }: { id: string; href: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -47,35 +58,63 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
   const pct = Math.round(chrome.scrollProgress * 100);
 
   return (
-    <div className="reader">
+    <div className="reader reader--ws">
       <ReadingProgress percent={pct} />
 
       {/*
-        The card→reader morph's FLIP DESTINATION. The `view-transition-name` is set INLINE and is
-        id-scoped — `morphName(id)` (= `lesson-card-<id>`) — so it equals the per-card name TS-17 stamps
-        on the FLIP ORIGIN (`library-card.ts`'s `morphName`). A cross-document View-Transition only pairs
-        an old/new snapshot when the two names are IDENTICAL, so a per-card origin needs a per-id
-        destination here — a single global name would never pair. TS-21's route-level cross-document
-        View-Transition transport (in globals.css) then pairs BOTH endpoints and tweens the box. The
-        morph is BOX-ONLY per the TS-5b verdict — the container box geometry-FLIPs while the opaque
-        iframe contents "jump in" at the final frame (the iframe's sandbox + ARTIFACT_CSP are
-        byte-unchanged across the morph). The animation lives in globals.css, NOT here — this box only
-        carries the inline per-id endpoint name.
+        The LOCKED named-line workspace grid (PR-A). `.ws-grid` carries the exact line set
+        `[screen-start] edge [read-start] measure [read-end] gap [panel-start] panel [panel-end] scrub
+        [scrub] edge [screen-end]` (globals.css), capped at --frame-max + centered. A single `.ws-section`
+        is a `subgrid` (the stable spine) holding three tracks: the [read] reading column (the morph-box +
+        iframe, BELOW, byte-unchanged), and the EMPTY [panel] + [scrub] placeholders (apparatus = PR-B,
+        scrubber = PR-C). The empty tracks reserve the two-column shape today and exercise the spine.
       */}
-      <div id="readerPanel" className="morph-box" style={{ viewTransitionName: morphName(id) }}>
-        {/*
-          The lesson iframe — attributes BYTE-UNCHANGED from the bare render (AC2): opaque origin via
-          `sandbox="allow-scripts"` WITHOUT `allow-same-origin`, `src` at the strict-CSP `/artifact`
-          route. The ref is read only for its `contentWindow` IDENTITY (the trusted postMessage
-          sender) — never to read the framed DOM.
-        */}
-        <iframe
-          ref={iframeRef}
-          className="artifact-frame"
-          title={title}
-          src={href}
-          sandbox="allow-scripts"
-        />
+      <div className="ws-grid">
+        <section className="ws-section">
+          <div className="ws-read">
+            {/*
+              The card→reader morph's FLIP DESTINATION. The `view-transition-name` is set INLINE and is
+              id-scoped — `morphName(id)` (= `lesson-card-<id>`) — so it equals the per-card name TS-17
+              stamps on the FLIP ORIGIN (`library-card.ts`'s `morphName`). A cross-document View-Transition
+              only pairs an old/new snapshot when the two names are IDENTICAL, so a per-card origin needs a
+              per-id destination here — a single global name would never pair. TS-21's route-level
+              cross-document View-Transition transport (in globals.css) then pairs BOTH endpoints and
+              tweens the box. The morph is BOX-ONLY per the TS-5b verdict — the container box geometry-FLIPs
+              while the opaque iframe contents "jump in" at the final frame (the iframe's sandbox +
+              ARTIFACT_CSP are byte-unchanged across the morph). The animation lives in globals.css, NOT
+              here — this box only carries the inline per-id endpoint name. Moving the box into the [read]
+              track is a layout change ONLY: the element, its id/class, and its inline name are unchanged.
+            */}
+            <div id="readerPanel" className="morph-box" style={{ viewTransitionName: morphName(id) }}>
+              {/*
+                The lesson iframe — attributes BYTE-UNCHANGED from the bare render (AC2): opaque origin via
+                `sandbox="allow-scripts"` WITHOUT `allow-same-origin`, `src` at the strict-CSP `/artifact`
+                route. The ref is read only for its `contentWindow` IDENTITY (the trusted postMessage
+                sender) — never to read the framed DOM.
+              */}
+              <iframe
+                ref={iframeRef}
+                className="artifact-frame"
+                title={title}
+                src={href}
+                sandbox="allow-scripts"
+              />
+            </div>
+          </div>
+
+          {/*
+            The [panel] apparatus track — EMPTY placeholder in PR-A (the apparatus stack lands in PR-B).
+            Rendered (not omitted) so the two-column shell is real and the subgrid spine is exercised; it
+            carries `container-type: inline-size` already so PR-B's cards scale to --panel-w.
+          */}
+          <aside className="ws-panel" aria-hidden="true" />
+
+          {/*
+            The [scrub] dot-rail track — EMPTY placeholder in PR-A (the scrubber lands in PR-C). Reserved
+            INSIDE the capped frame (never viewport-pinned), so the scrubber is never an orphaned track.
+          */}
+          <div className="ws-scrub" aria-hidden="true" />
+        </section>
       </div>
 
       {chrome.sections.length > 0 && (

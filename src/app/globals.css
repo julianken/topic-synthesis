@@ -243,6 +243,30 @@ h1 {
   max-width: 64rem;
 }
 
+/* The BUILT lesson-workspace wrap (PR-A): capped at --frame-max (not 64rem) so the named-line grid can
+   reach its full two-column width and center; the grid carries its own --edge-gap gutters, so this wrap
+   drops the side padding `.wrap` adds (it would double the inset). The reading-progress + topbar live in
+   the shell; the FULL integrated topbar is PR-D. */
+.wrap--reader {
+  max-width: var(--frame-max);
+  padding-inline: 0;
+}
+
+/* The reader header aligns to the [read] spine: capped at the reading --measure and offset by the same
+   --edge-gap the grid's left gutter uses, so the eyebrow/title/level sit OVER the prose column, not
+   spanning the whole frame. On the narrow single-column collapse it falls back to a simple inset. */
+.reader-head {
+  max-inline-size: var(--measure);
+  margin-inline-start: var(--edge-gap);
+}
+@media (max-width: 60rem) {
+  .reader-head {
+    max-inline-size: none;
+    margin-inline-start: clamp(16px, 4vw, 28px);
+    margin-inline-end: clamp(16px, 4vw, 28px);
+  }
+}
+
 .badge {
   flex: none;
   font-size: var(--fs-small);
@@ -281,6 +305,105 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
+}
+
+/* ── Lesson-workspace grid foundation (PR-A) ──────────────────────────────────────────────────────
+   The LOCKED named-line two-column grid from DESIGN.md "## Lesson layout" + the measured prototype
+   (.superpowers/lesson-workspace/prototype.html). PR-A renders the SHELL: the [read] track holds the
+   UNCHANGED #readerPanel.morph-box (the opaque-origin sandboxed iframe), and the [panel] + [scrub]
+   tracks render EMPTY placeholders — apparatus is PR-B, the scrubber is PR-C. The grid caps at
+   --frame-max and centers with equal --edge-gap gutters (nothing pinned to the viewport edge), and a
+   per-section `subgrid` provides the STABLE SPINE so prose lands on one identical [read] track (Δ0px,
+   pure CSS — NO JS x-math). NO §0 RETOKEN: the metrics below are component-local --ws-* tokens (like
+   --gen-*) that CONSUME the existing §0 geometry tokens (--measure/--panel-w/--scrub-w/--col-gap/
+   --edge-gap/--frame-max), so the serve.ts / code.ts manifest copies + serve.test.ts aren't engaged. */
+.reader--ws {
+  /* component-local workspace metrics — consume §0 geometry; introduce no new §0 token */
+  --ws-frame-max: var(--frame-max);
+  --ws-edge-gap: var(--edge-gap);
+  --ws-read-w: var(--measure);
+  --ws-panel-w: var(--panel-w);
+  --ws-col-gap: var(--col-gap);
+  --ws-scrub-w: var(--scrub-w);
+  --ws-collapse: 60rem; /* ≤900px → single-column collapse (DESIGN.md §Lesson layout invariant) */
+
+  margin: 0;
+  display: block;
+}
+
+/* The LOCKED named-line grid — the exact line-name set from DESIGN.md + the prototype. The two `1fr`
+   gutters are equal (centered at every width); [read] is `minmax(0, --ws-read-w)` (the frozen spine);
+   [panel] is fixed --ws-panel-w; [scrub] holds the (empty in PR-A) dot-rail INSIDE the frame. */
+.ws-grid {
+  display: grid;
+  grid-template-columns:
+    [screen-start] minmax(var(--ws-edge-gap), 1fr)
+    [read-start] minmax(0, var(--ws-read-w))
+    [read-end] var(--ws-col-gap)
+    [panel-start] var(--ws-panel-w)
+    [panel-end] var(--ws-scrub-w)
+    [scrub] minmax(var(--ws-edge-gap), 1fr) [screen-end];
+  align-items: start;
+  max-inline-size: var(--ws-frame-max);
+  inline-size: 100%;
+  margin-inline: auto;
+  position: relative;
+}
+
+/* A workspace SECTION — `subgrid` inherits the parent's exact column tracks, so the prose spine lands
+   on the IDENTICAL [read-start]/[read-end] track in every section: the platform owns the alignment
+   (the stable-spine HARD rule, Δ0px, no x-math). PR-A renders the one section that holds the reading box. */
+.ws-section {
+  grid-column: screen-start / screen-end;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: start;
+  min-inline-size: 0;
+}
+
+/* The reading column — the [read] track. PR-A docks the UNCHANGED #readerPanel.morph-box here. */
+.ws-read {
+  grid-column: read-start / read-end;
+  min-inline-size: 0;
+}
+
+/* The apparatus column — the [panel] track. EMPTY placeholder in PR-A (apparatus = PR-B). Reserved so
+   the two-column shell is real + the spine is exercised; it already carries `container-type` so PR-B's
+   cards scale to --ws-panel-w, not the viewport (the generating-SPEC container-query primitive). */
+.ws-panel {
+  grid-column: panel-start / panel-end;
+  min-inline-size: 0;
+  container-type: inline-size;
+}
+
+/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned). EMPTY in PR-A
+   (the dot-rail = PR-C); the track is reserved now so the scrubber is never an orphaned track later. */
+.ws-scrub {
+  grid-column: scrub / scrub;
+  min-inline-size: 0;
+  justify-self: center;
+}
+
+/* Responsive collapse to a single column ≤900px (--ws-collapse): the panel/scrub reflow below the
+   prose, no horizontal overflow at 390 (DESIGN.md §Lesson layout invariant). */
+@media (max-width: 60rem) {
+  .ws-grid {
+    display: block;
+    padding-inline: clamp(16px, 4vw, 28px);
+  }
+  .ws-section,
+  .ws-read,
+  .ws-panel,
+  .ws-scrub {
+    display: block;
+    grid-column: auto;
+  }
+  .ws-panel {
+    margin-top: var(--sp-5);
+  }
+  .ws-scrub {
+    display: none; /* the in-frame rail folds away on the narrow single column (PR-C → a TOC there) */
+  }
 }
 
 /* Reading progress (DESIGN.md §Components → "Reading progress"): a labeled bar + a tabular-figure

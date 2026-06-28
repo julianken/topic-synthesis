@@ -39,8 +39,14 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
     .flatMap((tier) => tier.categories.flatMap((category) => category.pages))
     .find(() => true);
 
+  const isBuilt = page?.status === 'built';
+
   return (
-    <main className="wrap wrap--wide">
+    // The BUILT branch lays out the lesson-workspace grid (PR-A), which caps at --frame-max and centers
+    // itself — so its <main> must NOT be constrained to the narrow `wrap--wide` (64rem); it uses the
+    // frame-wide `wrap--reader` (capped at --frame-max, no side padding so the grid's own --edge-gap
+    // gutters center it). The degraded soon/text branch keeps the narrow `wrap--wide` reading column.
+    <main className={isBuilt ? 'wrap wrap--reader' : 'wrap wrap--wide'}>
       {/*
         RECEIVER-GUARANTEE (TS-22): the `pagereveal` listener is registered from a parser-blocking inline
         script in the document <head> (mounted site-wide in `src/app/layout.tsx`), NOT here in the body —
@@ -50,12 +56,19 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
         `#readerPanel.morph-box` (→ the card→reader box-FLIP runs when the cross-doc VT is supported and
         reduced-motion is off), and the degraded `soon`/`text` state below renders NO box (→ the handler
         skips the cross-doc VT → a clean instant-swap; AC4).
+
+        The existing reader header (eyebrow + title + level/depth — the reading-progress + topbar stay in
+        the shell; the FULL integrated topbar is PR-D) is wrapped, on the built branch, in `.reader-head`
+        so it aligns to the [read] spine (capped at --measure, offset by --edge-gap) rather than spanning
+        the whole frame; the degraded branch renders it as the plain narrow-wrap header.
       */}
-      <p className="eyebrow">{view.topic}</p>
-      <h1>{page ? page.title : view.topic}</h1>
-      <p className="lead">
-        {view.settings.level} · depth {view.settings.depth}
-      </p>
+      <div className={isBuilt ? 'reader-head' : undefined}>
+        <p className="eyebrow">{view.topic}</p>
+        <h1>{page ? page.title : view.topic}</h1>
+        <p className="lead">
+          {view.settings.level} · depth {view.settings.depth}
+        </p>
+      </div>
 
       {page && page.status === 'built' ? (
         // The v11 reader shell (TS-20) frames the UNCHANGED opaque-origin lesson iframe: a
