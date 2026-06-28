@@ -115,6 +115,7 @@
   --lh-display: 1.06;
   --lh-heading: 1.18;
   --lh-gloss: 1.55;
+  --lh-card-desc: 1.4; /* library poster-card 2-line description (Figma 6:46/6:47 ≈ 17.5px/line @ 12.5px) */
 
   /* space (rem) */
   --sp-1: 0.25rem;
@@ -576,13 +577,16 @@ h1 {
   overflow: hidden;
 }
 
-/* One-line DESCRIPTION (Figma 6:47): sans 12.5px (= --fs-caption) in --text-muted (#a4acb4), the gloss
-   line-height band. The lesson's learner-facing one-liner (summary = the brief's learningGoal). Clamped
-   to TWO lines (the frame's 248px / ~2-line description) so a long goal can't blow the fixed card height;
-   only rendered when the stored summary is non-null (page.tsx cardDescription), else the row is omitted. */
+/* One-line DESCRIPTION (Figma 6:47): sans 12.5px (= --fs-caption) in --text-muted (#a4acb4). The lesson's
+   learner-facing one-liner (summary = the brief's learningGoal). Clamped to TWO lines (the frame's 248px /
+   ~2-line description) so a long goal can't blow the fixed card height; only rendered when the stored
+   summary is non-null (page.tsx cardDescription), else the row is omitted. Line-height is the tighter
+   --lh-card-desc (1.4), NOT --lh-gloss (1.55): at 12.5px, 1.55 → ~19.4px/line → 38.8px over two lines,
+   which exceeds the card body budget so overflow:hidden sliced the SECOND line mid-glyph (descenders cut).
+   The Figma 6:46 box is 35px = ~17.5px/line ≈ 1.40, two CLEAN fully-visible lines — matched here. */
 .library-poster__desc {
   font-size: var(--fs-caption);
-  line-height: var(--lh-gloss);
+  line-height: var(--lh-card-desc);
   color: var(--text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
