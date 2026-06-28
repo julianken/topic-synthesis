@@ -426,13 +426,21 @@ function PhaseTable({
               ? `${String(ledger.extracted)}/${String(researchCount)}`
               : '';
           return (
-            <li key={phase} className="gen-step" data-state={st}>
+            <li
+              key={phase}
+              className="gen-step"
+              data-state={st}
+              data-phase={phase}
+              data-testid={`gen-step-${phase}`}
+            >
               <span className="gen-step__label">
                 {PHASE_LABEL[phase]}
                 <span className="gen-sr"> · {CELL_AFFORDANCE[st].word}</span>
               </span>
               <span className="gen-step__bar" aria-hidden="true" />
-              <span className="gen-step__count">{count}</span>
+              <span className="gen-step__count" data-testid={`gen-step-count-${phase}`}>
+                {count}
+              </span>
             </li>
           );
         })}
@@ -463,6 +471,7 @@ function PhaseTable({
                 <div
                   className="gen-cell"
                   data-phase="research"
+                  data-testid="gen-cell-research"
                   style={{ gridColumn: ci + 1 }}
                   key={phase}
                 >
@@ -627,11 +636,11 @@ function LiveResearchBand({
 }) {
   const empty = findings.length === 0 && overflow.length === 0;
   return (
-    <section className="gen-research" aria-label="Live research findings">
+    <section className="gen-research" aria-label="Live research findings" data-testid="gen-research-band">
       <div className="gen-research__head">
         <span className="gen-research__pulse" aria-hidden="true" />
         <span className="gen-research__title">LIVE RESEARCH</span>
-        <span className="gen-research__count">
+        <span className="gen-research__count" data-testid="gen-research-count">
           {String(extracted)} / {String(total)} extracted
         </span>
       </div>

@@ -4,8 +4,11 @@ name: frontend-e2e
 # Cloud Run does (next build → `node .next/standalone/server.js`, the standalone-output entrypoint /
 # Dockerfile.app CMD, NOT next start), at the two DESIGN.md viewports (390×844 mobile + 1440×900 desktop) under forced
 # reduced motion. It runs the smoke suite (auth gate · test-auth library render · generate→generating
-# with the LLM pipeline + Job dispatch MOCKED) and the visual-snapshot suite (per-screen committed
-# -linux baselines).
+# with the LLM pipeline + Job dispatch MOCKED), the visual-snapshot suite (per-screen committed
+# -linux baselines), the generating-geometry measurement spec (the four §10.4 column-table guarantees),
+# and the generating-stepthrough spec (the RIGOROUS step-through that drives the generating view through
+# every pipeline phase via a scripted status sequence, asserting state + column-lock geometry per step,
+# and writes a /tmp/stepthrough film strip uploaded below). All run via `npm run test:e2e` (testDir e2e/).
 #
 # SOFT-LAUNCH (GAPS.md "soft-launch → dated-flip → promote-to-blocker"): BOTH jobs are
 # `continue-on-error: true` and are NOT in the branch ruleset's required checks nor in `.mergify.yml`
@@ -54,6 +57,9 @@ jobs:
       # config — they need not be repeated here. No K_SERVICE → the seams are reachable; a real Cloud
       # Run deploy always carries K_SERVICE and would refuse the fake (src/app/auth/provider.ts).
       DATABASE_URL: postgresql://topic:topic_dev@localhost:5433/topic_synthesis
+      # Write the generating-stepthrough film strip into the workspace (not /tmp) so the upload step can
+      # collect it as a downloadable artifact.
+      STEPSHOTS_DIR: stepthrough-shots
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -94,3 +100,14 @@ jobs:
           name: visual-snapshots
           path: e2e/**/*-snapshots/**
           retention-days: 7
+
+      # The generating-stepthrough film strip — one PNG per asserted phase, so the owner can flip through
+      # the whole live-run progression from the CI run.
+      - name: Upload generating-stepthrough film strip
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stepthrough-film-strip
+          path: stepthrough-shots/**
+          retention-days: 7
+          if-no-files-found: ignore
