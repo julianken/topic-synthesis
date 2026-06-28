@@ -376,12 +376,45 @@ h1 {
   container-type: inline-size;
 }
 
-/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned). EMPTY in PR-A
-   (the dot-rail = PR-C); the track is reserved now so the scrubber is never an orphaned track later. */
+/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned). PR-B fills it with the
+   section dot-rail (a labeled read-out of the posted sections, active dot tracks scrollProgress); the
+   in-document anchor-jump wire is PR-C. The rail is sticky so it tracks the reader. */
 .ws-scrub {
   grid-column: scrub / scrub;
   min-inline-size: 0;
   justify-self: center;
+}
+.ws-scrub__rail {
+  position: sticky;
+  top: var(--sp-5);
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2) 0;
+  display: grid;
+  grid-auto-flow: row;
+  gap: 12px; /* 20px pitch − 8px dot (the prototype's --ws-scrub-pitch − --ws-scrub-dot) */
+}
+.ws-scrub__rail li {
+  display: block;
+  line-height: 0;
+}
+.ws-scrub__dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  /* TS-24: the active/done swap rides the catalog --tr-state primitive (color+border @ --dur-base). */
+  transition: var(--tr-state);
+}
+.ws-scrub__dot[data-done] {
+  background: var(--pipeline);
+  border-color: var(--badge-border-ok);
+}
+.ws-scrub__dot[data-active] {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* Responsive collapse to a single column ≤900px (--ws-collapse): the panel/scrub reflow below the
@@ -497,26 +530,150 @@ h1 {
   animation-timing-function: var(--ease);
 }
 
-/* The lesson's section list, posted via the decision-12 channel (absent until a valid message lands). */
-.reader-sections {
-  font-size: var(--fs-small);
-}
-
-.reader-sections ol {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* ── Apparatus panel (PR-B) ───────────────────────────────────────────────────────────────────────
+   The [panel]-track card stack, fed ONLY by the SHIPPED coordinate-only { sections, scrollProgress }
+   channel (the chrome NEVER reads the iframe DOM). The where-am-i widget + the section list LIGHT UP
+   from the posted data; the richer cards (gloss/figure/source/self-check/takeaways) render best-effort
+   placeholders awaiting the PR-F payload extension. `container-type: inline-size` (on .ws-panel) is what
+   lets the cards scale to --panel-w, not the viewport. NO §0 RETOKEN — only the existing §0 tokens. */
+.ws-app {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
+  flex-direction: column;
+  gap: var(--sp-4);
 }
 
-.reader-sections__item {
-  color: var(--text-muted);
-  padding: var(--sp-1) var(--sp-2);
+.ws-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-card);
+  padding: var(--sp-4);
+}
+.ws-card__eyebrow {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+/* A best-effort placeholder card's awaiting-data hint — clearly muted so it reads as "not yet here". */
+.ws-card__hint {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-faint);
+}
+.ws-card[data-awaiting] {
+  border-style: dashed;
+}
+
+/* The where-am-i widget — the EXACT overall percent + a progress-fill strip, an EXPLICITLY APPROXIMATE
+   position line ("≈ around section N of M"), and the posted section list. The shipped channel carries only
+   an overall scalar, so the widget leads with what's exact (percent + list) and frames position as an
+   estimate — never a confident tracked NN/total count (the reviewer's MAJOR data-contract finding). */
+.ws-where__percent {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--fs-card-title);
+  line-height: var(--lh-heading);
+  color: var(--fog-50);
+  font-variant-numeric: tabular-nums;
+}
+.ws-where__pct-sign {
+  font-size: 0.7em;
+  color: var(--text-muted);
+}
+/* the overall-progress strip: a track + a fill whose width is the EXACT posted percent (not the estimate). */
+.ws-where__strip {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-raised);
+  margin: var(--sp-3) 0 var(--sp-2);
+  overflow: hidden;
+}
+.ws-where__seg-fill {
+  display: block;
+  height: 100%;
+  width: var(--ws-where-pct, 0%);
+  border-radius: 2px;
+  background: var(--accent);
+  /* TS-24: the fill width rides the catalog --tr-progress primitive (@ --dur-base/--ease). */
+  transition: var(--tr-progress);
+}
+/* the explicitly-approximate position line — muted, so it reads as a soft estimate, not a hard readout. */
+.ws-where__approx {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+.ws-where__approx-sign {
+  font-family: var(--mono);
+  color: var(--text-faint);
+}
+.ws-where__approx-title {
+  color: var(--text);
+}
+.ws-where__blurb {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+.ws-where__blurb.ws-empty {
+  color: var(--text-faint);
+}
+/* The section list — moved OUT of the old flat pill strip INTO the where-am-i widget. */
+.ws-where__list {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-where__item {
+  display: flex;
+  gap: var(--sp-2);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-faint);
+  /* TS-24: the active brightening rides the catalog --tr-color primitive (@ --dur-fast/--ease). */
+  transition: var(--tr-color);
+}
+.ws-where__item[data-done] {
+  color: var(--text-muted);
+}
+.ws-where__item[data-active] {
+  color: var(--text);
+  font-weight: 600;
+}
+.ws-where__ord {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+/* Card reveal-on-mount (lesson-workspace SPEC §8 — the §0 catalog, NOT a second motion vocabulary):
+   a translateY 16px + fade at the §0 --dur-base/--ease tier. DECLARED ONLY under
+   prefers-reduced-motion: no-preference, so under reduced motion the cards mount in place with no
+   animation at all (not merely a zeroed duration). */
+@media (prefers-reduced-motion: no-preference) {
+  .ws-app .ws-card {
+    animation: ws-card-rise var(--dur-base) var(--ease) both;
+  }
+  @keyframes ws-card-rise {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 /* Single-lesson degraded state: the run produced a soon/text lesson, not a built page.
