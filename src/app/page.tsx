@@ -55,12 +55,17 @@ export default async function Library() {
 
   return (
     <main className="library">
-      <div className="library__head">
-        <h1 className="library__title">Lessons</h1>
-        <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
-      </div>
-
-      <LibraryCreate>
+      {/* The section title row is passed as the `head` prop so the create island can DROP it in the
+          in-place generating view (a clean, focused screen — no stale "Tap a built lesson" copy above a
+          mid-generation lesson); it renders only in the index/form views. */}
+      <LibraryCreate
+        head={
+          <div className="library__head">
+            <h1 className="library__title">Lessons</h1>
+            <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
+          </div>
+        }
+      >
         {lessons.map((lesson) => {
           const meta = metaLine(lesson.level, lesson.depth, lesson.createdAt);
           // Dense-card rows — both REAL stored data, both re-validated on the read side. A null result

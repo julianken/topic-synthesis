@@ -29,7 +29,7 @@ import {
  *   generating — on a successful submit (`202 {id}`) the form RECEDES and the typed topic text LIFTS into
  *                the generating shell's header (the `begin-generate` typed transition + the `specimen-topic`
  *                shared element); the in-place generating shell polls status and navigates to
- *                `/curriculum/[id]` once the run lands.
+ *                `/curriculum/[id]` once the run lands. concept-drift-ok: route identifier, deferred rename (ADR-0003)
  *
  * The four fields + the POST contract are UNCHANGED from the prior `intake-form.tsx`: topic / level /
  * depth(1..5) / optional audience → `POST /api/generate { topic, level, depth, audience }` → `202 {id}`,
@@ -54,7 +54,7 @@ const RAIL_AFFORDANCE: Record<RailStage['state'], { icon: string; word: string }
   error: { icon: '✗', word: 'Failed' },
 };
 
-export function LibraryCreate({ children }: { children: ReactNode }) {
+export function LibraryCreate({ head, children }: { head: ReactNode; children: ReactNode }) {
   const router = useRouter();
   const [view, setView] = useState<View>('index');
   // The in-flight run id (set on a 202) — drives the in-place generating shell's status poll.
@@ -171,7 +171,7 @@ export function LibraryCreate({ children }: { children: ReactNode }) {
     });
   }, [topic, level, depth, audience, submitting]);
 
-  // ── In-place generating shell: poll status, navigate to /curriculum/[id] on ready ───────────────────
+  // ── In-place generating shell: poll status, navigate to /curriculum/[id] on ready ─────────────────── // concept-drift-ok: route identifier, deferred rename (ADR-0003)
   // Reuses the generating.tsx poller PATTERN (the same status endpoint + the same pure stage-rail core)
   // but, because the generating shell renders in-place on `/`, it NAVIGATES (router.replace) to the reader
   // route when the run lands rather than router.refresh()ing the library.
@@ -230,49 +230,55 @@ export function LibraryCreate({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [view, openForm, closeForm]);
 
+  // GENERATING is a clean, focused screen — the library header (the "Lessons" title + the tap hint) is
+  // DROPPED here (matching the prototype + SPEC §3c/§4), so no stale "Tap a built lesson" copy sits above
+  // a lesson that is mid-generation. The head only renders in the index/form views below.
   if (view === 'generating') {
     return <GeneratingShell topic={topic.trim()} steps={steps} stalled={stalled} />;
   }
 
   return (
-    <ul className={`lessons-grid${view === 'form' ? ' lessons-grid--form-open' : ''}`}>
-      <li className="lessons-grid__create">
-        {view === 'form' ? (
-          <IntakeForm
-            formRef={formRef}
-            topicInputRef={topicInputRef}
-            fieldsIn={fieldsIn}
-            topic={topic}
-            setTopic={setTopic}
-            level={level}
-            setLevel={setLevel}
-            depth={depth}
-            setDepth={setDepth}
-            audience={audience}
-            setAudience={setAudience}
-            submitting={submitting}
-            error={error}
-            onClose={closeForm}
-            onSubmit={() => void submit()}
-          />
-        ) : (
-          <button
-            ref={newCardRef}
-            type="button"
-            className="newcard"
-            aria-label="New lesson — open the create form"
-            onClick={openForm}
-          >
-            <span className="newcard__plus" aria-hidden="true">
-              +
-            </span>
-            <span className="newcard__label">New lesson</span>
-            <span className="newcard__sub">start a run</span>
-          </button>
-        )}
-      </li>
-      {children}
-    </ul>
+    <>
+      {head}
+      <ul className={`lessons-grid${view === 'form' ? ' lessons-grid--form-open' : ''}`}>
+        <li className="lessons-grid__create">
+          {view === 'form' ? (
+            <IntakeForm
+              formRef={formRef}
+              topicInputRef={topicInputRef}
+              fieldsIn={fieldsIn}
+              topic={topic}
+              setTopic={setTopic}
+              level={level}
+              setLevel={setLevel}
+              depth={depth}
+              setDepth={setDepth}
+              audience={audience}
+              setAudience={setAudience}
+              submitting={submitting}
+              error={error}
+              onClose={closeForm}
+              onSubmit={() => void submit()}
+            />
+          ) : (
+            <button
+              ref={newCardRef}
+              type="button"
+              className="newcard"
+              aria-label="New lesson — open the create form"
+              onClick={openForm}
+            >
+              <span className="newcard__plus" aria-hidden="true">
+                +
+              </span>
+              <span className="newcard__label">New lesson</span>
+              <span className="newcard__sub">start a run</span>
+            </button>
+          )}
+        </li>
+        {children}
+      </ul>
+    </>
   );
 }
 
@@ -405,7 +411,7 @@ function IntakeForm(props: {
 /**
  * The IN-PLACE generating shell (the submit handoff target). The topic text LANDED here via the
  * `specimen-topic` shared element; this shell then polls the run's status (the same owner-scoped
- * `/api/curriculum/[id]/status` endpoint the reader route's poller uses) and renders the live six-stage
+ * `/api/curriculum/[id]/status` endpoint the reader route's poller uses) and renders the live six-stage // concept-drift-ok: route identifier, deferred rename (ADR-0003)
  * rail via the pure `deriveRail` core — until the run lands, when the island navigates to the reader
  * route. The shell's header carries `specimen-topic` (NEW side) so the topic morph has a destination.
  */
