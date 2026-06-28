@@ -50,6 +50,18 @@ import { morphName } from './reader-morph';
  * pushes (lesson-message.ts is UNCHANGED here; no DOM scrape). Decision-13 best-effort: a lesson posting
  * nothing leaves every card empty/zero and the shell fully usable.
  *
+ * Integrated topbar + Focus-reading (PR-D): the bare reading-progress bar under the generic page header is
+ * replaced by a 54px frosted TOPBAR — the ONLY chrome OUTSIDE the iframe. A `1fr auto 1fr` bar (back-to-
+ * Library link · the two-tone topic·synthesis wordmark REUSING the shipped `.appbar` tokens · the ⌘K/⇧F
+ * chord chips + the user pill, reusing the shipped `.appbar__chip`/avatar/name look). The READING-PROGRESS
+ * hairline sits at y=0 across the bar (the SHIPPED `ReadingProgress`, role=progressbar + aria-valuenow,
+ * restyled into the 2.5px --brand-gradient hairline), driven PURELY by the posted scrollProgress scalar — no
+ * DOM read into the opaque iframe. Wordmark + chips HIDE ≤640px (DESIGN.md invariant). FOCUS-READING (Shift+F
+ * or the labeled button) is a pure-CHROME CSS state that hides the [panel] + [scrub] tracks and re-centers/
+ * widens the reading spine — NO postMessage, the morph + lesson-message.ts UNCHANGED. The integrated topbar
+ * suppresses the global `<SessionNav>` appbar via a `body.has-ws-topbar` class (set on mount). NO §0 retoken
+ * (component-local --ws-* + reuse of the §0/appbar tokens).
+ *
  * Scrub-rail section jump (PR-C): the [scrub] track's dot-rail is now KEYBOARD-OPERABLE jump controls.
  * Each dot is a <button> labeled with its section name + position (status by style AND aria-label, never
  * color alone); the active/done state is driven by the SHIPPED { sections, scrollProgress } channel
@@ -62,9 +74,29 @@ import { morphName } from './reader-morph';
  * across the opaque boundary. PR-C ships the SENDER (best-effort): the post is harmless + inert until PR-F
  * teaches the generated lesson to RECEIVE this verb and scroll itself; lesson-message.ts is UNCHANGED.
  */
-export function ReaderShell({ id, href, title }: { id: string; href: string; title: string }) {
+export function ReaderShell({
+  id,
+  href,
+  title,
+  userName,
+  head,
+}: {
+  id: string;
+  href: string;
+  title: string;
+  /** The signed-in account's friendly display name — derived in page.tsx via the SHARED
+   *  session-nav `displayName` so the topbar's user pill matches the global appbar's exactly. */
+  userName: string;
+  /** The reader header content (eyebrow/title/level/depth) — rendered BELOW the integrated topbar so the
+   *  topbar is the page's TOP chrome (PR-D), aligned to the [read] spine via `.reader-head`. */
+  head: { eyebrow: string; title: string; level: string; depth: number };
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [chrome, setChrome] = useState(INITIAL_READER_CHROME);
+  // Focus-reading (Shift+F): a pure-CHROME CSS state on the workspace that hides the [panel] + [scrub]
+  // tracks and re-centers/widens the reading spine (globals.css `.reader--ws[data-focus] .ws-grid`). It is
+  // a chrome-local toggle — NO postMessage into the iframe, the morph + lesson-message.ts untouched.
+  const [focus, setFocus] = useState(false);
 
   // The coordinate-only parent→child section-jump SENDER (PR-C). Reads the iframe's contentWindow IDENTITY
   // only (the post target) — never the framed DOM. Guarded for a not-yet-loaded iframe (postScrollTo no-ops
@@ -90,13 +122,110 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  // Shift+F toggles Focus-reading from the keyboard (the labeled button toggles it too — two affordances,
+  // one state). Ignore the chord while typing in a field, and never swallow a browser/native shortcut
+  // (no modifier other than Shift). The handler is window-level so the chord works without focusing the
+  // button first; the SENDER/receiver boundary is untouched (this is chrome-only state).
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      // Shift+F (case-insensitive on the produced char). `event.key` is 'F' with Shift held.
+      if (!event.shiftKey || event.key.toLowerCase() !== 'f') return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      event.preventDefault();
+      setFocus((on) => !on);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // The integrated topbar REPLACES the bare global appbar on the built reader route (the global
+  // <SessionNav> appbar is hidden under `body.has-ws-topbar`); mark the body on mount, restore on unmount
+  // so the library / degraded routes keep their global appbar. A nested client component can't reach the
+  // appbar (a layout sibling above it in the DOM), so a body class is the robust suppression seam.
+  useEffect(() => {
+    document.body.classList.add('has-ws-topbar');
+    return () => document.body.classList.remove('has-ws-topbar');
+  }, []);
+
   const pct = Math.round(chrome.scrollProgress * 100);
   // Fold the SHIPPED coordinate-only state into the apparatus model — coordinate-only, no DOM read.
   const apparatus = deriveApparatus(chrome.sections, chrome.scrollProgress);
+  const initial = (userName[0] ?? '?').toUpperCase();
 
   return (
-    <div className="reader reader--ws">
-      <ReadingProgress percent={pct} />
+    <div className="reader reader--ws" data-focus={focus || undefined}>
+      {/*
+        The integrated 54px frosted TOPBAR (PR-D) — the ONLY chrome outside the iframe, a `1fr auto 1fr`
+        bar: left = a back-to-Library link; center = the two-tone topic·synthesis wordmark (REUSING the
+        shipped `.appbar` tokens 1:1); right = the ⌘K / ⇧F chord chips + the user pill (reusing the
+        shipped `.appbar__chip` / avatar / name look). The READING-PROGRESS hairline sits at y=0 across the
+        bar, driven PURELY by the posted scrollProgress scalar — no DOM read into the opaque iframe.
+        Wordmark + chord chips HIDE ≤640px (DESIGN.md invariant) so the bar never overflows the narrow
+        viewport; the user pill alone anchors the right on mobile.
+      */}
+      <header className="ws-topbar appbar" aria-label="Lesson workspace">
+        {/* y=0 reading-progress hairline — REUSES the shipped ReadingProgress affordance (role=progressbar
+            + aria-valuenow), restyled by `.ws-topbar` into the 2.5px brand hairline; coordinate-only. */}
+        <ReadingProgress percent={pct} />
+        <div className="ws-topbar__left">
+          {/* A plain <a> (not next/link) keeps the cross-document navigation that the card↔reader
+              View-Transition transport rides — matching the library card's FLIP-origin link. */}
+          <a className="ws-topbar__back" href="/">
+            <span aria-hidden="true">←</span> Library
+          </a>
+        </div>
+        <p className="appbar__wordmark ws-topbar__wordmark">
+          topic·<span className="appbar__wordmark-accent">synthesis</span>
+        </p>
+        <div className="ws-topbar__right">
+          <div className="ws-topbar__chips" aria-hidden="true">
+            {/* Chord HINT for the ⌘K jumper (a later pass). aria-hidden — a visual affordance reminder;
+                the keyboard behavior itself is the real a11y surface. The ⇧F chord lives ON the
+                Focus-reading button below (its kbd cap), so it isn't duplicated as a separate chip. */}
+            <span className="ws-topbar__chip">
+              Jump to <kbd className="ws-topbar__kbd">⌘K</kbd>
+            </span>
+          </div>
+          {/* The Focus-reading control — a labeled, keyboard-operable toggle (the visible counterpart to
+              the Shift+F chord, carrying the ⇧F kbd chip itself). aria-pressed reflects the state;
+              aria-keyshortcuts announces the chord to AT. */}
+          <button
+            type="button"
+            className="ws-topbar__focus"
+            aria-pressed={focus}
+            aria-keyshortcuts="Shift+F"
+            // A stable accessible name so the control is self-describing even when the text label is
+            // visually compacted to the ⇧F glyph at ≤640 (the label span is hidden there to fit the bar).
+            aria-label={focus ? 'Exit focus reading' : 'Focus reading'}
+            onClick={() => setFocus((on) => !on)}
+          >
+            <span className="ws-topbar__focus-label">{focus ? 'Exit focus' : 'Focus reading'}</span>
+            <kbd className="ws-topbar__kbd" aria-hidden="true">
+              ⇧F
+            </kbd>
+          </button>
+          <div className="appbar__chip ws-topbar__pill">
+            <span className="appbar__avatar" aria-hidden="true">
+              {initial}
+            </span>
+            <span className="appbar__name">{userName}</span>
+          </div>
+        </div>
+      </header>
+
+      {/* The reader header (eyebrow → title → level/depth), BELOW the topbar, aligned to the [read] spine
+          (`.reader-head` caps at --measure, offset by --edge-gap) so it sits OVER the prose column. */}
+      <div className="reader-head">
+        <p className="eyebrow">{head.eyebrow}</p>
+        <h1>{head.title}</h1>
+        <p className="lead">
+          {head.level} · depth {head.depth}
+        </p>
+      </div>
 
       {/*
         The LOCKED named-line workspace grid (PR-A). `.ws-grid` carries the exact line set

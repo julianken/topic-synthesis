@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
+import { displayName } from '../../auth/session-nav';
 import { getCurriculum, ownsRun } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 import { GeneratingPoller } from './generating';
 import { ReaderShell } from './reader-shell';
@@ -39,66 +40,76 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
     .flatMap((tier) => tier.categories.flatMap((category) => category.pages))
     .find(() => true);
 
-  const isBuilt = page?.status === 'built';
+  const head = {
+    eyebrow: view.topic,
+    title: page ? page.title : view.topic,
+    level: view.settings.level,
+    depth: view.settings.depth,
+  };
+
+  // RECEIVER-GUARANTEE (TS-22): the `pagereveal` listener is registered from a parser-blocking inline
+  // script in the document <head> (mounted site-wide in `src/app/layout.tsx`), NOT in this body — Chrome
+  // requires the listener to register before the first rendering opportunity, which a body script can
+  // race. The head-mounted handler reads the destination box from the LIVE DOM, so it decides correctly
+  // on EITHER branch: the `built` shell renders `#readerPanel.morph-box` (→ the card→reader box-FLIP runs
+  // when supported + reduced-motion off), and the degraded `soon`/`text` state renders NO box (→ skip the
+  // cross-doc VT → a clean instant-swap; AC4).
+  //
+  // PR-D — the BUILT branch is the integrated workspace: the ReaderShell now owns the TOP CHROME (the 54px
+  // frosted topbar with the y=0 reading-progress hairline), then the reader header (eyebrow/title/level),
+  // then the grid — so the shell is rendered DIRECTLY under <main> (no surrounding page header above the
+  // topbar). The degraded branch keeps the plain narrow-wrap header + degraded state.
+  if (page && page.status === 'built') {
+    return (
+      // The BUILT branch lays out the lesson-workspace grid (PR-A), which caps at --frame-max and centers
+      // itself — so its <main> uses the frame-wide `wrap--reader` (capped at --frame-max, no side padding
+      // so the grid's own --edge-gap gutters center it).
+      <main className="wrap wrap--reader">
+        {/*
+          The v11 reader shell (TS-20) frames the UNCHANGED opaque-origin lesson iframe inside the
+          `#readerPanel.morph-box` card→reader FLIP destination. The iframe stays sandbox="allow-scripts"
+          WITHOUT allow-same-origin (opaque origin), src at the strict-CSP /artifact route (page.href →
+          src/app/artifact/serve.ts), authorized through the owning row (the same-origin GET carries the
+          session cookie — ADR-0002 §5). The shell never reads the iframe DOM and never relaxes the
+          sandbox/CSP. PR-D: it also renders the integrated topbar + the y=0 reading-progress hairline.
+          concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
+        */}
+        <ReaderShell
+          id={id}
+          href={page.href}
+          title={page.title}
+          userName={displayName(identity.email)}
+          head={head}
+        />
+      </main>
+    );
+  }
 
   return (
-    // The BUILT branch lays out the lesson-workspace grid (PR-A), which caps at --frame-max and centers
-    // itself — so its <main> must NOT be constrained to the narrow `wrap--wide` (64rem); it uses the
-    // frame-wide `wrap--reader` (capped at --frame-max, no side padding so the grid's own --edge-gap
-    // gutters center it). The degraded soon/text branch keeps the narrow `wrap--wide` reading column.
-    <main className={isBuilt ? 'wrap wrap--reader' : 'wrap wrap--wide'}>
+    <main className="wrap wrap--wide">
       {/*
-        RECEIVER-GUARANTEE (TS-22): the `pagereveal` listener is registered from a parser-blocking inline
-        script in the document <head> (mounted site-wide in `src/app/layout.tsx`), NOT here in the body —
-        Chrome requires the listener to register before the first rendering opportunity, which a body
-        script can race. The head-mounted handler reads the destination box from the LIVE DOM, so it
-        decides correctly on EITHER branch of this reader page: the `built` shell renders
-        `#readerPanel.morph-box` (→ the card→reader box-FLIP runs when the cross-doc VT is supported and
-        reduced-motion is off), and the degraded `soon`/`text` state below renders NO box (→ the handler
-        skips the cross-doc VT → a clean instant-swap; AC4).
-
-        The existing reader header (eyebrow + title + level/depth — the reading-progress + topbar stay in
-        the shell; the FULL integrated topbar is PR-D) is wrapped, on the built branch, in `.reader-head`
-        so it aligns to the [read] spine (capped at --measure, offset by --edge-gap) rather than spanning
-        the whole frame; the degraded branch renders it as the plain narrow-wrap header.
+        RECEIVER-GUARANTEE (TS-22): the degraded state renders NO `#readerPanel.morph-box`, so the
+        head-mounted guard finds no box and SKIPS the cross-document morph → a clean instant-swap (AC4).
+        The reader header (eyebrow + title + level/depth) renders as the plain narrow-wrap header.
       */}
-      <div className={isBuilt ? 'reader-head' : undefined}>
-        <p className="eyebrow">{view.topic}</p>
-        <h1>{page ? page.title : view.topic}</h1>
+      <div>
+        <p className="eyebrow">{head.eyebrow}</p>
+        <h1>{head.title}</h1>
         <p className="lead">
-          {view.settings.level} · depth {view.settings.depth}
+          {head.level} · depth {head.depth}
         </p>
       </div>
-
-      {page && page.status === 'built' ? (
-        // The v11 reader shell (TS-20) frames the UNCHANGED opaque-origin lesson iframe: a
-        // reading-progress affordance + section list driven by the decision-12 postMessage channel,
-        // inside the `#readerPanel.morph-box` card→reader FLIP destination. The iframe stays
-        // sandbox="allow-scripts" WITHOUT allow-same-origin (opaque origin) with src at the strict-CSP
-        // /artifact route (page.href → src/app/artifact/serve.ts), authorized through the owning row
-        // (the same-origin GET carries the session cookie — ADR-0002 §5). The shell never reads the
-        // iframe DOM and never relaxes the sandbox/CSP. concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
-        //
-        // RECEIVER-GUARANTEE (TS-22): the morph-box destination IS present on this `built` branch, so the
-        // route-level guard above (which reads the live `#readerPanel`) lets the card→reader box-FLIP run
-        // when the browser supports the cross-doc VT and the user hasn't asked for reduced motion (AC3).
-        <ReaderShell id={id} href={page.href} title={page.title} />
-      ) : (
-        // RECEIVER-GUARANTEE (TS-22): the degraded state renders NO `#readerPanel.morph-box`, so the
-        // morph would try to pair a missing endpoint. The route-level guard above reads the live DOM,
-        // finds no box, and skips the cross-doc View-Transition → a clean instant-swap to this page (AC4).
-        <div className="lesson-degraded" role="status">
-          <span className={`badge badge--${page ? page.status : 'soon'}`}>
-            <span className="badge__icon" aria-hidden="true">
-              {STATUS_ICON[page ? page.status : 'soon']}
-            </span>{' '}
-            {STATUS_LABEL[page ? page.status : 'soon']}
-          </span>
-          <p className="lead">
-            This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
-          </p>
-        </div>
-      )}
+      <div className="lesson-degraded" role="status">
+        <span className={`badge badge--${page ? page.status : 'soon'}`}>
+          <span className="badge__icon" aria-hidden="true">
+            {STATUS_ICON[page ? page.status : 'soon']}
+          </span>{' '}
+          {STATUS_LABEL[page ? page.status : 'soon']}
+        </span>
+        <p className="lead">
+          This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
+        </p>
+      </div>
     </main>
   );
 }

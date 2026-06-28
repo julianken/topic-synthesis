@@ -37,8 +37,9 @@ export async function SessionNav() {
 }
 
 /** The friendly display name: the email's local part, trimmed of any +tag and dotted/underscored runs.
- *  Falls back to the whole string if there's no `@`. Pure — no I/O. */
-function displayName(email: string): string {
+ *  Falls back to the whole string if there's no `@`. Pure — no I/O. EXPORTED so the reader route's
+ *  integrated topbar (PR-D) derives the SAME pill name from the same identity, no second algorithm. */
+export function displayName(email: string): string {
   const local = email.includes('@') ? email.slice(0, email.indexOf('@')) : email;
   const base = local.split('+')[0] ?? local;
   return base.length > 0 ? base : email;
