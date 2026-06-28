@@ -376,11 +376,16 @@ h1 {
   container-type: inline-size;
 }
 
-/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned). PR-B fills it with the
-   section dot-rail (a labeled read-out of the posted sections, active dot tracks scrollProgress); the
-   in-document anchor-jump wire is PR-C. The rail is sticky so it tracks the reader. */
+/* The scrub column — the NARROW --scrub-w track between [panel-end] and the [scrub] line, INSIDE the
+   frame (never viewport-pinned, `justify-self: center` in the --scrub-w track). The track is the
+   `panel-end / scrub` span (the 1.1rem --ws-scrub-w track) — NOT the `scrub / screen-end` OUTER 1fr
+   gutter (placing the rail there would orphan it ~140px to the right against the viewport edge, the
+   exact "scrubber not against the screen edge" anti-pattern of DESIGN.md §Lesson layout decisions 3/4
+   + the named-grid-set note "[scrub] reserved … parked inside the capped frame"). PR-C fills the track
+   with the section dot-rail of KEYBOARD-OPERABLE jump <button>s (one per posted section, active dot
+   tracks scrollProgress). The rail is sticky so it tracks the reader. */
 .ws-scrub {
-  grid-column: scrub / scrub;
+  grid-column: panel-end / scrub;
   min-inline-size: 0;
   justify-self: center;
 }
@@ -392,29 +397,85 @@ h1 {
   padding: var(--sp-2) 0;
   display: grid;
   grid-auto-flow: row;
-  gap: 12px; /* 20px pitch − 8px dot (the prototype's --ws-scrub-pitch − --ws-scrub-dot) */
+  /* a11y (WCAG 2.2 AA, SC 2.5.8 Target Size Minimum): the HIT TARGET is the 24px button BOX, not the
+     8px visible dot. Each button is laid out at --ws-scrub-target (24px) tall, so the row pitch is
+     24px + gap ≥ 24px and adjacent 24px hit boxes never overlap — the spacing-exception failure of the
+     old 20px pitch is gone. A small gap keeps a visible breath between the 8px dots without dropping
+     pitch below 24px (24 + 4 = 28px pitch). */
+  gap: var(--sp-1); /* 4px → 28px center-to-center pitch (≥ the 24px target diameter, no overlap) */
 }
 .ws-scrub__rail li {
   display: block;
   line-height: 0;
 }
+/* component-local a11y metrics — the 8px VISIBLE dot vs. the 24px CSS-px POINTER/touch hit target
+   (SC 2.5.8). No §0 retoken: both are --ws-* component tokens, like the rest of the workspace. */
+.ws-scrub {
+  --ws-scrub-dot: 8px; /* the visible dot — visually UNCHANGED from the prototype */
+  --ws-scrub-target: 24px; /* the WCAG 2.2 minimum pointer/touch target (≥ 24×24 CSS px) */
+}
+/* Each dot is a keyboard-operable jump <button> (PR-C). a11y (SC 2.5.8): the focusable control's HIT
+   target is the full --ws-scrub-target (24×24) button box — the visible 8px dot is painted by a
+   centered ::before, while the button itself carries transparent padding out to 24×24 so its
+   getBoundingClientRect (the real pointer/touch target) is ≥ 24×24 CSS px. The button is laid out at
+   24px tall (driving the row pitch) but its HORIZONTAL footprint in the narrow --scrub-w track is
+   pulled back to the 8px dot width by a negative inline margin — so the 24px hit box overflows the
+   track symmetrically (centered, never clipped) WITHOUT widening the [scrub] column. The track keeps
+   its measured ≈1.1rem width and stays inset inside the frame. */
 .ws-scrub__dot {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  position: relative;
   display: block;
-  width: 8px;
-  height: 8px;
+  /* 24×24 HIT TARGET (SC 2.5.8): the laid-out box is the pointer/touch target. */
+  width: var(--ws-scrub-target);
+  height: var(--ws-scrub-target);
+  /* keep the [scrub] track narrow: collapse the 24px hit box to the 8px dot's footprint for layout
+     width only — the extra 16px overflows the track centered, never widening it. (Vertical stays 24px
+     so it drives the ≥24px pitch.) */
+  margin-block: 0;
+  margin-inline: calc((var(--ws-scrub-dot) - var(--ws-scrub-target)) / 2); /* −8px each side */
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+/* The VISIBLE dot — the original 8px pill, centered inside the 24px hit box (visually UNCHANGED). */
+.ws-scrub__dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto; /* center the 8px dot in the 24px box */
+  width: var(--ws-scrub-dot);
+  height: var(--ws-scrub-dot);
   border-radius: var(--r-pill);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  /* TS-24: the active/done swap rides the catalog --tr-state primitive (color+border @ --dur-base). */
+  /* TS-24: the active/done/hover swap rides the catalog --tr-state primitive (color+border @ --dur-base). */
   transition: var(--tr-state);
 }
-.ws-scrub__dot[data-done] {
+.ws-scrub__dot:hover::before {
+  border-color: var(--accent);
+}
+/* A clear focus ring for keyboard operation. The ring hugs the VISIBLE dot (the ::before), not the
+   invisible 24px hit box, so the focus affordance stays tight to what the user sees. */
+.ws-scrub__dot:focus-visible {
+  outline: none;
+}
+.ws-scrub__dot:focus-visible::before {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ws-scrub__dot[data-done]::before {
   background: var(--pipeline);
   border-color: var(--badge-border-ok);
 }
-.ws-scrub__dot[data-active] {
+.ws-scrub__dot[data-active]::before {
   background: var(--accent);
   border-color: var(--accent);
+  /* The active dot reads as the current position by SCALE too (status by style, not color alone). */
+  transform: scale(1.4);
 }
 
 /* Responsive collapse to a single column ≤900px (--ws-collapse): the panel/scrub reflow below the
@@ -447,6 +508,19 @@ h1 {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+}
+
+/* Inside the workspace reader (.wrap--reader is capped at --frame-max with padding-inline:0 so the grid
+   owns its own --edge-gap gutters), constrain the progress bar + percent readout to the SAME capped,
+   --edge-gap-guttered frame the grid uses — otherwise the assembly spans the full bleed and the "NN%"
+   tabular readout is clipped at the true viewport edge (DESIGN.md §Lesson layout anti-pattern "clipped
+   figures or labels" + the invariant "no horizontal overflow at 390"). Centered like the grid. */
+.reader--ws .reading-progress {
+  max-inline-size: var(--ws-frame-max);
+  margin-inline: auto;
+  padding-inline: var(--ws-edge-gap);
+  box-sizing: border-box;
+  inline-size: 100%;
 }
 
 .reading-progress__track {

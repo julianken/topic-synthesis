@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { deriveApparatus, type ApparatusModel } from './apparatus-state';
+import { postScrollTo } from './lesson-scroll-sender';
 import { INITIAL_READER_CHROME, reduceReaderMessage } from './reader-message';
 import { morphName } from './reader-morph';
 
@@ -48,10 +49,29 @@ import { morphName } from './reader-morph';
  * data — their real content is a coordinate-only payload EXTENSION that PR-F adds + the in-iframe sender
  * pushes (lesson-message.ts is UNCHANGED here; no DOM scrape). Decision-13 best-effort: a lesson posting
  * nothing leaves every card empty/zero and the shell fully usable.
+ *
+ * Scrub-rail section jump (PR-C): the [scrub] track's dot-rail is now KEYBOARD-OPERABLE jump controls.
+ * Each dot is a <button> labeled with its section name + position (status by style AND aria-label, never
+ * color alone); the active/done state is driven by the SHIPPED { sections, scrollProgress } channel
+ * (`deriveApparatus`). Activating a dot posts the COORDINATE-ONLY parent→child message
+ * `{ type: 'lesson:scrollTo', id }` INTO the iframe via `postScrollTo` (which TRIES the documented opaque-
+ * origin token 'null' but, because Chromium rejects 'null' for an opaque-origin frame, actually ships on
+ * the '*' fallback — safe for this non-navigable sandbox; see lesson-scroll-sender.ts), the OUTBOUND
+ * counterpart to lesson-message.ts's receive
+ * side. The chrome NEVER reaches into the iframe DOM to scroll it — the post is the only legal channel
+ * across the opaque boundary. PR-C ships the SENDER (best-effort): the post is harmless + inert until PR-F
+ * teaches the generated lesson to RECEIVE this verb and scroll itself; lesson-message.ts is UNCHANGED.
  */
 export function ReaderShell({ id, href, title }: { id: string; href: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [chrome, setChrome] = useState(INITIAL_READER_CHROME);
+
+  // The coordinate-only parent→child section-jump SENDER (PR-C). Reads the iframe's contentWindow IDENTITY
+  // only (the post target) — never the framed DOM. Guarded for a not-yet-loaded iframe (postScrollTo no-ops
+  // on a null window). Best-effort: the lesson acts on it once PR-F adds the receiver.
+  const jumpToSection = useCallback((sectionId: string) => {
+    postScrollTo(iframeRef.current?.contentWindow ?? null, sectionId);
+  }, []);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -131,27 +151,38 @@ export function ReaderShell({ id, href, title }: { id: string; href: string; tit
           </aside>
 
           {/*
-            The [scrub] dot-rail track (PR-B). Reserved INSIDE the capped frame (never viewport-pinned).
-            Each dot is a labeled marker derived from the posted sections; the active dot tracks
-            scrollProgress. Status is encoded by style AND the aria-label (never color alone), and the
-            list is hidden when no sections have been posted (the empty state). It is NOT a jump control
-            in PR-B (in-document anchor jumps are the PR-C scrubber wire) — it is the section read-out.
+            The [scrub] dot-rail track (PR-C — the scrub rail + section jump). Reserved INSIDE the capped
+            frame (never viewport-pinned), `justify-self: center` in the --scrub-w track. One dot per
+            SHIPPED section; each dot is now a KEYBOARD-OPERABLE <button> jump control (focusable, Enter/
+            Space-activated by the platform). The active/done state is driven by { sections, scrollProgress }
+            (deriveApparatus). Status is encoded by style AND the aria-label (never color alone). Activating
+            a dot posts the COORDINATE-ONLY parent→child message `{ type:'lesson:scrollTo', id }` INTO the
+            iframe (postScrollTo → tries 'null', ships on the '*' fallback Chromium forces for an opaque
+            frame; safe for this non-navigable sandbox) — the chrome NEVER reaches into the iframe DOM.
+            Best-effort: the scroll LANDS once PR-F teaches the lesson to receive it. The
+            rail is hidden when no sections have been posted (the empty state) and folds away on the ≤900
+            single-column collapse (globals.css → a TOC there).
           */}
-          <nav className="ws-scrub" aria-label="Section progress">
+          <nav className="ws-scrub" aria-label="Jump to section">
             {apparatus.hasSections && (
               <ol className="ws-scrub__rail">
                 {apparatus.marks.map((mark) => (
                   <li key={mark.id}>
-                    <span
+                    <button
+                      type="button"
                       className="ws-scrub__dot"
                       data-done={mark.done || undefined}
                       data-active={mark.active || undefined}
+                      aria-current={mark.active ? 'true' : undefined}
+                      // The jump: post the coordinate-only `lesson:scrollTo` INTO the iframe (never a DOM
+                      // reach). Best-effort — inert until PR-F's receiver lands.
+                      onClick={() => jumpToSection(mark.id)}
                       // Status by LABEL, not color alone (§Accessibility): the ordinal + posted title +
-                      // the read state. The title is inert React-escaped text (validator-stripped to
-                      // {id, title}), never innerHTML/href.
-                      // Status by LABEL not color alone; the active label says "approx." because the dot
-                      // position is estimated from overall scroll, not a posted active-section signal.
-                      aria-label={`${String(mark.ordinal)}. ${mark.title}${
+                      // the read state. The label also carries the "jump to" affordance so the control is
+                      // self-describing. The title is inert React-escaped text (validator-stripped to
+                      // {id, title}), never innerHTML/href. "approx." because the active dot is estimated
+                      // from overall scroll, not a posted active-section signal.
+                      aria-label={`Jump to section ${String(mark.ordinal)}: ${mark.title}${
                         mark.active ? ' (approx. here)' : mark.done ? ' (read)' : ''
                       }`}
                     />
