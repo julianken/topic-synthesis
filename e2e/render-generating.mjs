@@ -59,13 +59,13 @@ const PAYLOAD = {
       finishedAt: T(9200),
     },
     {
+      // REAL-shaped in-flight row: a 'pending' question has NO findings yet (NULL until it UPDATEs to 'done'),
+      // so it contributes zero ledger rows — 2/3 extracted with two done findings, the third node still ⟳.
       question: 'Chlorophyll’s role in capturing light?',
       subtopic: null,
       status: 'pending',
-      findings: [
-        { claim: 'Chlorophyll absorbs red & blue light, reflects green.', url: 'https://www.khanacademy.org/science/biology/photosynthesis', title: 'Khan Academy' },
-      ],
-      sources: [{ url: 'https://www.khanacademy.org/science/biology/photosynthesis', title: 'Khan Academy' }],
+      findings: [],
+      sources: [],
       findingCount: null,
       startedAt: T(2100),
       finishedAt: null,

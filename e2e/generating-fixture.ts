@@ -57,17 +57,17 @@ export const GENERATING_STATUS_PAYLOAD = {
       finishedAt: T(9200),
     },
     {
+      // The in-flight question — REAL-shaped: a 'pending' row carries NO findings (PgResearchSink.onQuestions
+      // INSERTs it as status='pending' with NULL findings; onResearch only attaches findings when it UPDATEs
+      // the row to status='done'). So this row contributes ZERO ledger rows — the panel honestly shows 2/3
+      // extracted with the two done findings, while the third research NODE still reads ⟳ "extracting claims…"
+      // in the graph (the node keys off status, not findings). An "extracting from <host> …" finding line is a
+      // shape the live feed can never emit; never fake it here.
       question: 'Chlorophyll’s role in capturing light?',
       subtopic: null,
       status: 'pending',
-      findings: [
-        {
-          claim: 'Chlorophyll absorbs red & blue light, reflects green.',
-          url: 'https://www.khanacademy.org/science/biology/photosynthesis',
-          title: 'Khan Academy',
-        },
-      ],
-      sources: [{ url: 'https://www.khanacademy.org/science/biology/photosynthesis', title: 'Khan Academy' }],
+      findings: [],
+      sources: [],
       findingCount: null,
       startedAt: T(2100),
       finishedAt: null,
