@@ -1,3 +1,4 @@
+import type { Research } from '../domain/stages';
 import type { Engine } from '../engine/engine';
 import type { LlmCallRecord } from '../llm/client';
 import type { Stage, StageModel } from '../llm/models';
@@ -104,3 +105,28 @@ export interface TraceSink {
 
 /** The real default — drops every span (no observability overhead, no eleatic dependency). */
 export const noopSink: TraceSink = { onSpan() {} };
+
+/**
+ * The LIVE-RESEARCH observability port (live-research generating Stage 1). The researcher fan-out
+ * notifies the sink twice: ONCE with all the planned questions (so the generating UI can show N
+ * pending questions immediately), then ONCE per question AS its research resolves (so the UI shows a
+ * live "M/N answered" with the REAL grounded findings + retrieved sources). Like `TraceSink` this is
+ * pure OBSERVABILITY — it never changes the generated artifact, and the run NEVER awaits it on the
+ * critical path (run-pipeline fires `void sink.on*().catch(swallow)`, so a slow/failed write adds zero
+ * latency and can't fail the fan-out). The default drops everything, so the CLI/local-dev/test paths
+ * (and a mis-wired Job) reach NO new code and behave exactly as today; only the deployed Job injects a
+ * Postgres-backed sink. A faulty injected sink must be inert by construction (see `noopResearchSink`).
+ */
+export interface ResearchSink {
+  /** Announce the deduped/capped research questions, in fan-out order, before any search returns. */
+  onQuestions(questions: string[]): Promise<void>;
+  /** A single question's grounded research landed (its findings + retrieved sources). */
+  onResearch(question: string, research: Research): Promise<void>;
+}
+
+/** The real default — drops every live-research event (no DB, no live rows; the generating UI then
+ *  shows only the stage-rail timeline). The Next app, the CLI, and every test inject this. */
+export const noopResearchSink: ResearchSink = {
+  async onQuestions() {},
+  async onResearch() {},
+};

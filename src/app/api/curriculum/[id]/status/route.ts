@@ -1,24 +1,36 @@
 import { getSessionIdentity } from '../../../../auth/require-session';
-import { getCurriculum, getStepEvents, ownsRun, type StepEvent } from '../../../../../store/repo';
+import {
+  getCurriculum,
+  getResearchEvents,
+  getStepEvents,
+  ownsRun,
+  type ResearchEvent,
+  type StepEvent,
+} from '../../../../../store/repo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Has the run's curriculum landed yet, and what's its per-step timeline? Two SEPARATE owner gates,
- * NOT one (issue #61):
+ * Has the run's curriculum landed yet, what's its per-step timeline, and what's the live research feed?
+ * THREE fields behind TWO owner gates (issue #61 + live-research generating Stage 1):
  *  - `ready` ⇐ getCurriculum(id, sub): true only once the caller owns a PERSISTED curriculum (a
  *    foreign/absent id is uniformly not-ready — no existence oracle). Unchanged.
  *  - `steps` ⇐ ownsRun(id, sub) + getStepEvents(id): owner-scoped via the pre-persist `run_owner`
  *    stamp, so the timeline is visible DURING the run — precisely the window where getCurriculum
  *    still returns null (the curriculum persists atomically only at the end). A non-owner/absent id
  *    returns `[]`, indistinguishable from a just-started owned run → still no existence oracle.
+ *  - `research` ⇐ the SAME `ownsRun` gate + getResearchEvents(id): the live-research feed (the planned
+ *    questions + each question's grounded findings/sources). `ownsRun` is computed ONCE and reused for
+ *    both reads. A non-owner/unauthenticated/absent id yields `[]` — identical to a just-started owned
+ *    run, so the research feed carries no existence oracle either. Pruned at persist (transient per-run).
  */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await ctx.params;
   const identity = await getSessionIdentity();
   const view = identity ? await getCurriculum(id, identity.sub) : null;
-  const steps: StepEvent[] =
-    identity && (await ownsRun(id, identity.sub)) ? await getStepEvents(id) : [];
-  return Response.json({ id, ready: view !== null, steps });
+  const owns = identity ? await ownsRun(id, identity.sub) : false;
+  const steps: StepEvent[] = owns ? await getStepEvents(id) : [];
+  const research: ResearchEvent[] = owns ? await getResearchEvents(id) : [];
+  return Response.json({ id, ready: view !== null, steps, research });
 }

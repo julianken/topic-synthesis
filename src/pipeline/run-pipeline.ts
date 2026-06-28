@@ -19,8 +19,32 @@ import { classifyCategory } from './classify-category';
 import { gateGraph, type GateThresholds } from './coverage-gate';
 import { defaultDeps, type StageDeps } from './deps';
 import { assembleHub } from './hub';
-import { defaultStages, noopSink, type StageBundle, type TraceSink } from './ports';
+import {
+  defaultStages,
+  noopResearchSink,
+  noopSink,
+  type ResearchSink,
+  type StageBundle,
+  type TraceSink,
+} from './ports';
 import type { ResearchInput } from './researcher';
+
+/**
+ * Fire a best-effort research-sink emission off the run's critical path and discard its outcome. The
+ * sink is observability, NEVER load-bearing, so a faulty injected sink must be inert by construction:
+ * this catches BOTH a SYNCHRONOUS throw (the call never returns a promise) AND an async rejection, so
+ * neither can reach `runLesson` or the researcher fan-out. (`PgResearchSink` already self-wraps each
+ * write, so this is belt-and-suspenders for a non-conforming injected sink — e.g. a test fake or a
+ * future adapter that throws synchronously.) The run never awaits this; the UI degrades to the
+ * stage-rail timeline when the sink fails.
+ */
+function fireResearch(call: () => Promise<void>): void {
+  try {
+    void call().catch(() => {});
+  } catch {
+    /* a synchronous throw from a non-conforming sink — swallowed, never reaches the run */
+  }
+}
 
 export interface PipelineRunResult {
   result: PipelineResult;
@@ -88,6 +112,9 @@ export async function runPipeline(
   // The observability sink — 6th positional, AFTER stages. Default no-op, so the Next app (which
   // injects noopSink) never reaches the eleatic adapter; the eval/CLI injects a SpanCollector.
   sink: TraceSink = noopSink,
+  // The LIVE-RESEARCH sink — 7th positional, AFTER sink. Default no-op (DORMANT curriculum path; no
+  // entrypoint drives it). Threaded for parity with runLesson so the shared prelude can't drift.
+  researchSink: ResearchSink = noopResearchSink,
 ): Promise<PipelineRunResult> {
   const records: LlmCallRecord[] = [];
   const bucket = bucketize(req.settings);
@@ -98,7 +125,16 @@ export async function runPipeline(
   };
 
   // 1–2. ANALYSIS prelude: plan + the researcher fan-out (shared with the single-lesson path).
-  const { research: allResearch } = await runAnalysisPrelude(req, engine, deps, options, stages, sink, records);
+  const { research: allResearch } = await runAnalysisPrelude(
+    req,
+    engine,
+    deps,
+    options,
+    stages,
+    sink,
+    records,
+    researchSink,
+  );
   const allSources: Source[] = allResearch.flatMap((r) => r.sources);
   const researchCount = allResearch.length;
 
@@ -215,6 +251,10 @@ async function runAnalysisPrelude(
   stages: StageBundle,
   sink: TraceSink,
   records: LlmCallRecord[],
+  // The LIVE-RESEARCH sink — best-effort observability, fired FIRE-AND-FORGET below so a slow/failed
+  // write adds ZERO latency to the fan-out the run awaits. Default no-op, so every existing caller
+  // (CLI, tests, local-dev) reaches NO new code; only the deployed Job injects a PgResearchSink.
+  researchSink: ResearchSink = noopResearchSink,
 ): Promise<{ plan: Plan; research: Research[] }> {
   const bucket = bucketize(req.settings);
   const models: Record<Stage, StageModel> = { ...STAGE_MODELS, ...(options.models ?? {}) };
@@ -237,6 +277,10 @@ async function runAnalysisPrelude(
   // Cap the research fan-out: each question drives a web search, the run's main cost driver.
   const questions =
     options.maxQuestions !== undefined ? uniqueQuestions.slice(0, options.maxQuestions) : uniqueQuestions;
+  // Announce the REAL deduped/capped questions immediately (live-research generating Stage 1), so the
+  // generating UI shows N pending questions before any search returns. FIRE-AND-FORGET: the run never
+  // awaits this — a slow/failed write can't delay the fan-out. No fabrication (these are planner output).
+  fireResearch(() => researchSink.onQuestions(questions));
   const researchInputs: ResearchInput[] = questions.map((question, i) => ({
     subtopic: subtopics[i % subtopics.length] ?? planned.plan.scope,
     question,
@@ -244,7 +288,18 @@ async function runAnalysisPrelude(
   }));
   const researched = await Promise.all(
     researchInputs.map((input) =>
-      engine.step('research', contentHash(input.question, bucket), () => stages.research(input, deps, models.researcher)),
+      engine
+        .step('research', contentHash(input.question, bucket), () => stages.research(input, deps, models.researcher))
+        // As THIS question's research resolves, fire its grounded findings/sources at the live-research
+        // sink — but WITHOUT awaiting the write before the map's promise resolves: the `.then` returns
+        // `r` synchronously after firing the emission, so the Promise.all the run awaits sees the
+        // already-resolved value and the sink write adds ZERO latency. A slow/failed write can never
+        // delay or fail the fan-out (the run never awaits it; `fireResearch` also swallows a sync throw
+        // OR async rejection from a non-conforming sink; the sink also self-wraps each write).
+        .then((r) => {
+          fireResearch(() => researchSink.onResearch(input.question, r.research));
+          return r;
+        }),
     ),
   );
   for (const r of researched) {
@@ -272,6 +327,9 @@ export async function runLesson(
   options: RunOptions = {},
   stages: StageBundle = defaultStages,
   sink: TraceSink = noopSink,
+  // The LIVE-RESEARCH sink — 7th positional, AFTER sink. Default no-op, so the CLI, tests, and the
+  // local-dev fallback emit NO live rows; only the deployed Job injects a Postgres-backed PgResearchSink.
+  researchSink: ResearchSink = noopResearchSink,
 ): Promise<PipelineRunResult> {
   const records: LlmCallRecord[] = [];
   const bucket = bucketize(req.settings);
@@ -289,6 +347,7 @@ export async function runLesson(
     stages,
     sink,
     records,
+    researchSink,
   );
 
   // 3. brief (Analysis) — folds plan + research[] into ONE LessonBrief; replaces graph as the

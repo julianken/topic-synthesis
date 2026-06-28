@@ -128,3 +128,32 @@ CREATE TABLE IF NOT EXISTS step_event (
   PRIMARY KEY (run_id, name, step_key)
 );
 CREATE INDEX IF NOT EXISTS idx_step_event_run ON step_event (run_id);
+
+-- Live-research DATA PATH (live-research generating Stage 1). The researcher fan-out emits the REAL
+-- planned questions + each question's grounded {findings, sources} as it lands, so the generating UI
+-- can show "Researching: N questions" then a live "M/N answered" with the actual claims + retrieved
+-- source URLs/titles — never fabricated. One row per (run_id, question): 'pending' on announce,
+-- 'done'/'error' once the research step resolves. The writes are BEST-EFFORT + FIRE-AND-FORGET
+-- (PgResearchSink, never awaited on the run's critical path), so a slow/failed write yields NO live
+-- rows and the paid pipeline completes identically — the UI degrades to the existing stage-rail.
+-- Like step_event + step_result + run_owner, this is the FOURTH transient per-run table: read ONLY by
+-- the live generating UI while the run is in flight (the finished lesson folds the research into the
+-- durable brief→lesson), so `persistRun` PRUNES this run's rows in its transaction once the curriculum
+-- lands — intentionally NOT kept for cross-run analysis. `findings`/`sources` denormalize each finding
+-- against its retrieved source ({claim, {url, title}}) IN THE SINK, so no internal sourceIndex is ever
+-- stored. `ordinal` is the question's index in the deduped/capped list — questions arrive concurrently
+-- from the Promise.all fan-out, so started_at alone is racy; the reader orders by it.
+CREATE TABLE IF NOT EXISTS research_event (
+  run_id        TEXT NOT NULL,
+  question      TEXT NOT NULL,            -- the REAL research question (planner output, deduped/capped)
+  subtopic      TEXT,                     -- Research.subtopic (the question's framing); NULL while pending
+  status        TEXT NOT NULL,            -- 'pending' | 'done' | 'error'
+  findings      JSONB,                    -- [{ claim, source: { url, title } }] denormalized; NULL while pending
+  sources       JSONB,                    -- [{ url, title }] = Research.sources; NULL while pending
+  finding_count INTEGER,                  -- findings.length, for the "N/M" count without re-parsing JSONB
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at   TIMESTAMPTZ,              -- set on 'done'/'error'; NULL ⇔ still pending
+  ordinal       INTEGER NOT NULL,         -- the question's index in the deduped/capped list (stable order)
+  PRIMARY KEY (run_id, question)
+);
+CREATE INDEX IF NOT EXISTS idx_research_event_run ON research_event (run_id);

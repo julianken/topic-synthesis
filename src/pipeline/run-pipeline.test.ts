@@ -15,7 +15,7 @@ import { InlineEngine } from '../engine/inline-engine';
 import { SpanCollector } from '../trace/span';
 import { CATEGORY_SCHEMA } from './classify-category';
 import type { StageDeps } from './deps';
-import { defaultStages, type StageBundle } from './ports';
+import { defaultStages, noopResearchSink, noopSink, type ResearchSink, type StageBundle } from './ports';
 import { runLesson, runPipeline } from './run-pipeline';
 
 const mkRec = (): LlmCallRecord => ({
@@ -411,5 +411,63 @@ describe('runLesson (single-lesson path)', () => {
     // the classifier fault is contained: category null, summary still plumbed from the brief
     expect(out.category).toBeNull();
     expect(out.summary).toBe('understand T');
+  });
+
+  // ── the live-research sink (live-research generating Stage 1) — the FAIL-SAFE data path ──────────
+  // The sink is best-effort observability fired FIRE-AND-FORGET off the researcher fan-out; it must
+  // never touch what the run produces. These are the GATING safety tests (the owner reverted a prior
+  // change for making generation slower/flakier — prove a sink fault can NEVER do that).
+  it('PIPELINE-SAFETY: a THROWING research sink still completes the run with the SAME result + brief + cost', async () => {
+    // A sink whose every method throws SYNCHRONOUSLY (the harshest case — not even a rejected promise).
+    const throwing: ResearchSink = {
+      onQuestions: vi.fn(() => {
+        throw new Error('onQuestions exploded');
+      }) as unknown as ResearchSink['onQuestions'],
+      onResearch: vi.fn(() => {
+        throw new Error('onResearch exploded');
+      }) as unknown as ResearchSink['onResearch'],
+    };
+
+    // Baseline: the SAME inputs with the default no-op sink.
+    const baseline = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1', 'q2']), {}, defaultStages, noopSink, noopResearchSink);
+    // The throwing sink — the run must resolve identically (the throws are swallowed, never propagated).
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1', 'q2']), {}, defaultStages, noopSink, throwing);
+
+    // (1) SAME PipelineResult / brief / cost as the no-op sink — emission is additive, never mutates.
+    expect(out.result).toEqual(baseline.result);
+    expect(out.brief).toEqual(baseline.brief);
+    expect(out.costUsd).toBe(baseline.costUsd);
+    // (2) the researcher's findings reach the brief byte-identically (the sink can't alter Research).
+    expect(out.brief?.findings).toEqual([{ claim: 'grounded fact', source: { url: 'https://s.example', title: 'S' } }]);
+    // a full BUILT lesson — generation unaffected by the faulty sink
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.pages[0]?.passed).toBe(true);
+    // (3) the sink WAS called (the throw was reached and swallowed) — once per announce + once per question
+    expect(throwing.onQuestions).toHaveBeenCalledTimes(1);
+    expect(throwing.onQuestions).toHaveBeenCalledWith(['q1', 'q2']); // the REAL deduped questions, no fabrication
+    expect(throwing.onResearch).toHaveBeenCalledTimes(2); // one per researched question
+  });
+
+  it('emits the REAL questions then each question\'s grounded Research to the sink (no fabrication)', async () => {
+    const seen: { questions?: string[]; research: { question: string; research: unknown }[] } = { research: [] };
+    const recording: ResearchSink = {
+      async onQuestions(questions) {
+        seen.questions = questions;
+      },
+      async onResearch(question, research) {
+        seen.research.push({ question, research });
+      },
+    };
+    await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1', 'q2']), {}, defaultStages, noopSink, recording);
+    // the announced questions are the planner's REAL output, deduped/capped — never placeholders
+    expect(seen.questions).toEqual(['q1', 'q2']);
+    // each question's grounded Research lands (subtopic + sources + findings) — the actual researcher output
+    expect(seen.research.map((r) => r.question).sort()).toEqual(['q1', 'q2']);
+    for (const r of seen.research) {
+      expect(r.research).toMatchObject({
+        sources: [{ url: 'https://s.example', title: 'S' }],
+        findings: [{ claim: 'c', sourceIndex: 0 }],
+      });
+    }
   });
 });
