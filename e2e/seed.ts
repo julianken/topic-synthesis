@@ -61,9 +61,16 @@ const SEED_SENDER_SCRIPT = `
     }
     // TEST DRIVER: the e2e posts {type:'lesson:set-progress', scrollProgress} INTO this frame to drive
     // a deterministic reading position; we re-emit the SHIPPED coordinate-only progress message outward.
+    // It ALSO ACKS a PR-C parent->child {type:'lesson:scrollTo', id}: PR-F has not yet taught the real
+    // lesson to SCROLL on this verb, so the seed stub stands in as a minimal receiver that echoes a
+    // coordinate-only {type:'lesson:scrollTo-ack', id} back OUT — proving the jump message actually
+    // crossed the opaque boundary carrying the right id (the e2e listens for the ack on window.parent).
     window.addEventListener('message', function (e) {
       var d = e.data;
       if (d && d.type === 'lesson:set-progress' && typeof d.scrollProgress === 'number') post(d.scrollProgress);
+      if (d && d.type === 'lesson:scrollTo' && typeof d.id === 'string') {
+        try { parent.postMessage({ type: 'lesson:scrollTo-ack', id: d.id }, '*'); } catch (e2) {}
+      }
     });
     post(0);
   })();

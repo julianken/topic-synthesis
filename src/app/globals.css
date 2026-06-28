@@ -376,9 +376,9 @@ h1 {
   container-type: inline-size;
 }
 
-/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned). PR-B fills it with the
-   section dot-rail (a labeled read-out of the posted sections, active dot tracks scrollProgress); the
-   in-document anchor-jump wire is PR-C. The rail is sticky so it tracks the reader. */
+/* The scrub column — the [scrub] track INSIDE the frame (never viewport-pinned, `justify-self: center`
+   in the --scrub-w track). PR-C fills it with the section dot-rail of KEYBOARD-OPERABLE jump <button>s
+   (one per posted section, active dot tracks scrollProgress). The rail is sticky so it tracks the reader. */
 .ws-scrub {
   grid-column: scrub / scrub;
   min-inline-size: 0;
@@ -398,15 +398,31 @@ h1 {
   display: block;
   line-height: 0;
 }
+/* Each dot is a keyboard-operable jump <button> (PR-C). The button defaults are reset to the bare dot;
+   the focusable control's hit area is the 8px dot itself (a larger invisible pad would widen the
+   --scrub-w track and risk the in-frame inset, so the rail keeps its measured width). */
 .ws-scrub__dot {
+  appearance: none;
+  -webkit-appearance: none;
   display: block;
+  margin: 0;
+  padding: 0;
   width: 8px;
   height: 8px;
   border-radius: var(--r-pill);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  /* TS-24: the active/done swap rides the catalog --tr-state primitive (color+border @ --dur-base). */
+  cursor: pointer;
+  /* TS-24: the active/done/hover swap rides the catalog --tr-state primitive (color+border @ --dur-base). */
   transition: var(--tr-state);
+}
+.ws-scrub__dot:hover {
+  border-color: var(--accent);
+}
+/* A clear focus ring for keyboard operation (the dot is small — the ring is the focus affordance). */
+.ws-scrub__dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .ws-scrub__dot[data-done] {
   background: var(--pipeline);
@@ -415,6 +431,8 @@ h1 {
 .ws-scrub__dot[data-active] {
   background: var(--accent);
   border-color: var(--accent);
+  /* The active dot reads as the current position by SCALE too (status by style, not color alone). */
+  transform: scale(1.4);
 }
 
 /* Responsive collapse to a single column ≤900px (--ws-collapse): the panel/scrub reflow below the
