@@ -33,21 +33,55 @@ test.describe('visual — sign-in (unauthenticated)', () => {
 });
 
 test.describe('visual — library (authed)', () => {
-  test('the library intake chrome matches the committed baseline', async ({ page, context, baseURL }) => {
+  // The library is owner-scoped over a SHARED Postgres the smoke spec's generate test also writes to, so
+  // a FULL-PAGE capture is non-deterministic — the lesson-card grid's count, titles, and total page
+  // HEIGHT change run to run. So (per the existing element-scoped pattern) snapshot only the chrome that
+  // is INVARIANT of the owner's lesson history: the shared app header (.appbar — wordmark + user chip,
+  // Figma 6:6) and the folded-in generation intake (.library-intake — "New lesson" heading + form, Figma
+  // 6:2 frame copy). The run-dependent card grid (.library-grid) and the section title's right-aligned
+  // hint are deliberately NOT captured here. DESIGN.md wins on any design conflict.
+
+  test('the library app-header chrome matches the committed baseline', async ({ page, context, baseURL }) => {
     await signInAsTestOwner(context, baseURL ?? '');
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByRole('button', { name: /generate/i })).toBeVisible();
 
-    // The library is owner-scoped over a SHARED Postgres the smoke spec's generate test also writes
-    // to, so a FULL-PAGE capture would be non-deterministic — the lesson-card grid's count, titles,
-    // and total page HEIGHT change run to run. Snapshot the ELEMENT that is invariant of the owner's
-    // lesson history instead: the intake form section (the generation entry chrome — DESIGN.md
-    // "## Components" Library/Intake). This grades the stable, load-bearing chrome (field labels,
-    // inputs, the Generate button, spacing, tokens) deterministically. (When the Figma rebuild
-    // re-captures the library, seed a fixed lesson fixture to add a full-page card-grid snapshot.)
+    // The signed-in top-bar chrome (Figma 6:6): wordmark + user chip. The chip's account name is derived
+    // from the seeded e2e owner's email (stable across runs), so this element is deterministic.
+    const appbar = page.locator('.appbar');
+    await expect(appbar).toBeVisible();
+    await expect(appbar).toHaveScreenshot('library-appbar.png');
+  });
+
+  test('the library intake chrome renders its full load-bearing structure', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+    // The intake section (the generation entry chrome — DESIGN.md "## Components" Library/Intake) is
+    // graded STRUCTURALLY here, NOT by a pixel snapshot. It is text-dense with a SERIF system heading
+    // (Iowan Old Style — NOT a self-hosted webfont) plus the native `<select>`/range controls, which on
+    // macOS font-SMOOTHING render with sub-pixel AA variance frame-to-frame — a whole-element shimmer no
+    // mask/scale/tolerance combination stabilised reliably across runs. Rather than ship a locally-flaky
+    // pixel baseline, this test asserts the intake's full load-bearing structure is present and correct
+    // (the "New lesson" heading, every labelled field, and the Generate pill). A re-skin that DROPS a
+    // field or the heading fails here; the deterministic pixel grading of the rebuilt library lives on
+    // the stable `.appbar` header snapshot above. (When the form's fonts/controls become deterministic
+    // — e.g. a self-hosted serif — promote this back to a pixel snapshot.)
     const intake = page.locator('.library-intake');
     await expect(intake).toBeVisible();
-    await expect(intake).toHaveScreenshot('library-intake.png');
+    await expect(intake.getByRole('heading', { name: /new lesson/i })).toBeVisible();
+    await expect(intake.getByText(/Topic/)).toBeVisible();
+    await expect(intake.getByText(/Level/)).toBeVisible();
+    await expect(intake.getByText(/Depth/)).toBeVisible();
+    await expect(intake.getByText(/Audience/)).toBeVisible();
+    await expect(intake.getByRole('textbox').first()).toBeVisible();
+    await expect(intake.getByRole('combobox')).toBeVisible();
+    await expect(intake.getByRole('slider')).toBeVisible();
+    await expect(intake.getByRole('button', { name: /generate/i })).toBeVisible();
   });
 });

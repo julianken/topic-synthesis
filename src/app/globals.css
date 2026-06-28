@@ -319,7 +319,7 @@ h1 {
 /* ── Card→reader container-transform (TS-21, Phase 4 — MOTION) ─────────────────────────────────────
    The signature box-only FLIP between the two App-Router routes. TS-17 + TS-20 already stamp the
    value-locked per-id `view-transition-name` (`morphName(id)` = `lesson-card-<id>`) on BOTH endpoints —
-   the library `.poster__card` FLIP ORIGIN (`page.tsx`) and the reader `#readerPanel.morph-box` FLIP
+   the library `.library-poster__card` FLIP ORIGIN (`page.tsx`) and the reader `#readerPanel.morph-box` FLIP
    DESTINATION (`reader-shell.tsx`). TS-21 supplies the missing transport + animation.
 
    The destination/origin name itself is STILL set inline per-id in the TSX (NOT a static global rule
@@ -405,101 +405,225 @@ h1 {
   gap: var(--sp-3);
 }
 
-/* ── Library home (TS-17): card grid of lesson posters + the folded-in intake ── */
-/* The card grid (FLIP origin). Responsive auto-fill so the grid reflows from a single column on
-   narrow viewports up to a multi-column wall, mirroring the Figma Library node 6:2 card wall. */
-.library-grid {
-  list-style: none;
-  margin: var(--sp-6) 0 0;
+/* ── Library home (Figma frame 6:2 / TS-17): the section title row + the card grid of lesson posters +
+   the folded-in intake. SCOPED under `.library*` so it neither leaks to other routes nor collides with
+   the `.signin*` scope. Colors resolve to §0 tokens 1:1 (OKLCH-verified equal to the Figma hexes):
+   "Lessons" #f5f9fc → --fog-50 · hint #889099 → --text-faint · card bg #131a22 → --bg-surface · card
+   border #2b343d → --border · wash divider #19212a → a dark ink step · eyebrow #f0ba59 → --warn · title
+   #f5f9fc → --fog-50 · desc/name #a4acb4 → --text-muted · meta #889099 → --text-faint. The card metrics
+   (291px column, 104px wash, 14px radius) are transcribed from the frame. */
+.library {
+  /* The frame is full-bleed under the app header; the grid container carries its own px-26 gutter. */
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-  gap: var(--sp-4);
+  max-width: var(--frame-max);
+  margin: 0;
 }
 
-/* Each poster card is a BOUNDED BOX — the morph's FLIP ORIGIN. The per-card view-transition-name is set
-   inline in page.tsx; the TS-21 cross-document transport above box-FLIPs it into the reader panel box. */
-.poster {
+/* Section title row (Figma 6:16): "Lessons" left, the tap-hint right. */
+.library__head {
   display: flex;
-}
-
-.poster__card {
-  display: flex;
-  flex-direction: column;
+  align-items: baseline;
   justify-content: space-between;
   gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: 20px 26px 14px;
+}
+
+/* "Lessons" (Figma 6:18): serif (the --serif stack) 25px in --fog-50, tracking -0.25px ≈ -0.01em
+   (= --ls-display), line-height 1.5 ≈ --lh-heading band. Uses --fs-title (25.5px chrome page title). */
+.library__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-title);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+}
+
+/* Tap hint (Figma 6:21): mono ~11.5px in --text-faint, tracking +0.46px ≈ --ls-meta band. The 11.5px
+   sits between --fs-micro 10 and --fs-caption 12.5 — kept literal to the frame. */
+.library__hint {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+}
+
+/* The card grid (FLIP origin). Fixed ~291px columns matching the Figma card wall, reflowing to fewer
+   columns (then one) on narrow viewports via auto-fill. */
+.library-grid {
+  list-style: none;
+  margin: 0;
+  padding: 14px 26px 60px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+/* Each poster is a BOUNDED BOX — the morph's FLIP ORIGIN. The per-card view-transition-name is set
+   inline in page.tsx; the TS-21 cross-document transport above box-FLIPs it into the reader panel box. */
+.library-poster {
+  display: flex;
+}
+
+/* The poster card (Figma 6:25): #131a22 surface, 0.8px --border outline, rounded 14 (= --r-card-lg). */
+.library-poster__card {
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  min-height: 9rem;
-  padding: var(--sp-4);
   background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  border: 0.8px solid var(--border);
+  border-radius: var(--r-card-lg);
   color: var(--text);
   text-decoration: none;
+  overflow: hidden;
   /* TS-24: sourced from the catalog's hover primitive (border-color + background @ --dur-fast/--ease). */
   transition: var(--tr-hover);
 }
 
-.poster__card:hover {
+.library-poster__card:hover {
   border-color: var(--interactive);
   background: var(--bg-raised);
 }
 
-.poster__title {
-  font-size: var(--fs-h2);
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--text);
-}
-
-.poster__meta {
+/* Poster wash (Figma 6:26): a 104px tinted band with the decorative mark, divided from the body by a
+   fine dark rule. The radial tint is a subtle purple→transparent (the frame's default category wash);
+   the mark is drawn in --text-faint so it reads as a quiet line motif over the wash. */
+.library-poster__wash {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  font-size: var(--fs-small);
+  justify-content: center;
+  height: 104px;
+  border-bottom: 0.8px solid var(--ink-850);
+  background:
+    radial-gradient(120% 90% at 80% -20%, oklch(0.80 0.13 295 / 0.18) 0%, transparent 55%),
+    var(--bg-surface);
 }
 
-.poster__kind {
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.poster__when {
+.library-poster__mark {
+  width: 64px;
+  height: 36px;
   color: var(--text-faint);
-  margin-left: auto;
 }
 
-/* First-run prompt — never a bare blank grid (DESIGN.md — empty states are labeled, not void). */
+/* Card body (Figma 6:38): pt 13 / pb 15 / px 15, the title and footer stacked with the title pinned to
+   the top and the footer to the bottom (the frame's flex-grow alignment). */
+.library-poster__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 13px 15px 15px;
+}
+
+/* Card title (Figma 6:44): serif 18.5px (= --fs-card-title) in --fog-50, tracking -0.185px ≈ -0.01em
+   (= --ls-display), line-height ~1.2 (= --lh-heading band). Clamp to two lines so a long title can't
+   blow the fixed card height. */
+.library-poster__title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-card-title);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Footer (Figma 6:49): the status badge left, the kind + relative-time meta right. */
+.library-poster__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.library-poster__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* The kind chip (Figma 6:41 eyebrow voice): uppercase mono 10px (= --fs-micro) in --warn, wide
+   tracking. Blob-arm rows only — null on v11/degraded rows (library decision §13). */
+.library-poster__kind {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+/* Relative-time meta (Figma 6:57): mono ~10.5px in --text-faint, tracking +0.21px ≈ --ls-meta band. */
+.library-poster__when {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+}
+
+/* First-run prompt — never a bare blank grid (DESIGN.md — empty states are labeled, not void). A
+   card-shaped panel matching the poster surface so the empty library still reads as the card wall. */
 .library-empty {
-  margin-top: var(--sp-6);
-  padding: var(--sp-5);
-  border: 1px dashed var(--border);
-  border-radius: var(--r-md);
+  margin: 14px 26px 0;
+  padding: var(--sp-6);
+  border: 0.8px dashed var(--border);
+  border-radius: var(--r-card-lg);
   background: var(--bg-surface);
+}
+
+.library-empty__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-card-title);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+}
+
+.library-empty__hint {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
   color: var(--text-muted);
 }
 
-/* The sole generation entry, folded onto the library page below the grid. */
+/* ── The folded-in generation entry (the sole place a run starts) ───────────────────────────────────
+   Below the grid, separated by a fine rule, re-skinned to the frame surface system. */
 .library-intake {
-  margin-top: var(--sp-7);
-  padding-top: var(--sp-6);
-  border-top: 1px solid var(--border);
+  margin: var(--sp-6) 26px 0;
+  padding: var(--sp-6) 0 var(--sp-7);
+  border-top: 0.8px solid var(--border);
+  max-width: 36rem;
 }
 
 .library-intake__heading {
-  font-size: var(--fs-h2);
   margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-title);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
 }
 
-/* ── Intake form ──────────────────────────────────────────────────────────── */
+.library-intake__sub {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+
+/* ── Intake form (re-skinned to the frame surface; logic in intake-form.tsx is unchanged) ──────────── */
 .intake {
-  margin-top: var(--sp-6);
+  margin-top: var(--sp-5);
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
-  max-width: 32rem;
 }
 
 .field {
@@ -509,7 +633,7 @@ h1 {
 }
 
 .field__label {
-  font-size: var(--fs-small);
+  font-size: var(--fs-caption);
   color: var(--text-muted);
 }
 
@@ -517,9 +641,15 @@ h1 {
   padding: var(--sp-3);
   background: var(--bg-raised);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 0.8px solid var(--border);
   border-radius: var(--r-md);
   font: inherit;
+  font-size: var(--fs-small);
+}
+
+.field__input:focus-visible {
+  outline: none;
+  border-color: var(--interactive);
 }
 
 .field__range {
@@ -527,22 +657,25 @@ h1 {
   accent-color: var(--interactive);
 }
 
+/* Primary action — the near-white pill matching the frame's chrome buttons (mirrors .signin__google's
+   --fog-50 surface), so the chrome's primary action reads consistently across screens. */
 .btn {
   align-self: flex-start;
-  padding: var(--sp-3) var(--sp-5);
-  background: var(--interactive);
-  color: var(--bg-app);
+  padding: var(--sp-3) var(--sp-6);
+  background: var(--fog-50);
+  color: var(--ink-950);
   border: none;
   border-radius: var(--r-md);
   font: inherit;
   font-weight: 600;
+  font-size: var(--fs-small);
   cursor: pointer;
   /* TS-24: sourced from the catalog's background primitive (@ --dur-fast/--ease). */
   transition: var(--tr-bg);
 }
 
 .btn:hover {
-  background: var(--interactive-hover);
+  background: var(--fog-100);
 }
 
 .btn:disabled {
@@ -551,14 +684,8 @@ h1 {
 }
 
 .intake__error {
-  color: var(--status-soon);
-  font-size: var(--fs-small);
-}
-
-.intake__note {
-  margin-top: var(--sp-4);
-  color: var(--text-faint);
-  font-size: var(--fs-small);
+  color: var(--status-error);
+  font-size: var(--fs-caption);
 }
 
 /* ── Generating state ─────────────────────────────────────────────────────── */
@@ -702,47 +829,115 @@ h1 {
   font-weight: 700;
 }
 
-/* Session top bar (DESIGN.md → "Auth surfaces"): the signed-in email + a sign-out affordance. */
-.topbar {
+/* ── App header (DESIGN.md §Components → Library top-bar chrome; Figma frame 6:2 node 6:6) ──────────
+   The signed-in chrome bar shared by the library + reader routes: a frosted 54px bar with the two-tone
+   wordmark left and a pill user chip right. SCOPED under `.appbar*` (shared chrome) — distinct from the
+   `.library*` page-body scope and the chromeless `.signin*` scope. Colors resolve to §0 tokens 1:1
+   (OKLCH-verified equal to the Figma hexes): header bg #0b1219@0.6 → --surface-header · divider #2b343d
+   → --border · wordmark #ebeff4 → --text · synthesis #00dbfe → --accent · chip bg #10171e@0.6 →
+   --surface-pill · chip border #404952 → --badge-border-neutral · avatar gradient #00dbfe→#35afc9 →
+   --brand-gradient · avatar glyph #080f16 → --ink-950 · chip name #a4acb4 → --text-muted. A few
+   header-specific size/spacing literals (the 54px bar height, the 24px avatar, the 15px wordmark that
+   sits between --fs-small 14 and --fs-mono 15 — it IS 15px) map to the frame, not a §0 step. */
+.appbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-5);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-surface);
-  font-size: var(--fs-small);
+  justify-content: space-between;
+  height: 54px;
+  padding: 0 22px;
+  border-bottom: 0.8px solid var(--border);
+  background: var(--surface-header);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.topbar__email {
+/* Two-tone wordmark (Figma 6:8): Inter SemiBold "topic·" in --text + Inter Black "synthesis" in --accent,
+   15px, tracking -0.15px ≈ -0.01em (= --ls-display). */
+.appbar__wordmark {
+  margin: 0;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: var(--ls-display);
+  color: var(--text);
+}
+
+.appbar__wordmark-accent {
+  font-weight: 900;
+  color: var(--accent);
+}
+
+/* The wordmark is hidden ≤640 so the bar never overflows the narrow viewport (DESIGN.md §Lesson layout
+   invariant). The user chip alone anchors the header on mobile. */
+@media (max-width: 640px) {
+  .appbar__wordmark {
+    display: none;
+  }
+}
+
+/* User chip (Figma 6:10): a frosted pill holding the gradient avatar, the account name, and the
+   sign-out control. */
+.appbar__chip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 12px 4px 6px;
+  border: 0.8px solid var(--badge-border-neutral);
+  border-radius: var(--r-pill);
+  background: var(--surface-pill);
+}
+
+/* Avatar (Figma 6:11/6:12): a 24px gradient square (rounded 12) with the account initial. */
+.appbar__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-card);
+  background: var(--brand-gradient);
+  color: var(--ink-950);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Account name (Figma 6:14): Inter Regular 12.5px (= --fs-caption) in --text-muted. */
+.appbar__name {
+  font-family: var(--sans);
+  font-size: var(--fs-caption);
   color: var(--text-muted);
 }
 
-.topbar__signout {
+/* Sign-out control: a quiet text affordance inside the chip (its accessible name is "Sign out"). */
+.appbar__signout {
   background: none;
   border: none;
-  color: var(--interactive);
-  font: inherit;
+  color: var(--text-faint);
+  font-family: var(--sans);
+  font-size: var(--fs-caption);
   cursor: pointer;
-  padding: var(--sp-1) var(--sp-2);
+  padding: 0;
+  margin-left: var(--sp-1);
   border-radius: var(--r-sm);
-  /* TS-24 add-or-leave decision: ADD a catalog color transition (@ --dur-fast/--ease) for parity with
-     its sibling `.btn` — the signout's `:hover` swapped color instantly while `.btn` eased, the exact
-     inconsistency TS-24 unifies. Sourced from the catalog's color primitive; under prefers-reduced-
-     motion the global reset makes the hover instant (DESIGN.md §Motion). */
+  /* TS-24: the chrome color transition (@ --dur-fast/--ease) — sourced from the catalog's color
+     primitive; under prefers-reduced-motion the global reset makes the hover instant (DESIGN.md §Motion). */
   transition: var(--tr-color);
 }
 
-.topbar__signout:hover {
-  color: var(--interactive-hover);
+.appbar__signout:hover {
+  color: var(--text);
 }
 
-.topbar__signout:focus-visible {
+.appbar__signout:focus-visible {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
 }
 
-.topbar__signout:disabled {
+.appbar__signout:disabled {
   color: var(--text-faint);
   cursor: default;
 }
