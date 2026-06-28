@@ -250,6 +250,9 @@ h1 {
 .wrap--reader {
   max-width: var(--frame-max);
   padding-inline: 0;
+  /* PR-D: the integrated topbar is the page's TOP chrome and sticks to the top, so the wrap drops its
+     top padding (the bar sits flush at the top of the content area; --sp-7 stays at the bottom). */
+  padding-top: 0;
 }
 
 /* The reader header aligns to the [read] spine: capped at the reading --measure and offset by the same
@@ -545,6 +548,263 @@ h1 {
   font-family: var(--mono);
   font-size: var(--fs-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Integrated reader topbar (PR-D) ───────────────────────────────────────────────────────────────
+   The ONLY chrome OUTSIDE the iframe: a 54px frosted bar (REUSING the shipped `.appbar` look —
+   --surface-header + backdrop-blur + a --surface-divider bottom rule) laid out as a `1fr auto 1fr` grid
+   so the wordmark stays OPTICALLY centered regardless of the side widths. Left = the back-to-Library
+   link; center = the two-tone wordmark (reuses `.appbar__wordmark` 1:1); right = the ⌘K/⇧F chord chips +
+   the Focus-reading toggle + the user pill (reuses `.appbar__chip`/avatar/name). The reading-progress
+   HAIRLINE is positioned at y=0 across the bar. NO §0 RETOKEN: the bar's metrics are component-local
+   --ws-* tokens that CONSUME the §0 tokens (the 54px height matches the shipped .appbar). It sticks to
+   the top so it stays over the scrolling workspace. */
+.ws-topbar {
+  /* component-local topbar metrics — consume §0 tokens; introduce no new §0 token. */
+  --ws-topbar-h: 54px;
+  --ws-progress-h: 2.5px; /* the y=0 reading-progress hairline thickness (Figma 3:1119) */
+
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+/* `.appbar` (the reused frosted-bar look) sets `display:flex` LATER in this file, so the topbar's grid
+   display needs the compound `.ws-topbar.appbar` selector to win on specificity — it re-templates the
+   shared `.appbar` flex bar into the 1fr auto 1fr grid the topbar needs (the wordmark optically centered).
+   The 54px height + frosted --surface-header/blur/--surface-divider rule all come from `.appbar`. */
+.ws-topbar.appbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  /* a touch more inline padding than the bare appbar so the back-link/pill breathe at the frame edge. */
+  padding-inline: var(--ws-edge-gap);
+  gap: var(--sp-3);
+}
+
+/* The y=0 reading-progress HAIRLINE (PR-D). The shipped `.reading-progress` (role=progressbar +
+   aria-valuenow + the tabular % readout) is REUSED, restyled inside the topbar into a 2.5px brand-gradient
+   bar pinned to the bar's TOP edge. The numeric % label stays in the DOM for a11y (legible by number) but
+   is visually clipped to the hairline — the affordance is the thin bar; the number rides the progressbar
+   semantics. The fill rides --brand-gradient + --brand-glow and transitions at --tr-progress (zeroed under
+   reduced motion by the global guard). */
+.ws-topbar .reading-progress {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  display: block;
+  /* override the workspace-scoped centered/guttered constraint (that is for the bar BELOW the topbar in
+     the older layout) — the hairline spans the full topbar width. */
+  max-inline-size: none;
+  margin-inline: 0;
+  padding-inline: 0;
+  height: var(--ws-progress-h);
+  pointer-events: none;
+}
+.ws-topbar .reading-progress__track {
+  height: var(--ws-progress-h);
+  background: transparent;
+  border-radius: 0;
+}
+.ws-topbar .reading-progress__fill {
+  background: var(--brand-gradient);
+  box-shadow: var(--brand-glow);
+  border-radius: 0;
+  /* the §0 catalog progress primitive (width @ --dur-base/--ease); reduced-motion zeroes it globally. */
+  transition: var(--tr-progress);
+}
+/* The % readout stays for a11y but is visually hidden — the hairline IS the visual affordance, the
+   number lives on the progressbar role + this clipped label (status legible by number, not color alone). */
+.ws-topbar .reading-progress__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Left cell — the back-to-Library link (mono, --text-muted → --text on hover). */
+.ws-topbar__left {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+}
+.ws-topbar__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: var(--r-sm);
+  /* §0 catalog color primitive — reduced-motion makes the hover instant via the global guard. */
+  transition: var(--tr-color);
+}
+.ws-topbar__back:hover {
+  color: var(--text);
+}
+.ws-topbar__back:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+/* Center cell — the wordmark (reuses `.appbar__wordmark`); justified center in the auto track. */
+.ws-topbar__wordmark {
+  justify-self: center;
+  white-space: nowrap;
+}
+
+/* Right cell — the chord chips + the Focus-reading toggle + the user pill. */
+.ws-topbar__right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  min-inline-size: 0;
+}
+.ws-topbar__chips {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* A chord-hint chip (reuses the `.appbar__chip` frosted-pill look): a small label + a kbd cap. */
+.ws-topbar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 3px 8px;
+  border: 0.8px solid var(--badge-border-neutral);
+  border-radius: var(--r-pill);
+  background: var(--surface-pill);
+  font-family: var(--sans);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ws-topbar__kbd {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-kbd);
+  padding: 1px 4px;
+  line-height: 1;
+}
+
+/* The Focus-reading TOGGLE — a labeled, keyboard-operable button (the visible counterpart to Shift+F). */
+.ws-topbar__focus {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 4px 12px;
+  border: 0.8px solid var(--badge-border-neutral);
+  border-radius: var(--r-pill);
+  background: var(--surface-pill);
+  font-family: var(--sans);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  /* §0 catalog color/bg primitives — reduced-motion makes the hover/press instant via the global guard. */
+  transition: var(--tr-color), var(--tr-bg);
+}
+.ws-topbar__focus:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.ws-topbar__focus:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+/* The pressed (focus-reading ON) state reads by STYLE, not color alone — the button label also swaps to
+   "Exit focus" and aria-pressed flips, so the state is announced + visible + legible by label. */
+.ws-topbar__focus[aria-pressed='true'] {
+  color: var(--ink-950);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The user pill (reuses `.appbar__chip` + avatar + name) — never folds (it anchors the bar on mobile). */
+.ws-topbar__pill {
+  flex: none;
+}
+
+/* The integrated topbar REPLACES the global appbar on the built reader route: hide `<SessionNav>` while
+   the workspace topbar is mounted (the body class is set by reader-shell.tsx on mount, cleared on
+   unmount). The library + degraded routes keep their global appbar (no body class there). */
+body.has-ws-topbar > .appbar {
+  display: none;
+}
+
+/* ≤640px FOLD (DESIGN.md §Lesson layout invariant "the wordmark is hidden ≤640"): the wordmark + the
+   chord chips hide so the bar never overflows the narrow viewport; the user pill alone anchors the right.
+   The Focus-reading control stays — the chord is keyboard-only on mobile but the button keeps the feature
+   operable by touch. */
+@media (max-width: 640px) {
+  .ws-topbar__wordmark,
+  .ws-topbar__chips {
+    display: none;
+  }
+  /* The Focus-reading control stays operable by touch but COMPACTS to its ⇧F glyph (the text label is
+     visually hidden — its accessible name is carried by aria-label) so the bar never crowds the back link
+     + pill at ≤640. */
+  .ws-topbar__focus-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .ws-topbar__focus {
+    padding: 4px 8px;
+  }
+  /* Tighten the topbar's inline padding + gap at ≤640 so the three controls fit without overflow. */
+  .ws-topbar.appbar {
+    padding-inline: clamp(12px, 4vw, 22px);
+    gap: var(--sp-2);
+  }
+}
+
+/* ── Focus-reading state (PR-D) ────────────────────────────────────────────────────────────────────
+   A pure-CHROME CSS state: when the workspace carries `data-focus`, the [panel] + [scrub] tracks hide and
+   the reading spine RE-CENTERS into a wider single column. Implemented by re-templating the grid to a
+   centered `1fr [read] 1fr` (the [read] track widens to a comfortable reading measure, capped so a long
+   line never breaks the 75ch readability ceiling) — the spine is still capped + centered (decision 3),
+   nothing edge-pinned. NO JS layout, NO postMessage — chrome-local state only. The transition zeroes
+   under reduced motion (the global guard). */
+.reader--ws[data-focus] .ws-panel,
+.reader--ws[data-focus] .ws-scrub {
+  display: none;
+}
+.reader--ws[data-focus] .ws-grid {
+  /* re-center a single, wider reading column inside the capped frame. clamp keeps the line readable
+     (never wider than ~46rem) while letting it grow past the frozen --measure when focus is on. */
+  grid-template-columns:
+    [screen-start] minmax(var(--ws-edge-gap), 1fr)
+    [read-start] minmax(0, clamp(var(--ws-read-w), 60vw, 46rem))
+    [read-end screen-end] minmax(var(--ws-edge-gap), 1fr);
+}
+.reader--ws[data-focus] .ws-read {
+  grid-column: read-start / read-end;
+}
+/* The widening rides the §0 motion catalog tokens (the grid track change is instant, but the morph-box's
+   own width animates) — zeroed under reduced motion by the global guard; the layout itself is unaffected
+   by motion (it is decorative only). */
+.reader--ws .ws-read,
+.reader--ws .ws-panel,
+.reader--ws .ws-scrub {
+  transition: var(--tr-progress);
 }
 
 /* ── Card→reader container-transform (TS-21, Phase 4 — MOTION) ─────────────────────────────────────
