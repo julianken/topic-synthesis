@@ -11,6 +11,15 @@ const rec = (costUsd: number): LlmCallRecord => ({
   rawUsage: null,
   finishReason: 'stop',
 });
+// A STREAMED `code`-call record carrying PR-1's per-call wall-clock (issue #176/#179).
+const timedCodeRec = (costUsd: number): LlmCallRecord => ({
+  ...rec(costUsd),
+  outputTokens: 80,
+  ttftMs: 500,
+  genMs: 2000,
+  maxTokens: 8000,
+  outputBytes: 4096,
+});
 const meta = { runId: 'run1', label: 'Fourier', startedAt: '2026-06-19T00:00:00Z' };
 
 describe('reduceTrace', () => {
@@ -119,6 +128,43 @@ describe('reduceTrace', () => {
     expect('baseline' in without).toBe(false); // absent, not undefined
     const withBaseline = reduceTrace([{ stage: 'planner', record: rec(0.01) }], { ...meta, baseline: 'run0' }).run;
     expect(withBaseline.baseline).toBe('run0');
+  });
+
+  it('AC6: includeTiming absent/false → wall-clock-free trace, byte-identical to today', () => {
+    const spans: TraceSpan[] = [
+      { stage: 'planner', record: rec(0.01) },
+      { stage: 'code', nodeSlug: 'sine', record: timedCodeRec(0.04) }, // a streamed record WITH timing
+    ];
+    // Default (no includeTiming) must NOT emit timing even though the code record carries it.
+    const defaultRun = JSON.stringify(reduceTrace(spans, meta));
+    const explicitFalse = JSON.stringify(reduceTrace(spans, { ...meta, includeTiming: false }));
+    expect(defaultRun).toBe(explicitFalse);
+    const sine = reduceTrace(spans, meta).rows.find((r) => r.rowKey === 'sine');
+    const codeSpan = (sine?.trace as { spans: { name: string; metrics?: Record<string, number> }[] }).spans.find(
+      (s) => s.name === 'code',
+    );
+    expect(codeSpan?.metrics && 'durationMs' in codeSpan.metrics).toBe(false);
+  });
+
+  it('AC7: includeTiming → the code span subtree carries timing; non-streamed spans carry none', () => {
+    const spans: TraceSpan[] = [
+      { stage: 'planner', record: rec(0.01) }, // blocking analysis call — no timing
+      { stage: 'spec', nodeSlug: 'sine', record: rec(0.03) }, // blocking synthesis call — no timing
+      { stage: 'code', nodeSlug: 'sine', record: timedCodeRec(0.04) }, // streamed call — has timing
+    ];
+    const { rows } = reduceTrace(spans, { ...meta, includeTiming: true });
+    const spansOf = (rowKey: string) =>
+      (rows.find((r) => r.rowKey === rowKey)?.trace as {
+        spans: { name: string; metrics?: Record<string, number> }[];
+      }).spans;
+    // The streamed code span carries the wall-clock; the blocking spec/planner spans do not.
+    const code = spansOf('sine').find((s) => s.name === 'code');
+    expect(code?.metrics?.durationMs).toBe(2500); // ttft 500 + gen 2000
+    expect(code?.metrics?.tokensPerSec).toBe(40); // 80 / (2000/1000)
+    expect(code?.metrics?.outputBytes).toBe(4096);
+    expect(code?.metrics?.maxTokens).toBe(8000);
+    expect(spansOf('sine').find((s) => s.name === 'spec')?.metrics?.durationMs).toBeUndefined();
+    expect(spansOf(ANALYSIS_ROW_KEY).find((s) => s.name === 'planner')?.metrics?.durationMs).toBeUndefined();
   });
 
   it('a judge span (no nodeSlug) folds into the _analysis row, keeping the row-sum invariant (AC 10)', () => {

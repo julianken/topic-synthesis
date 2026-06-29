@@ -18,7 +18,15 @@ export interface EvalSpan {
   kind?: string;
   input?: unknown;
   output?: unknown;
-  /** camelCase metrics; we emit cost + tokens — never startMs/durationMs (records have no clock). */
+  /**
+   * camelCase metrics. By DEFAULT we emit only cost + tokens (the historical wall-clock-free shape).
+   * The OPT-IN `--trace-timing` path (issue #179) ALSO emits per-call wall-clock for the streamed
+   * `code` call: `durationMs` (= ttftMs + genMs) lights up eleatic's NATIVE duration column, while
+   * `ttftMs`/`genMs`/`tokensPerSec`/`outputBytes`/`maxTokens` ride as ADDITIVE metric keys (carried
+   * on the span — whether `serve` renders them as extra columns is up to eleatic's UI; their absence
+   * from the table is NOT a bug). `startMs` stays unused (records carry no absolute clock). All
+   * additive: with the flag off the metrics object is byte-identical to before.
+   */
   metrics?: {
     startMs?: number;
     durationMs?: number;
@@ -26,6 +34,12 @@ export interface EvalSpan {
     completionTokens?: number;
     totalTokens?: number;
     costUsd?: number;
+    /** Per-call wall-clock + size, emitted ONLY under `--trace-timing` for the streamed `code` call. */
+    ttftMs?: number;
+    genMs?: number;
+    tokensPerSec?: number;
+    outputBytes?: number;
+    maxTokens?: number;
   };
   scores?: Record<string, number>;
   status?: string;

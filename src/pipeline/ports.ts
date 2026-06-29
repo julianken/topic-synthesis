@@ -39,7 +39,8 @@ import { spec } from './spec';
  *        StageModel alone;
  *  (iii) StoreDeps is per-call (post-pipeline persistRun), not threaded through runPipeline;
  *  (iv)  TraceSink is an OBSERVABILITY seam, not a workflow_version axis (it can't change the
- *        artifact); its spans carry cost/tokens but no wall-clock (LlmCallRecord has no timing).
+ *        artifact); its spans carry cost/tokens, and — only under the opt-in `--trace-timing`
+ *        (issue #179) — the streamed `code` call's per-call wall-clock (ttftMs/genMs from PR-1).
  */
 export type { Engine, StageDeps, StageModel, StoreDeps };
 
