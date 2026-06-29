@@ -46,7 +46,7 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--baseline <runId>]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--trace-timing] [--baseline <runId>]',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -139,7 +139,7 @@ export async function reduceRunTrace(
   collector: SpanCollector,
   run: PipelineRunResult,
   base: Pick<TraceMeta, 'runId' | 'label' | 'startedAt' | 'config'>,
-  opts: { baseline?: string; judge?: typeof judgeBrief; judgeModel?: StageModel } = {},
+  opts: { baseline?: string; judge?: typeof judgeBrief; judgeModel?: StageModel; includeTiming?: boolean } = {},
 ): Promise<ReturnType<typeof reduceTrace>> {
   const judge = opts.judge ?? judgeBrief;
   // (a) critic verdicts from the pipeline result (each page is a CritiquedArtifact with .passed).
@@ -167,6 +167,9 @@ export async function reduceRunTrace(
     ...(run.brief !== undefined ? { analysisOutput: run.brief } : {}),
     ...(analysisScores !== undefined ? { analysisScores } : {}),
     ...(opts.baseline !== undefined ? { baseline: opts.baseline } : {}),
+    // (d) opt-in per-call wall-clock on the `code` span (issue #179). Spread only when true so the
+    // default meta is byte-identical (OMITTED, not `undefined` — exactOptionalPropertyTypes).
+    ...(opts.includeTiming ? { includeTiming: true } : {}),
   };
   // Reduce AFTER the judge span is collected, so the analysis row's costUsd/calls include it.
   return reduceTrace(collector.spans(), meta);
@@ -177,13 +180,20 @@ export async function buildAndReduceTrace(
   collector: SpanCollector,
   run: PipelineRunResult,
   base: Pick<TraceMeta, 'runId' | 'label' | 'startedAt' | 'config'>,
-  opts: { baseline?: string; tracePath?: string; judge?: typeof judgeBrief; judgeModel?: StageModel } = {},
+  opts: {
+    baseline?: string;
+    tracePath?: string;
+    judge?: typeof judgeBrief;
+    judgeModel?: StageModel;
+    includeTiming?: boolean;
+  } = {},
 ): Promise<{ path: string; rowCount: number }> {
-  const { judge, baseline, judgeModel } = opts;
+  const { judge, baseline, judgeModel, includeTiming } = opts;
   const reduced = await reduceRunTrace(collector, run, base, {
     ...(baseline !== undefined ? { baseline } : {}),
     ...(judge !== undefined ? { judge } : {}),
     ...(judgeModel !== undefined ? { judgeModel } : {}),
+    ...(includeTiming ? { includeTiming: true } : {}),
   });
   return writeTrace(reduced, opts.tracePath !== undefined ? { path: opts.tracePath } : {});
 }
@@ -217,6 +227,9 @@ async function main(): Promise<void> {
   if (collector) {
     const tracePath = readFlag(args, '--trace');
     const baseline = readFlag(args, '--baseline');
+    // Opt-in per-call wall-clock on the `code` span (issue #179); only meaningful alongside `--trace`
+    // (this whole block is `--trace`-gated), and additive — without it the trace stays wall-clock-free.
+    const includeTiming = args.includes('--trace-timing');
     // The judge runs on the run's RESOLVED judge model (#57 SUGGESTION #2): the run's `critic`
     // override merged over STAGE_MODELS — so a `--cheap` run judges on the cheap CRITIC model (Sonnet,
     // per `cheapModels()`) instead of always opus, matching the rest of that run's synthesis tier. With
@@ -239,12 +252,19 @@ async function main(): Promise<void> {
         judgeModel,
         ...(baseline !== undefined ? { baseline } : {}),
         ...(tracePath !== undefined ? { tracePath } : {}),
+        ...(includeTiming ? { includeTiming: true } : {}),
       },
     );
+    // Name what timing was/wasn't captured so a user doesn't read an absent extra column as a bug:
+    // only `durationMs` lights eleatic's NATIVE column; ttftMs/genMs/tokensPerSec/outputBytes/maxTokens
+    // ride as additive span metrics (rendering is up to eleatic's serve UI).
+    const timingNote = includeTiming
+      ? ' (code-phase wall-clock recorded onto the code span)'
+      : ' (no wall-clock — add --trace-timing for code-phase TTFT/gen/throughput)';
     console.log(
       path === ':memory:'
-        ? `\nTraced ${rowCount} row(s) (ephemeral :memory: — pass \`--trace <path>\` to persist).`
-        : `\nTraced ${rowCount} row(s) to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
+        ? `\nTraced ${rowCount} row(s)${timingNote} (ephemeral :memory: — pass \`--trace <path>\` to persist).`
+        : `\nTraced ${rowCount} row(s)${timingNote} to ${path} — explore: npx @eleatic/eval serve --db ${path}`,
     );
   }
   if (args.includes('--persist')) {

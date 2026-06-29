@@ -42,6 +42,14 @@ export interface TraceMeta {
    * calls the judge. Absent → the analysis row carries cost only, as before.
    */
   analysisScores?: Record<string, number>;
+  /**
+   * OPT-IN per-call wall-clock for the streamed `code` call (issue #179). When true, `spanTreeFor` →
+   * `metricsOf` emits `durationMs`/`ttftMs`/`genMs`/`tokensPerSec`/`outputBytes`/`maxTokens` on the
+   * `code` span (other, blocking-call spans carry no timing and are unchanged). The CLI reads it from
+   * a `--trace-timing` flag. Absent/false → the trace is byte-identical to today (wall-clock-free). It
+   * only forwards the boolean; `reduce.ts` reads no clock and stays pure.
+   */
+  includeTiming?: boolean;
 }
 
 const sumCost = (spans: readonly TraceSpan[]): number => spans.reduce((sum, s) => sum + s.record.costUsd, 0);
@@ -54,6 +62,9 @@ function row(
   // Extra QUALITY scores merged AFTER the cost signal, so cost is preserved, never replaced (issue
   // #51: the critic verdict on a synthesis row, the LLM-judge scores on the analysis row).
   extraScores: Record<string, number> = {},
+  // Forwarded to spanTreeFor → metricsOf: opt-in per-call wall-clock on the streamed `code` span
+  // (issue #179). Default false → wall-clock-free, byte-identical output.
+  includeTiming = false,
 ): EvalRowRecord {
   return {
     runId,
@@ -61,7 +72,7 @@ function row(
     output,
     expected: null,
     scores: { costUsd: sumCost(spans), calls: spans.length, ...extraScores },
-    trace: { spans: spanTreeFor(rowKey, spans) },
+    trace: { spans: spanTreeFor(rowKey, spans, includeTiming) },
   };
 }
 
@@ -94,13 +105,16 @@ export function reduceTrace(
   // The LLM-judge's quality scores ride onto the analysis row alongside its cost (issue #51); absent
   // → the row carries cost only.
   const analysisScores = meta.analysisScores ?? {};
-  if (analysis.length > 0) rows.push(row(meta.runId, ANALYSIS_ROW_KEY, analysisOutput, analysis, analysisScores));
+  // Opt-in per-call wall-clock (issue #179) — forwarded into each row's span tree; default false.
+  const includeTiming = meta.includeTiming ?? false;
+  if (analysis.length > 0)
+    rows.push(row(meta.runId, ANALYSIS_ROW_KEY, analysisOutput, analysis, analysisScores, includeTiming));
   for (const [slug, nodeSpans] of byNode) {
     // The critic's pass/fail (1/0) rides onto the synthesis row alongside its cost (issue #51) when
     // the CLI threaded a verdict for this slug; absent → the row carries cost only, as before.
     const verdict = meta.verdicts?.[slug];
     const extra = verdict !== undefined ? { passed: verdict ? 1 : 0 } : {};
-    rows.push(row(meta.runId, slug, { phase: 'synthesis', slug }, nodeSpans, extra));
+    rows.push(row(meta.runId, slug, { phase: 'synthesis', slug }, nodeSpans, extra, includeTiming));
   }
 
   const run: EvalRunRecord = {
