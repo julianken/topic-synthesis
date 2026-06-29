@@ -623,8 +623,10 @@ function PhaseNode({
         <span className="gen-sr"> · {word}</span>
       </p>
       <p className="gen-node__title">{title}</p>
-      <p className="gen-node__meta">{meta}</p>
-      {progress ? <CodeProgressBar fraction={progress.fraction} /> : null}
+      {/* While code streams, the live bar REPLACES the static "standalone · sandboxed" descriptor in the
+          node's last grid row — keeping the 3-row [label][title][meta|bar] grid uncrammed (no 4th row that
+          would squeeze a 2-line title into the meta) and reading better (live state over static copy). */}
+      {progress ? <CodeProgressBar fraction={progress.fraction} /> : <p className="gen-node__meta">{meta}</p>}
     </article>
   );
 }
