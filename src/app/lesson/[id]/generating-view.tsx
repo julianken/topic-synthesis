@@ -637,7 +637,7 @@ function PhaseNode({
  * fill width — with a text label ("Writing the lesson…") so state is conveyed by LABEL + bar, never color
  * alone (§Accessibility). It is a `role="progressbar"` with `aria-valuenow` = a rounded "how far along"
  * percent for AT — a coordinate about the artifact's growth, NEVER a token/cost magnitude (no numeric
- * readout is shown). The fill transition rides the §0 catalog `--tr-state` primitive (reduced-motion-gated
+ * readout is shown). The fill transition rides the §0 catalog `--tr-progress` primitive (reduced-motion-gated
  * by the global rule); no JS animation. The bar lives entirely within the node's FIXED height
  * (`overflow:hidden`), so the column-lock + spine-uniformity geometry is unchanged.
  */

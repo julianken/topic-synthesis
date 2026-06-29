@@ -2142,7 +2142,7 @@ body.has-ws-topbar > .appbar {
    outer height or center → the column-lock + spine-uniformity geometry is unchanged. §0 tokens only. */
 .gen-codebar {
   display: grid;
-  gap: 2px;
+  gap: 2px; /* documented component-local micro-value (sub---sp): the label↔track hairline gap */
   margin-top: var(--sp-1);
   min-height: 0;
 }
@@ -2158,7 +2158,7 @@ body.has-ws-topbar > .appbar {
 }
 .gen-codebar__track {
   display: block;
-  height: 4px;
+  height: var(--sp-1);
   width: 100%;
   border-radius: var(--r-pill);
   background: var(--border);
@@ -2169,8 +2169,8 @@ body.has-ws-topbar > .appbar {
   height: 100%;
   border-radius: var(--r-pill);
   background: var(--accent);
-  /* The fill grows as the fraction rises; rides the §0 catalog primitive, reduced-motion-zeroed globally. */
-  transition: width var(--dur-base) var(--ease);
+  /* The fill grows as the fraction rises; rides the §0 catalog --tr-progress primitive, reduced-motion-zeroed globally. */
+  transition: var(--tr-progress);
 }
 
 /* The per-column overflow chip (research overflow → "+K below" — re-pointed DOWN to the band). */
