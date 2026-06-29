@@ -33,4 +33,26 @@ describe('SpanToEventSink', () => {
     new SpanToEventSink({ onEvent: (e) => void events.push(e) }).onSpan({ stage: 'code', record });
     expect((events[0] as { stage: string }).stage).toBe('code');
   });
+
+  it('carries per-call timing + a DERIVED tokensPerSec for a streamed (code) call (PR-1)', () => {
+    const events: WorkflowEvent[] = [];
+    const streamed = { ...record, outputTokens: 400, ttftMs: 1200, genMs: 4000, maxTokens: 32000, outputBytes: 18000 };
+    new SpanToEventSink({ onEvent: (e) => void events.push(e) }).onSpan({ stage: 'code', record: streamed });
+    expect(events[0]).toMatchObject({
+      eventType: 'llm.call',
+      stage: 'code',
+      ttftMs: 1200,
+      genMs: 4000,
+      maxTokens: 32000,
+      outputBytes: 18000,
+      tokensPerSec: 100, // 400 tokens / (4000ms / 1000) = 100 tok/s
+    });
+  });
+
+  it('omits the timing fields entirely for a blocking call (record without them)', () => {
+    const events: WorkflowEvent[] = [];
+    new SpanToEventSink({ onEvent: (e) => void events.push(e) }).onSpan({ stage: 'planner', record });
+    expect(Object.keys(events[0] as object)).not.toContain('ttftMs');
+    expect(Object.keys(events[0] as object)).not.toContain('tokensPerSec');
+  });
 });

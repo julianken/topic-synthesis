@@ -1,5 +1,5 @@
 import { anthropic } from '@ai-sdk/anthropic';
-import { generateText, Output, type LanguageModel } from 'ai';
+import { generateText, Output, streamText, type LanguageModel } from 'ai';
 import type { ZodType } from 'zod';
 import type { StageModel } from './models';
 import { registryId } from './models';
@@ -15,6 +15,17 @@ export interface LlmCallRecord {
   /** Raw provider usage retained verbatim so cost can be recomputed at corrected rates. */
   rawUsage: unknown;
   finishReason: string;
+  /**
+   * Per-call WALL-CLOCK + size, present ONLY for a STREAMED call (`streamComplete`, the `code` stage,
+   * PR-1) — the blocking `complete`/`completeObject`/`searchWeb` leave them `undefined`. `ttftMs` is
+   * time-to-first-token (prefill/think); `genMs` is generation (total − ttft); `maxTokens` is the
+   * request cap (cap-proximity); `outputBytes` is the emitted text length. eleatic ignores these by
+   * default (the trace seam omits wall-clock); the #167 dashboard (PR-2) + eleatic (PR-3) opt in.
+   */
+  ttftMs?: number;
+  genMs?: number;
+  maxTokens?: number;
+  outputBytes?: number;
 }
 
 export interface CompleteOptions {
@@ -80,6 +91,48 @@ export async function complete(opts: CompleteOptions, modelOverride?: LanguageMo
   });
   guard(result.finishReason, providerModel, maxTokens);
   return { text: result.text, record: recordFrom(providerModel, result.usage, result.finishReason) };
+}
+
+/**
+ * A STREAMING free-text completion — the `code` stage's path. Streaming is what lets us capture
+ * per-call WALL-CLOCK: `ttftMs` (time to the first text delta = prefill/think) and `genMs`
+ * (generation = total − ttft), plus `maxTokens` (cap-proximity) and `outputBytes` (size). It also
+ * exposes a periodic `onProgress` hook — the live code-phase progress feed (PR-1 only EMITS it; PR-4
+ * consumes it). The `guard(finishReason)` truncation/abort check is preserved exactly as on the
+ * blocking path. Pass `modelOverride` (a mock streaming model) in tests, mirroring `complete`.
+ */
+export async function streamComplete(
+  opts: CompleteOptions,
+  onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating' }) => void,
+  modelOverride?: LanguageModel,
+): Promise<TextResult> {
+  const providerModel = registryId(opts.model);
+  const maxTokens = opts.maxTokens ?? 8000;
+  const startMs = Date.now();
+  const result = streamText({
+    model: modelOverride ?? resolveModel(opts.model),
+    prompt: opts.prompt,
+    maxOutputTokens: maxTokens,
+    ...(opts.system !== undefined ? { system: opts.system } : {}),
+  });
+  let ttftMs: number | undefined;
+  let text = '';
+  for await (const delta of result.textStream) {
+    if (ttftMs === undefined) ttftMs = Date.now() - startMs; // first delta = end of prefill
+    text += delta;
+    // ~4 chars/token estimate for the live budget-burn bar; the EXACT outputTokens lands at finish.
+    onProgress?.({ outputTokens: Math.round(text.length / 4), elapsedMs: Date.now() - startMs, phase: 'generating' });
+  }
+  const totalMs = Date.now() - startMs;
+  const finishReason = await result.finishReason;
+  guard(finishReason, providerModel, maxTokens);
+  const ttft = ttftMs ?? totalMs; // no delta (empty output) → the whole call was prefill
+  const record = recordFrom(providerModel, await result.usage, finishReason);
+  record.ttftMs = ttft;
+  record.genMs = Math.max(0, totalMs - ttft);
+  record.maxTokens = maxTokens;
+  record.outputBytes = text.length;
+  return { text, record };
 }
 
 /** A schema-validated structured completion (typed JSON per stage). */

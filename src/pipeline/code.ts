@@ -82,16 +82,23 @@ export async function code(
   learningGoal: string,
   deps: StageDeps = defaultDeps,
   model: StageModel = STAGE_MODELS.code,
+  // PR-1: a periodic live-progress hook the streaming call fires per delta — the live code-phase UI
+  // (PR-4) wires it; every other caller leaves it undefined and is unaffected.
+  onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating' }) => void,
 ): Promise<CodeOutput> {
-  const { text, record } = await deps.complete({
-    model,
-    system: CODE_SYSTEM,
-    prompt: codePrompt(spec, learningGoal),
-    // A full standalone interactive page can exceed a smaller cap; the cheap profile builds `code`
-    // on Sonnet (not Haiku) precisely so this budget is available. Truncation degrades a single
-    // lesson to 'soon', so give the page room to finish.
-    maxTokens: 32000,
-  });
+  const { text, record } = await deps.streamComplete(
+    {
+      model,
+      system: CODE_SYSTEM,
+      prompt: codePrompt(spec, learningGoal),
+      // A full standalone interactive page can exceed a smaller cap; the cheap profile builds `code`
+      // on Sonnet (not Haiku) precisely so this budget is available. Truncation degrades a single
+      // lesson to 'soon', so give the page room to finish. We STREAM it (PR-1) to capture per-call
+      // timing (ttftMs/genMs) + drive the live progress hook.
+      maxTokens: 32000,
+    },
+    onProgress,
+  );
   const artifact: PageArtifact = {
     nodeSlug: spec.nodeSlug,
     html: stripCodeFence(text),

@@ -83,7 +83,8 @@ function fakeDeps(): StageDeps {
     record: mkRec(),
   }));
   const complete = vi.fn(async () => ({ text: '<!doctype html>', record: mkRec() }));
-  return { complete, completeObject, searchWeb } as unknown as StageDeps;
+  const streamComplete = vi.fn(async () => ({ text: '<!doctype html>', record: mkRec() }));
+  return { complete, streamComplete, completeObject, searchWeb } as unknown as StageDeps;
 }
 
 describe('buildRequest', () => {
