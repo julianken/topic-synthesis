@@ -14,7 +14,7 @@
 // timer is the one ticking cell (the spec waits on STATE, never the timer).
 
 import type { StepEvent } from '../src/app/lesson/[id]/stage-rail';
-import type { ResearchEvent } from '../src/store/repo';
+import type { CodeProgress, ResearchEvent } from '../src/store/repo';
 
 /** A fixed clock so every frozen duration is stable run-to-run. */
 const T0 = '2026-06-21T00:00:00.000Z';
@@ -98,8 +98,9 @@ export interface StepSnapshot {
   findingsLanded: number;
   /** The expected "N / M extracted" count text. */
   extractedText: string;
-  /** The status payload (without the id, which the spec prepends). */
-  payload: { ready: boolean; steps: StepEvent[]; research: ResearchEvent[] };
+  /** The status payload (without the id, which the spec prepends). `code` is the live code-phase progress
+   *  (PR-4 / #180): present only while the `code` phase is running (so the bar renders), null otherwise. */
+  payload: { ready: boolean; steps: StepEvent[]; research: ResearchEvent[]; code?: CodeProgress | null };
 }
 
 // The seven scripted snapshots, in pipeline order. Each is a genuine mid-run shape.
@@ -226,7 +227,9 @@ export const STEP_SEQUENCE: ReadonlyArray<StepSnapshot> = [
       research: [doneResearch(0, 7400), doneResearch(1, 9200), doneResearch(2, 10500)],
     },
   },
-  // 7) CODE running — spec done, the HTML lesson is being synthesized.
+  // 7) CODE running (early) — spec done, the HTML lesson is being synthesized; the live code-phase bar
+  //    appears at ~20% (PR-4 / #180). The `code` field is the learner-safe {fraction, elapsedMs} the sink
+  //    serves — REAL-shaped (the fraction is already bounded ≤0.95 in the sink).
   {
     name: 'code-running',
     activePhase: 'code',
@@ -245,9 +248,34 @@ export const STEP_SEQUENCE: ReadonlyArray<StepSnapshot> = [
         step(PS.code, 'code:k', 21000, null),
       ],
       research: [doneResearch(0, 7400), doneResearch(1, 9200), doneResearch(2, 10500)],
+      code: { fraction: 0.2, elapsedMs: 6000 },
     },
   },
-  // 8) CRITIC running — code done, the lesson is being graded.
+  // 8) CODE running (later) — same `code` step still running, the bar has ADVANCED to ~60%. The two
+  //    consecutive code pushes are what the dedicated code-bar test drives to prove the fill grows.
+  {
+    name: 'code-running-2',
+    activePhase: 'code',
+    phaseStates: states({ plan: 'ran', research: 'ran', brief: 'ran', spec: 'ran', code: 'running' }),
+    findingsLanded: 3,
+    extractedText: '3 / 3 extracted',
+    payload: {
+      ready: false,
+      steps: [
+        step(PS.plan, 'plan:k', 0, 2100),
+        step(PS.research, 'research:a', 2100, 7400),
+        step(PS.research, 'research:b', 2100, 9200),
+        step(PS.research, 'research:c', 2100, 10500),
+        step(PS.brief, 'brief:k', 10500, 13800),
+        step(PS.spec, 'spec:k', 13800, 21000),
+        step(PS.code, 'code:k', 21000, null),
+      ],
+      research: [doneResearch(0, 7400), doneResearch(1, 9200), doneResearch(2, 10500)],
+      code: { fraction: 0.6, elapsedMs: 18000 },
+    },
+  },
+  // 9) CRITIC running — code DONE, the lesson is being graded. `code` is null (the bar hides the instant
+  //    the code rail stage flips to done — the view gates the bar on the running state, never on a row).
   {
     name: 'critic-running',
     activePhase: 'critic',
@@ -274,6 +302,7 @@ export const STEP_SEQUENCE: ReadonlyArray<StepSnapshot> = [
         step(PS.critic, 'critic:k', 33000, null),
       ],
       research: [doneResearch(0, 7400), doneResearch(1, 9200), doneResearch(2, 10500)],
+      code: null,
     },
   },
 ] as const;
@@ -305,6 +334,7 @@ export const READY_SNAPSHOT: StepSnapshot = {
       step(PS.critic, 'critic:k', 33000, 41000),
     ],
     research: [doneResearch(0, 7400), doneResearch(1, 9200), doneResearch(2, 10500)],
+    code: null,
   },
 };
 

@@ -435,3 +435,80 @@ test.describe('step-through C — states + edge (stress overflow · reduced moti
     await filmShot(page, 'C-mobile-390');
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// D) THE LIVE CODE-PHASE PROGRESS BAR (PR-4 / #180) — the bar is ABSENT before code, PRESENT + RISING during
+//    code-running (measured fill growth across two pushes), and ABSENT once code finishes. Both viewports,
+//    reduced motion, deterministic (the fraction values are fixed; the fill transition is zeroed).
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+test.describe('step-through D — the live code-phase progress bar', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
+
+  test('bar absent before code · present + rising during code-running · absent after code finishes', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    test.setTimeout(120_000);
+    await signInAsTestOwner(context, baseURL ?? '');
+
+    const find = (name: string): StepSnapshot => {
+      const s = STEP_SEQUENCE.find((x) => x.name === name);
+      if (!s) throw new Error(`fixture snapshot "${name}" not found`);
+      return s;
+    };
+    const specRunning = find('spec-running');
+    const codeEarly = find('code-running'); // fraction 0.2 → aria-valuenow 20
+    const codeLater = find('code-running-2'); // fraction 0.6 → aria-valuenow 60
+    const criticRunning = find('critic-running'); // code done → code: null
+
+    // The MUTABLE cursor the status route serves; advancing it + the page's 2.5s poll lands the next state.
+    let current: StepSnapshot = specRunning;
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...current.payload }),
+      });
+    });
+
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
+
+    const bar = page.getByTestId('gen-codebar');
+    const fillWidth = async (): Promise<number> =>
+      page.locator('.gen-codebar__fill').evaluate((el) => el.getBoundingClientRect().width);
+
+    // (1) BEFORE code — spec running, code pending → the bar is ABSENT (the view gates it on code running).
+    await expect(page.getByTestId('gen-step-spec')).toHaveAttribute('data-state', 'running');
+    await expect(bar, 'no code bar before code starts').toHaveCount(0);
+    await filmShot(page, 'D1-spec-no-bar');
+
+    // (2) CODE running, early (~20%) — the bar appears: a role=progressbar with aria-valuenow≈20 and a
+    //     text label (state by LABEL + bar, never color alone — §Accessibility). No numeric readout.
+    current = codeEarly;
+    await expect(page.getByTestId('gen-step-code')).toHaveAttribute('data-state', 'running');
+    await expect(bar, 'code bar present during code-running').toBeVisible();
+    await expect(bar).toHaveAttribute('role', 'progressbar');
+    await expect(bar).toHaveAttribute('aria-valuenow', '20');
+    await expect(bar).toContainText(/writing the lesson/i);
+    const w1 = await fillWidth();
+    await filmShot(page, 'D2-code-bar-20');
+
+    // (3) CODE running, later (~60%) — the SAME running step, the fill GROWS (measured via getBoundingClientRect,
+    //     not eyeballed). aria-valuenow is the changing signal the web-first matcher synchronizes on.
+    current = codeLater;
+    await expect(bar).toHaveAttribute('aria-valuenow', '60');
+    const w2 = await fillWidth();
+    expect(w2, `the bar fill grows ${w1.toFixed(1)}→${w2.toFixed(1)}px as the fraction rises 0.2→0.6`).toBeGreaterThan(w1);
+    await filmShot(page, 'D3-code-bar-60');
+
+    // (4) AFTER code — critic running, code done (code: null) → the bar HIDES the instant code flips to ran.
+    current = criticRunning;
+    await expect(page.getByTestId('gen-step-code')).toHaveAttribute('data-state', 'ran');
+    await expect(bar, 'code bar hidden once code finishes').toHaveCount(0);
+    await filmShot(page, 'D4-code-done-no-bar');
+  });
+});

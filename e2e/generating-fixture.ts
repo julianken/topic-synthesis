@@ -75,6 +75,66 @@ export const GENERATING_STATUS_PAYLOAD = {
   ],
 } as const;
 
+// ── A CODE-PHASE-running payload for the live code-phase progress bar's visual baseline (PR-4 / #180) ────
+// plan/research/brief/spec DONE, `code` RUNNING with the live "Writing the lesson…" bar at ~60% (the
+// fraction the sink computed + clamped). Research is 3/3 (the band full). REAL-shaped — the exact
+// { ready, steps, research, code } the status route serves mid-code; only the data is pinned for a stable
+// capture. The running-code segment's live timer + the caption are masked in the spec (they tick off the
+// wall clock); the bar fill is deterministic (the fraction is fixed, the width transition zeroed).
+export const GENERATING_STATUS_PAYLOAD_CODE = {
+  ready: false,
+  steps: [
+    { name: 'plan', stepKey: 'plan:k', startedAt: T(0), finishedAt: T(2100), status: 'done' },
+    { name: 'research', stepKey: 'research:a', startedAt: T(2100), finishedAt: T(7400), status: 'done' },
+    { name: 'research', stepKey: 'research:b', startedAt: T(2100), finishedAt: T(9200), status: 'done' },
+    { name: 'research', stepKey: 'research:c', startedAt: T(2100), finishedAt: T(10500), status: 'done' },
+    { name: 'brief', stepKey: 'brief:k', startedAt: T(10500), finishedAt: T(13800), status: 'done' },
+    { name: 'spec', stepKey: 'spec:k', startedAt: T(13800), finishedAt: T(21000), status: 'done' },
+    // the one in-flight step → the bar lives on its column; this row also drives the compact pill's timer.
+    { name: 'code', stepKey: 'code:k', startedAt: T(21000), finishedAt: null, status: 'running' },
+  ],
+  research: [
+    {
+      question: 'Where does a plant’s mass come from?',
+      subtopic: 'Carbon source',
+      status: 'done',
+      findings: [
+        { claim: 'A tree’s mass comes mostly from CO₂ in the air, not the soil.', url: 'https://www.britannica.com/science/photosynthesis', title: 'Britannica' },
+      ],
+      sources: [{ url: 'https://www.britannica.com/science/photosynthesis', title: 'Britannica' }],
+      findingCount: 1,
+      startedAt: T(2100),
+      finishedAt: T(7400),
+    },
+    {
+      question: 'Light reactions vs. the Calvin cycle?',
+      subtopic: 'Two stages',
+      status: 'done',
+      findings: [
+        { claim: 'Photosynthesis splits water (H₂O) to release O₂.', url: 'https://www.nature.com/articles/photosynthesis', title: 'Nature' },
+      ],
+      sources: [{ url: 'https://www.nature.com/articles/photosynthesis', title: 'Nature' }],
+      findingCount: 1,
+      startedAt: T(2100),
+      finishedAt: T(9200),
+    },
+    {
+      question: 'Chlorophyll’s role in capturing light?',
+      subtopic: 'Pigments',
+      status: 'done',
+      findings: [
+        { claim: 'Chlorophyll absorbs red and blue light, reflecting green.', url: 'https://www.khanacademy.org/science/biology', title: 'Khan Academy' },
+      ],
+      sources: [{ url: 'https://www.khanacademy.org/science/biology', title: 'Khan Academy' }],
+      findingCount: 1,
+      startedAt: T(2100),
+      finishedAt: T(10500),
+    },
+  ],
+  // The live code-phase progress: a bounded fraction (already clamped ≤0.95 in the sink) + learner-safe ms.
+  code: { fraction: 0.6, elapsedMs: 18000 },
+} as const;
+
 // ── A STRESS payload (N=8) for the geometry/measurement spec (generating-geometry.spec.ts) ──────────────
 // Same REAL shape as the N=3 payload, scaled to EIGHT research questions so the fit-math's OVERFLOW path
 // is exercised against the BUILT app: at 1440×900 the Research column caps at 3 visible @ the floor height

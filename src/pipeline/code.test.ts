@@ -44,6 +44,21 @@ describe('code', () => {
     const out = await code(pageSpec, LEARNING_GOAL, { streamComplete } as unknown as StageDeps);
     expect(out.artifact.html).toBe('<!doctype html><html></html>'); // fence removed
   });
+
+  it('forwards the live-progress hook (PR-4) into streamComplete as the 2nd arg', async () => {
+    // The streaming client fires onProgress per delta; `code` must pass the caller's hook straight through
+    // so the live code-phase bar (#180) can observe the stream. The hook the stub invokes carries the cap.
+    const onProgress = vi.fn();
+    const streamComplete = vi.fn(async (_opts: unknown, hook?: (p: unknown) => void) => {
+      hook?.({ outputTokens: 4000, elapsedMs: 1200, phase: 'generating', maxTokens: 32000 });
+      return { text: '<!doctype html><html></html>', record: rec };
+    });
+    await code(pageSpec, LEARNING_GOAL, { streamComplete } as unknown as StageDeps, undefined, onProgress);
+    expect(streamComplete).toHaveBeenCalledTimes(1);
+    expect(streamComplete.mock.calls[0]![1]).toBe(onProgress); // the hook is the 2nd positional arg
+    // …and a sample the stub emitted reached the caller's hook with the cap (the fraction input).
+    expect(onProgress).toHaveBeenCalledWith({ outputTokens: 4000, elapsedMs: 1200, phase: 'generating', maxTokens: 32000 });
+  });
 });
 
 describe('CODE_SYSTEM — the coordinate-only progress + apparatus sender contract (PR-F)', () => {

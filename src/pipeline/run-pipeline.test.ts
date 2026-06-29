@@ -15,7 +15,15 @@ import { InlineEngine } from '../engine/inline-engine';
 import { SpanCollector } from '../trace/span';
 import { CATEGORY_SCHEMA } from './classify-category';
 import type { StageDeps } from './deps';
-import { defaultStages, noopResearchSink, noopSink, type ResearchSink, type StageBundle } from './ports';
+import {
+  defaultStages,
+  noopCodeProgressSink,
+  noopResearchSink,
+  noopSink,
+  type CodeProgressSink,
+  type ResearchSink,
+  type StageBundle,
+} from './ports';
 import { runLesson, runPipeline } from './run-pipeline';
 
 const mkRec = (): LlmCallRecord => ({
@@ -450,6 +458,71 @@ describe('runLesson (single-lesson path)', () => {
     expect(throwing.onQuestions).toHaveBeenCalledTimes(1);
     expect(throwing.onQuestions).toHaveBeenCalledWith(['q1', 'q2']); // the REAL deduped questions, no fabrication
     expect(throwing.onResearch).toHaveBeenCalledTimes(2); // one per researched question
+  });
+
+  // ── the code-progress sink (PR-4 / #180) — the FAIL-SAFE live code-phase data path ───────────────
+  // The streaming `code` stage fires onProgress per delta; runLesson threads it through the MEMOIZED code
+  // step into the injected CodeProgressSink. Like the research sink it is best-effort observability that
+  // must never touch what the run produces. A streamComplete stub that EMITS a sample exercises the path.
+  function lessonDepsEmittingProgress(sample: {
+    outputTokens: number;
+    elapsedMs: number;
+    maxTokens: number;
+    phase: 'prefill' | 'generating';
+  }): StageDeps {
+    const deps = lessonFakeDeps(['q1']);
+    (deps.streamComplete as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_opts: unknown, onProgress?: (p: unknown) => void) => {
+        onProgress?.(sample); // the streaming client fires the hook per delta
+        return { text: '<!doctype html><html></html>', record: mkRec() };
+      },
+    );
+    return deps;
+  }
+
+  it('drives the CodeProgressSink: code\'s onProgress reaches the sink with {outputTokens, elapsedMs, maxTokens, phase}', async () => {
+    const sample = { outputTokens: 8000, elapsedMs: 2000, maxTokens: 32000, phase: 'generating' as const };
+    const seen: unknown[] = [];
+    const sink: CodeProgressSink = { onProgress: (p) => seen.push(p) };
+    await runLesson(req, new InlineEngine(), lessonDepsEmittingProgress(sample), {}, defaultStages, noopSink, noopResearchSink, sink);
+    // the RAW sample reaches the sink (the sink — not the pipeline — denormalizes it to a bounded fraction)
+    expect(seen).toEqual([sample]);
+  });
+
+  it('PIPELINE-SAFETY: a THROWING CodeProgressSink (sync throw) still completes the run with the SAME result', async () => {
+    // The owner reverted a prior change for making generation slower/flakier — prove a code-progress sink
+    // fault can NEVER do that: the lesson builds fully, the run does not throw, the throw is swallowed.
+    const sample = { outputTokens: 8000, elapsedMs: 2000, maxTokens: 32000, phase: 'generating' as const };
+    const throwing: CodeProgressSink = {
+      onProgress: vi.fn(() => {
+        throw new Error('code-progress sink exploded');
+      }),
+    };
+    const baseline = await runLesson(
+      req,
+      new InlineEngine(),
+      lessonDepsEmittingProgress(sample),
+      {},
+      defaultStages,
+      noopSink,
+      noopResearchSink,
+      noopCodeProgressSink,
+    );
+    const out = await runLesson(
+      req,
+      new InlineEngine(),
+      lessonDepsEmittingProgress(sample),
+      {},
+      defaultStages,
+      noopSink,
+      noopResearchSink,
+      throwing,
+    );
+    // SAME PipelineResult as the no-op sink — the faulty sink is additive, never mutates the run.
+    expect(out.result).toEqual(baseline.result);
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.pages[0]?.passed).toBe(true); // a full BUILT lesson — generation unaffected
+    expect(throwing.onProgress).toHaveBeenCalled(); // the throw WAS reached (and swallowed by the run hook)
   });
 
   it('emits the REAL questions then each question\'s grounded Research to the sink (no fabrication)', async () => {

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { GeneratingView } from './generating-view';
 import type { StepEvent } from './stage-rail';
-import type { ResearchEvent } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
+import type { CodeProgress, ResearchEvent } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 
 const POLL_MS = 2500;
 const MAX_ATTEMPTS = 160; // ~6-7 min, then stop polling and surface a hint
@@ -26,6 +26,7 @@ export function GeneratingPoller({ id }: { id: string }) {
   const [stalled, setStalled] = useState(false);
   const [steps, setSteps] = useState<StepEvent[]>([]);
   const [research, setResearch] = useState<ResearchEvent[]>([]);
+  const [codeProgress, setCodeProgress] = useState<CodeProgress | null>(null);
   const attempts = useRef(0);
 
   useEffect(() => {
@@ -54,10 +55,14 @@ export function GeneratingPoller({ id }: { id: string }) {
           ready?: boolean;
           steps?: StepEvent[];
           research?: ResearchEvent[];
+          code?: CodeProgress | null;
         };
         if (!active) return;
         if (body.steps) setSteps(body.steps);
         if (body.research) setResearch(body.research);
+        // The live code-phase progress (PR-4 / #180): null until the code stream emits / once pruned. The
+        // view itself only RENDERS the bar while the `code` rail stage is running, so a stale value is inert.
+        setCodeProgress(body.code ?? null);
         if (body.ready) {
           if (timer) clearInterval(timer);
           router.refresh();
@@ -80,5 +85,5 @@ export function GeneratingPoller({ id }: { id: string }) {
     };
   }, [id, router]);
 
-  return <GeneratingView steps={steps} research={research} stalled={stalled} />;
+  return <GeneratingView steps={steps} research={research} codeProgress={codeProgress} stalled={stalled} />;
 }

@@ -9,7 +9,7 @@ import {
   type TopicRequest,
 } from '../domain/stages';
 import type { Stage, StageModel } from '../llm/models';
-import type { ResearchSink } from '../pipeline/ports';
+import type { CodeProgressSink, ResearchSink } from '../pipeline/ports';
 import { PROMPTS_VERSION } from '../pipeline/prompts';
 import { getPool } from './db';
 
@@ -146,14 +146,16 @@ export async function persistRun(
         [runId, pageId, tier, category, ordinal],
       );
     }
-    // Prune this run's transient per-run rows now that the curriculum has persisted. THREE of the four
+    // Prune this run's transient per-run rows now that the curriculum has persisted. FOUR of the FIVE
     // per-run tables have NO post-persist consumer: step_result is the engine's crash-resume
     // memoization (only read mid-run, on retry); run_owner is the dispatch-time ownership stamp for the
     // pre-persist poll window (redundant once curriculum.owner_sub exists); research_event is the
     // live-research feed (live-research generating Stage 1 — the planned questions + each question's
     // grounded findings/sources, read ONLY by the in-flight generating UI; the finished lesson folds the
     // research into the durable brief→lesson, so the live rows have no post-persist consumer and are NOT
-    // kept for cross-run analysis). Deleting these bounds them at exactly their useful lifetime.
+    // kept for cross-run analysis); code_progress is the live code-phase bar's one row (PR-4 / #180), read
+    // only by the in-flight generating UI, likewise no post-persist consumer. Deleting these bounds them
+    // at exactly their useful lifetime.
     //
     // step_event is DELIBERATELY KEPT past persist (issue #175): the owner-only "How this was built"
     // disclosure on the persisted lesson page replays this run's per-step timeline (learner-safe labels +
@@ -168,6 +170,10 @@ export async function persistRun(
     await client.query('DELETE FROM step_result WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM run_owner WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM research_event WHERE run_id = $1', [runId]);
+    // code_progress (PR-4 / #180) is the FOURTH still-pruned transient table — the live code-phase bar's
+    // one row, read only by the in-flight generating UI; it has no post-persist consumer (unlike the
+    // durable step_event), so it is bounded at its in-run lifetime here alongside research_event.
+    await client.query('DELETE FROM code_progress WHERE run_id = $1', [runId]);
     await client.query('COMMIT');
     client.release();
     return { lessonId: runId };
@@ -529,6 +535,112 @@ export class PgResearchSink implements ResearchSink {
       );
     } catch (err) {
       console.warn('[research] research_event write failed (ignored)', this.runId, err);
+    }
+  }
+}
+
+// ── code_progress — the live CODE-PHASE progress feed (PR-4 / issue #180) ─────────────────────────────
+
+/** One code-phase progress sample as the status poll surfaces it (PR-4 / #180). LEARNER-SAFE + COPY-SAFE
+ *  by construction: it carries ONLY a bounded `fraction` (0..~0.95, computed in the sink) and the
+ *  learner-safe `elapsedMs` — NEVER a raw token count, the cap, a cost, or a model id (those never leave
+ *  the sink). The pipeline-internal stream `phase` is DELIBERATELY OMITTED here: it is kept in the table
+ *  for debugging only and must not reach the wire/surface (it is pipeline vocabulary, not learner copy). */
+export interface CodeProgress {
+  /** The bounded fraction of the lesson written so far (0..~0.95). A unitless "how far along" coordinate
+   *  about the artifact's growth — never a token magnitude. The view renders it as a bar + a rounded %. */
+  fraction: number;
+  /** Wall-clock ms since the code stream started (learner-safe timing). */
+  elapsedMs: number;
+}
+
+/** Read a run's latest code-phase progress (PR-4 / #180). NOT owner-scoped here — the caller (the status
+ *  route) gates on `ownsRun` FIRST, then reads this; a non-owner never reaches it (the SAME contract as
+ *  getStepEvents/getResearchEvents). The code_progress row lives only while the run is in flight:
+ *  `persistRun` PRUNES it once the curriculum lands, so this read only ever serves the pre-persist poll
+ *  window. NO-INTERNALS: the SELECT projects ONLY the bounded fraction + elapsed_ms — never the stored
+ *  `phase`, and the table holds no token/cost/model column to leak in the first place. Returns null for an
+ *  absent run (no row yet, or pruned) — identical to a just-started owned run, so no existence oracle. */
+export async function getCodeProgress(
+  runId: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<CodeProgress | null> {
+  const res = await deps.pool.query<{ fraction: number; elapsed_ms: number }>(
+    `SELECT fraction, elapsed_ms FROM code_progress WHERE run_id = $1`,
+    [runId],
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  return { fraction: row.fraction, elapsedMs: row.elapsed_ms };
+}
+
+/** Coalesce interval for code-progress writes (PR-4 / #180). The onProgress hook fires per stream delta
+ *  (thousands of times over ~270s); a finer cadence than the 2.5s status poll is wasted, so writes are
+ *  throttled to this floor (sub-throttle samples are dropped in memory, not written). */
+export const CODE_PROGRESS_THROTTLE_MS = 1500;
+
+/**
+ * The Postgres-backed live CODE-PHASE progress sink (PR-4 / issue #180) — the durable adapter the deployed
+ * Cloud Run **Job** injects into `runLesson` so the generating UI can show a learner-safe "Writing the
+ * lesson…" bar while the longest phase streams. The local-dev fallback, the CLI, and every test use
+ * `noopCodeProgressSink` instead (no DB, no bar) — exactly how `noopResearchSink` keeps those paths off the
+ * Postgres writer.
+ *
+ * FAIL-SAFE + FIRE-AND-FORGET, the SAME load-bearing-vs-observability pattern `PgResearchSink` /
+ * `GcpEngine`'s `step_event` timing prove: code_progress is KEPT observability data, never load-bearing, so
+ * a write fault (the table not yet migrated during a deploy window, a transient DB error) must NEVER abort
+ * the paid `code` stream. `onProgress` is SYNCHRONOUS (it mirrors the per-delta hook): it keeps the latest
+ * sample's `lastFlushMs` in memory and, only when ≥ CODE_PROGRESS_THROTTLE_MS has elapsed, fires the async
+ * `flush` FIRE-AND-FORGET (`void this.flush(...).catch(...)`, never awaited), whose body is wrapped in
+ * try/catch + `console.warn` + return — so neither the throttle bookkeeping nor a failed write can throw
+ * back into the stream. The caller (run-pipeline) ALSO wraps the synchronous `onProgress` call in a
+ * try/catch, making a non-conforming sink doubly safe.
+ *
+ * NO-INTERNALS: `flush` computes `fraction = min(outputTokens / max(1, maxTokens), 0.95)` IN THE SINK and
+ * UPSERTs ONLY that bounded fraction (+ the learner-safe elapsedMs + the debug-only phase) — the raw token
+ * count, the cap, cost, and model NEVER reach the DB, so they cannot reach the wire or the learner surface.
+ * The ~0.95 clamp prevents a false "done" before the critic gate.
+ */
+export class PgCodeProgressSink implements CodeProgressSink {
+  private lastFlushMs = 0;
+
+  constructor(
+    private readonly runId: string,
+    private readonly deps: { pool: Pool } = { pool: getPool() },
+  ) {}
+
+  /** A per-delta progress sample. Throttled to CODE_PROGRESS_THROTTLE_MS; the write is fire-and-forget so
+   *  the paid stream is never awaited or blocked, and a write fault can never reach the stream. */
+  onProgress(p: { outputTokens: number; elapsedMs: number; maxTokens: number; phase: 'prefill' | 'generating' }): void {
+    const now = Date.now();
+    if (now - this.lastFlushMs < CODE_PROGRESS_THROTTLE_MS) return;
+    this.lastFlushMs = now;
+    void this.flush(p).catch(() => {
+      /* unreachable — flush self-wraps; belt-and-suspenders so an unexpected rejection is inert */
+    });
+  }
+
+  /** Compute the bounded fraction IN THE SINK and UPSERT the run's one row. Self-wrapped (try/catch + warn
+   *  + return), so a write fault resolves rather than throwing back through the fire-and-forget call. */
+  private async flush(p: {
+    outputTokens: number;
+    maxTokens: number;
+    elapsedMs: number;
+    phase: 'prefill' | 'generating';
+  }): Promise<void> {
+    try {
+      // The ONLY token arithmetic — done HERE so no raw count crosses to the store/wire. ≤0.95 clamp keeps
+      // the bar from reading "done" before the critic gate; max(1, …) guards a zero/absent cap.
+      const fraction = Math.min(p.outputTokens / Math.max(1, p.maxTokens), 0.95);
+      await this.deps.pool.query(
+        `INSERT INTO code_progress (run_id, fraction, elapsed_ms, phase, updated_at)
+         VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (run_id) DO UPDATE
+           SET fraction = $2, elapsed_ms = $3, phase = $4, updated_at = now()`,
+        [this.runId, fraction, p.elapsedMs, p.phase],
+      );
+    } catch (err) {
+      console.warn('[code-progress] code_progress write failed (ignored)', this.runId, err);
     }
   }
 }

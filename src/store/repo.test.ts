@@ -8,7 +8,9 @@ import {
 import { STAGE_MODELS } from '../llm/models';
 import type { Research } from '../domain/stages';
 import {
+  CODE_PROGRESS_THROTTLE_MS,
   DISPATCH_STEP_NAME,
+  getCodeProgress,
   getLesson,
   getOwnedPage,
   getResearchEvents,
@@ -16,6 +18,7 @@ import {
   listLessons,
   ownsRun,
   persistRun,
+  PgCodeProgressSink,
   PgResearchSink,
   rebuildHub,
   recordDispatch,
@@ -146,17 +149,23 @@ describe('persistRun (transaction shape, fake pool)', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('prunes the THREE transient per-run rows AFTER the inserts, all before COMMIT — but NOT step_event', async () => {
+  it('prunes the FOUR transient per-run rows AFTER the inserts, all before COMMIT — but NOT step_event', async () => {
     const { deps, client } = fakePool();
     await persistRun(
       { runId: 'run-prune', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
       deps,
     );
     const sqls = sqlsOf(client.query);
-    // THREE transient tables are each deleted, scoped to this run. step_event is DELIBERATELY EXCLUDED
+    // FOUR transient tables are each deleted, scoped to this run. step_event is DELIBERATELY EXCLUDED
     // (issue #175): it is kept durable past persist to power the owner-only "How this was built"
-    // disclosure on the finished lesson page — so it must NOT be in the prune set.
-    const dels = ['DELETE FROM step_result', 'DELETE FROM run_owner', 'DELETE FROM research_event'];
+    // disclosure on the finished lesson page — so it must NOT be in the prune set. code_progress (PR-4 /
+    // #180) IS pruned (the live code-phase bar's transient row has no post-persist consumer).
+    const dels = [
+      'DELETE FROM step_result',
+      'DELETE FROM run_owner',
+      'DELETE FROM research_event',
+      'DELETE FROM code_progress',
+    ];
     const delIdxs = dels.map((d) => sqls.findIndex((s) => s.includes(d)));
     for (const idx of delIdxs) expect(idx).toBeGreaterThan(-1);
     // each delete is run-scoped (WHERE run_id = $1) and carries this runId as its only param
@@ -186,10 +195,11 @@ describe('persistRun (transaction shape, fake pool)', () => {
     // No DELETE FROM step_event is emitted at all — the dispatch marker rides step_event, so it too
     // survives persist (it is not a STAGE_RAIL position, so the frozen rail ignores it).
     expect(sqls.some((s) => s.includes('DELETE FROM step_event'))).toBe(false);
-    // …while the three that DO get pruned are still pruned (the surgical-removal contract).
+    // …while the four that DO get pruned are still pruned (the surgical-removal contract).
     expect(sqls.some((s) => s.includes('DELETE FROM step_result'))).toBe(true);
     expect(sqls.some((s) => s.includes('DELETE FROM run_owner'))).toBe(true);
     expect(sqls.some((s) => s.includes('DELETE FROM research_event'))).toBe(true);
+    expect(sqls.some((s) => s.includes('DELETE FROM code_progress'))).toBe(true);
   });
 
   it('keeps the deletes INSIDE the tx — a persist failure ROLLBACKs them too (run stays resumable)', async () => {
@@ -594,6 +604,94 @@ describe('PgResearchSink (the live-research writer)', () => {
     const pool = { query: vi.fn(async () => { throw new Error('db down'); }) } as unknown as import('pg').Pool;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await expect(new PgResearchSink('run-1', { pool }).onResearch('q1', research)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+// ── getCodeProgress — the live code-phase progress read (PR-4 / #180) ────────────
+describe('getCodeProgress (the live code-phase progress read)', () => {
+  it('maps the row to {fraction, elapsedMs}; returns null for an absent run', async () => {
+    const { deps } = fakePool([{ match: 'FROM code_progress', rows: [{ fraction: 0.42, elapsed_ms: 12000 }] }]);
+    expect(await getCodeProgress('run-1', deps)).toEqual({ fraction: 0.42, elapsedMs: 12000 });
+    // absent run → null (no existence oracle; identical to a just-started owned run)
+    expect(await getCodeProgress('absent', fakePool().deps)).toBeNull();
+  });
+
+  it('NO-INTERNALS: the SELECT projects ONLY fraction + elapsed_ms — never phase / tokens / cost / model', async () => {
+    const { deps, client } = fakePool([{ match: 'FROM code_progress', rows: [] }]);
+    await getCodeProgress('run-1', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('FROM code_progress')) ?? '';
+    expect(sql).toContain('fraction');
+    expect(sql).toContain('elapsed_ms');
+    // the pipeline-internal `phase` is kept in the table for debugging but NEVER selected to the wire,
+    // and the table has no token/cost/model column to leak in the first place.
+    expect(sql).not.toContain('phase');
+    expect(sql).not.toMatch(/token/i);
+    expect(sql).not.toMatch(/cost/i);
+    expect(sql).not.toMatch(/model/i);
+  });
+});
+
+// ── PgCodeProgressSink — the FAIL-SAFE live code-phase writer (PR-4 / #180) ──────
+describe('PgCodeProgressSink (the live code-phase writer)', () => {
+  const sample = (outputTokens: number) => ({
+    outputTokens,
+    elapsedMs: 5000,
+    maxTokens: 32000,
+    phase: 'generating' as const,
+  });
+  const upsertOf = (client: { query: { mock: { calls: unknown[][] } } }): unknown[][] =>
+    client.query.mock.calls.filter((c) => (c[0] as string).includes('code_progress'));
+
+  it('computes a BOUNDED fraction IN THE SINK (outputTokens/maxTokens) and UPSERTs only the fraction (no raw tokens)', async () => {
+    const { deps, client } = fakePool();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    new PgCodeProgressSink('run-1', deps).onProgress(sample(8000)); // 8000 / 32000 = 0.25
+    now.mockRestore();
+    const upsert = upsertOf(client)[0];
+    expect(upsert).toBeTruthy();
+    expect(upsert?.[0] as string).toContain('ON CONFLICT (run_id) DO UPDATE'); // a one-row-per-run upsert
+    const params = upsert?.[1] as unknown[];
+    // [runId, fraction, elapsedMs, phase] — the RAW token count + the cap NEVER appear in the params
+    expect(params[0]).toBe('run-1');
+    expect(params[1] as number).toBeCloseTo(0.25, 6); // the computed fraction, NOT 8000
+    expect(params[2]).toBe(5000); // elapsedMs (learner-safe timing)
+    expect(params).not.toContain(8000); // no raw output-token count crosses to the store
+    expect(params).not.toContain(32000); // no cap crosses to the store
+  });
+
+  it('CLAMPS the fraction to ≤0.95 (no false "done" before the critic gate)', async () => {
+    const { deps, client } = fakePool();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    new PgCodeProgressSink('run-1', deps).onProgress(sample(31000)); // 31000 / 32000 ≈ 0.97 → clamps
+    now.mockRestore();
+    expect((upsertOf(client)[0]?.[1] as unknown[])[1] as number).toBeCloseTo(0.95, 6);
+  });
+
+  it('THROTTLES writes: a sub-throttle second sample does NOT write; a sample past the throttle DOES', async () => {
+    const { deps, client } = fakePool();
+    const now = vi.spyOn(Date, 'now');
+    const sink = new PgCodeProgressSink('run-1', deps);
+    now.mockReturnValue(1_000_000);
+    sink.onProgress(sample(1000)); // first sample (lastFlush 0 → writes immediately)
+    expect(upsertOf(client)).toHaveLength(1);
+    now.mockReturnValue(1_000_000 + CODE_PROGRESS_THROTTLE_MS - 1); // < throttle → SKIPPED
+    sink.onProgress(sample(2000));
+    expect(upsertOf(client)).toHaveLength(1);
+    now.mockReturnValue(1_000_000 + CODE_PROGRESS_THROTTLE_MS); // ≥ throttle → WRITES
+    sink.onProgress(sample(3000));
+    expect(upsertOf(client)).toHaveLength(2);
+    now.mockRestore();
+  });
+
+  it('FAIL-SAFE: a rejecting pool is swallowed (logs + onProgress does NOT throw)', async () => {
+    const pool = { query: vi.fn(async () => { throw new Error('db down'); }) } as unknown as Pool;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const sink = new PgCodeProgressSink('run-1', { pool });
+    // onProgress is sync void — it must NOT throw even when the fire-and-forget write rejects.
+    expect(() => sink.onProgress(sample(8000))).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0)); // let the fire-and-forget flush settle
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });

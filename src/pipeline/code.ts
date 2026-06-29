@@ -83,8 +83,10 @@ export async function code(
   deps: StageDeps = defaultDeps,
   model: StageModel = STAGE_MODELS.code,
   // PR-1: a periodic live-progress hook the streaming call fires per delta — the live code-phase UI
-  // (PR-4) wires it; every other caller leaves it undefined and is unaffected.
-  onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating' }) => void,
+  // (PR-4 / #180) wires it; every other caller leaves it undefined and is unaffected. The payload carries
+  // `maxTokens` (the resolved cap = the 32000 below) so the consuming sink computes a bounded fraction
+  // without re-hardcoding it.
+  onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating'; maxTokens: number }) => void,
 ): Promise<CodeOutput> {
   const { text, record } = await deps.streamComplete(
     {

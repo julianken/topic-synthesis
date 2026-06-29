@@ -30,6 +30,10 @@ import { spec } from './spec';
  *   Workflow events   EventSink       noopEventSink (default) ↔ StdoutEventSink (Cloud Logging) ↔
  *                                     PgStepEventSink (step_event) ↔ multiSink([…]) — src/telemetry
  *                                     (issue #166); the SpanToEventSink adapter bridges TraceSink→llm.call
+ *   Live research     ResearchSink    noopResearchSink (default) ↔ PgResearchSink (research_event) — the
+ *                                     live-research generating feed (#153); fired fire-and-forget
+ *   Code progress     CodeProgressSink noopCodeProgressSink (default) ↔ PgCodeProgressSink (code_progress) —
+ *                                     the live code-phase bar (#180); the `code` onProgress hook, throttled
  *
  * Known residual limits, so this doesn't over-claim full swappability:
  *  (i)   StageModel.params (effort/thinking/cacheSystem) are carried on an arm but not yet
@@ -133,3 +137,29 @@ export const noopResearchSink: ResearchSink = {
   async onQuestions() {},
   async onResearch() {},
 };
+
+/**
+ * The LIVE CODE-PHASE PROGRESS port (PR-4 / issue #180) — the streaming `code` stage's `onProgress` hook
+ * (PR-1, #174) drives this so the generating UI can show a learner-safe "Writing the lesson…" bar while
+ * the longest phase (~83% of run wall-clock) is opaque. A PARALLEL, narrower instance of the `ResearchSink`
+ * shape: pure OBSERVABILITY (it never changes the artifact), fired FIRE-AND-FORGET so a slow/failed write
+ * adds ZERO latency and can't fail the paid `code` stream. UNLIKE `ResearchSink`, `onProgress` is
+ * SYNCHRONOUS void — it mirrors the per-delta hook (called thousands of times over ~270s), so a Postgres
+ * adapter must COALESCE writes internally (throttle + fire-and-forget) rather than await per delta.
+ *
+ * NO-INTERNALS by construction: the payload carries `outputTokens`/`maxTokens` (the raw stream counters),
+ * but a real adapter computes a bounded `fraction = outputTokens / maxTokens` IN THE SINK and stores/serves
+ * ONLY that fraction — never the raw token count, the cap, a cost, or a model id (the same denormalize-in-
+ * sink discipline `PgResearchSink` uses to keep the internal `sourceIndex` off the wire). The default drops
+ * everything, so the CLI/local-dev/test paths reach NO new code; only the deployed Job injects a
+ * Postgres-backed sink. A faulty injected sink must be inert by construction (see `noopCodeProgressSink`).
+ */
+export interface CodeProgressSink {
+  /** A code-stream progress sample (per delta). Synchronous void — the adapter coalesces + writes
+   *  fire-and-forget internally so the paid stream is never awaited or blocked. */
+  onProgress(p: { outputTokens: number; elapsedMs: number; maxTokens: number; phase: 'prefill' | 'generating' }): void;
+}
+
+/** The real default — drops every code-progress sample (no DB, no live bar; the generating UI then shows
+ *  only the running-code stage's elapsed timer). The Next app, the CLI, and every test inject this. */
+export const noopCodeProgressSink: CodeProgressSink = { onProgress() {} };
