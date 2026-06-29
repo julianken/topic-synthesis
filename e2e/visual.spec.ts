@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
-import { SEED_GENERATING_RUN_ID, SEED_RUN_ID } from './seed';
+import { SEED_DEGRADED_RUN_ID, SEED_GENERATING_RUN_ID, SEED_RUN_ID } from './seed';
 import { GENERATING_STATUS_PAYLOAD } from './generating-fixture';
 
 // visual.spec — per-screen full-page VISUAL snapshots at the two DESIGN.md viewports (390×844 mobile +
@@ -229,5 +229,38 @@ test.describe('visual — generating (live-research, mid-run)', () => {
       fullPage: true,
       mask: [liveTimer],
     });
+  });
+});
+
+test.describe('visual — build-summary disclosure (issue #175, owner-only)', () => {
+  // The owner-only "How this was built" disclosure on the persisted lesson page. ELEMENT-scoped snapshots
+  // (the disclosure box, not the whole page) so the captures are deterministic regardless of the iframe
+  // artifact / library grid. The seeded timelines (e2e/seed.ts) are FIXED, so the frozen per-step
+  // durations + wall-clock span are byte-stable — no masking needed (the LiveTimer is dropped at rest).
+
+  test('BUILT — collapsed then expanded matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_RUN_ID}`);
+    const disclosure = page.locator('.build-summary');
+    await expect(disclosure).toBeVisible();
+    // COLLAPSED Tier-0 summary.
+    await expect(disclosure.locator('summary')).toContainText('How this was built');
+    await expect(disclosure).toHaveScreenshot('build-summary-built-collapsed.png');
+    // EXPANDED frozen rail.
+    await disclosure.locator('summary').click();
+    await expect(disclosure.locator('.build-summary__rail')).toBeVisible();
+    await expect(disclosure).toHaveScreenshot('build-summary-built-expanded.png');
+  });
+
+  test('DEGRADED — collapsed then expanded matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_DEGRADED_RUN_ID}`);
+    const disclosure = page.locator('.build-summary');
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure.locator('summary')).toContainText('See what happened');
+    await expect(disclosure).toHaveScreenshot('build-summary-degraded-collapsed.png');
+    await disclosure.locator('summary').click();
+    await expect(disclosure.locator('.build-summary__rail')).toBeVisible();
+    await expect(disclosure).toHaveScreenshot('build-summary-degraded-expanded.png');
   });
 });

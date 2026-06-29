@@ -277,10 +277,16 @@ describe('TS-23 — the view is a pure presentation reshape over the EXISTING st
     expect(ROUTE).toContain('ready: view !== null');
   });
 
-  it('AC6 — getStepEvents reads the per-run step_event timeline unchanged (no durable graduation)', () => {
+  it('AC6 — getStepEvents reads the step_event timeline unchanged; #175 makes step_event DURABLE past persist', () => {
     expect(REPO).toContain('FROM step_event WHERE run_id = $1 ORDER BY started_at');
-    // step_event stays per-run transient: persistRun still PRUNES it.
-    expect(REPO).toContain('DELETE FROM step_event WHERE run_id = $1');
+    // UPDATED for issue #175 (epic PR-5): step_event is now KEPT past persist (the owner-only "How this
+    // was built" disclosure replays it on the finished page), so persistRun no longer prunes it — while
+    // the OTHER three transient tables are still pruned. (TS-23's "no durable graduation" framing predates
+    // #175; the read SQL is still byte-identical, which is what kept TS-23's reshape data-path-clean.)
+    expect(REPO).not.toContain('DELETE FROM step_event WHERE run_id = $1');
+    expect(REPO).toContain('DELETE FROM step_result WHERE run_id = $1');
+    expect(REPO).toContain('DELETE FROM run_owner WHERE run_id = $1');
+    expect(REPO).toContain('DELETE FROM research_event WHERE run_id = $1');
   });
 
   it('AC6 — step_event is still defined as a per-run table (no new timeline table/column)', () => {

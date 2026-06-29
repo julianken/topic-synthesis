@@ -146,16 +146,17 @@ describe('persistRun (transaction shape, fake pool)', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('prunes the run\'s transient per-run rows AFTER the inserts, all before COMMIT', async () => {
+  it('prunes the THREE transient per-run rows AFTER the inserts, all before COMMIT — but NOT step_event', async () => {
     const { deps, client } = fakePool();
     await persistRun(
       { runId: 'run-prune', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
       deps,
     );
     const sqls = sqlsOf(client.query);
-    // the FOUR transient tables are each deleted, scoped to this run (research_event is the new 4th —
-    // live-research generating Stage 1, pruned at persist like step_event).
-    const dels = ['DELETE FROM step_result', 'DELETE FROM run_owner', 'DELETE FROM step_event', 'DELETE FROM research_event'];
+    // THREE transient tables are each deleted, scoped to this run. step_event is DELIBERATELY EXCLUDED
+    // (issue #175): it is kept durable past persist to power the owner-only "How this was built"
+    // disclosure on the finished lesson page — so it must NOT be in the prune set.
+    const dels = ['DELETE FROM step_result', 'DELETE FROM run_owner', 'DELETE FROM research_event'];
     const delIdxs = dels.map((d) => sqls.findIndex((s) => s.includes(d)));
     for (const idx of delIdxs) expect(idx).toBeGreaterThan(-1);
     // each delete is run-scoped (WHERE run_id = $1) and carries this runId as its only param
@@ -169,9 +170,26 @@ describe('persistRun (transaction shape, fake pool)', () => {
     // …and all BEFORE the COMMIT, so they share the run's atomic transaction.
     const commit = sqls.indexOf('COMMIT');
     expect(Math.max(...delIdxs)).toBeLessThan(commit);
-    // A5 (issue #162): the dispatch marker is a `step_event` row, so it is covered by this same
-    // `DELETE FROM step_event` — no marker rows survive persist (no separate prune needed).
-    expect(sqls.some((s) => s.includes('DELETE FROM step_event'))).toBe(true);
+  });
+
+  it('KEEPS step_event durable past persist (issue #175): persistRun never DELETEs it', async () => {
+    // The owner-only build disclosure replays this run's per-step timeline AFTER the curriculum lands,
+    // so the prune that used to bound step_event at the run's in-flight lifetime is removed. The OTHER
+    // three transient tables (step_result + run_owner + research_event) are STILL pruned (above), so the
+    // durability is surgical: step_event alone survives. A regression that re-adds the DELETE trips this.
+    const { deps, client } = fakePool();
+    await persistRun(
+      { runId: 'run-keep', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
+      deps,
+    );
+    const sqls = sqlsOf(client.query);
+    // No DELETE FROM step_event is emitted at all — the dispatch marker rides step_event, so it too
+    // survives persist (it is not a STAGE_RAIL position, so the frozen rail ignores it).
+    expect(sqls.some((s) => s.includes('DELETE FROM step_event'))).toBe(false);
+    // …while the three that DO get pruned are still pruned (the surgical-removal contract).
+    expect(sqls.some((s) => s.includes('DELETE FROM step_result'))).toBe(true);
+    expect(sqls.some((s) => s.includes('DELETE FROM run_owner'))).toBe(true);
+    expect(sqls.some((s) => s.includes('DELETE FROM research_event'))).toBe(true);
   });
 
   it('keeps the deletes INSIDE the tx — a persist failure ROLLBACKs them too (run stays resumable)', async () => {
