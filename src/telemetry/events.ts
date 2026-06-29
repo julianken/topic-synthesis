@@ -1,0 +1,83 @@
+/**
+ * The workflow EVENT seam (issue #166) — a single, typed, expandable stream every per-step event
+ * flows through. Sibling to the `TraceSink` observability port (src/pipeline/ports.ts), NOT an
+ * extension of it: `TraceSink.onSpan` is record-shaped (cost/tokens, no wall-clock, feeds eleatic);
+ * lifecycle events like `step.start` carry no record. So this is the general stream — `EventSink`
+ * fans `WorkflowEvent`s to N adapters (stdout → Cloud Logging, the `step_event` projection for the
+ * live generating UI, a no-op for tests). Adding a future per-step event type is a one-line change:
+ * add a union variant + emit it; each sink decides whether to project it.
+ *
+ * Fence-clean by construction (imports only a type) so it rides into the compiled Job bundle.
+ */
+import type { Stage } from '../llm/models';
+
+/** Bumped when the emitted envelope/field shape changes, so #167's metric extractors can evolve. */
+export const EVENT_SCHEMA_VERSION = 1;
+
+/**
+ * The canonical `stage` label — the engine step-name vocabulary, which is ALSO the `step_event` /
+ * generating-UI vocabulary. Both event families (engine `step.*`, the `llm.call` span bridge) MUST
+ * emit `stage` in this set so #167 groups every phase by one label instead of splitting plan/research.
+ * (`graph` belongs to the dormant curriculum path; kept for completeness.)
+ */
+export type CanonicalStage = 'plan' | 'research' | 'graph' | 'brief' | 'spec' | 'code' | 'critic';
+
+/**
+ * Normalize a pipeline `Stage` (the `emit→onSpan` vocabulary: `planner`/`researcher`/…) to the
+ * canonical engine vocabulary. Only `planner`/`researcher` differ from their engine step names; the
+ * rest are identity. Typed as `string` in/out so it also passes through `'judge'` (a TraceStage that
+ * is not a `Stage`) and any future tag unchanged.
+ */
+export function stageLabel(stage: Stage | string): string {
+  if (stage === 'planner') return 'plan';
+  if (stage === 'researcher') return 'research';
+  return stage;
+}
+
+/**
+ * The events. The discriminant is `eventType`; the common envelope (`runId`, `seq`, `schemaVersion`,
+ * `severity`) is stamped by `StdoutEventSink` at write time, not carried here. `stage`/`status`/
+ * `model`/`outcome`/`criticPassed` are the low-cardinality fields #167 turns into metric labels.
+ */
+export type WorkflowEvent =
+  | { eventType: 'step.start'; stage: string; stepKey: string }
+  | { eventType: 'step.finish'; stage: string; stepKey: string; ms: number; status: 'done' | 'error' }
+  | {
+      eventType: 'llm.call';
+      stage: string;
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+    }
+  | {
+      eventType: 'run.complete';
+      costUsd: number;
+      totalMs: number;
+      pages: number;
+      outcome: 'complete' | 'degraded';
+      criticPassed: boolean;
+    }
+  | { eventType: 'run.failed'; outcome: 'failed'; errorKind?: string };
+
+/**
+ * The port. `onEvent` may be sync (the stdout/log sink) OR async (the Postgres `step_event`
+ * projection); the engine `await`s it so the projection's ordering guarantee (issue #61: start
+ * before finish) is preserved. A sink MUST be best-effort — it must never throw, so telemetry can
+ * never break a paid pipeline step.
+ */
+export interface EventSink {
+  onEvent(event: WorkflowEvent): void | Promise<void>;
+}
+
+/** The real default — drops every event (no observability overhead). */
+export const noopEventSink: EventSink = { onEvent() {} };
+
+/** Fan one event out to every child sink, awaiting any async ones so callers can await the whole set. */
+export function multiSink(sinks: readonly EventSink[]): EventSink {
+  return {
+    async onEvent(event) {
+      await Promise.all(sinks.map((s) => s.onEvent(event)));
+    },
+  };
+}

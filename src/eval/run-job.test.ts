@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildJobInput } from './run-job';
+import type { PipelineRunResult } from '../pipeline/run-pipeline';
+import type { SitemapHub } from '../domain/sitemap';
+import { buildJobInput, runCompleteEvent, runFailedEvent } from './run-job';
 
 const SAVED = { ...process.env };
 const JOB_KEYS = ['RUN_ID', 'TOPIC', 'LEVEL', 'DEPTH', 'AUDIENCE', 'CHEAP', 'MAX_NODES', 'MAX_QUESTIONS'];
@@ -53,5 +55,67 @@ describe('buildJobInput', () => {
   it('throws on an invalid MAX_NODES (a typo cannot silently cap to 0 after spend)', () => {
     Object.assign(process.env, { RUN_ID: 'r', TOPIC: 't', MAX_NODES: 'oops' });
     expect(() => buildJobInput()).toThrow(/MAX_NODES/);
+  });
+});
+
+const hubWith = (built: boolean): SitemapHub => ({
+  tiers: [
+    {
+      tier: 'Tier 1',
+      categories: [{ name: 'Lesson', pages: [{ slug: 's', title: 't', built, status: built ? 'built' : 'soon', href: '' }] }],
+    },
+  ],
+});
+
+const runResult = (built: boolean, pageCount: number): PipelineRunResult => ({
+  result: {
+    hub: hubWith(built),
+    pages: Array.from({ length: pageCount }, () => ({})) as PipelineRunResult['result']['pages'],
+  },
+  records: [],
+  costUsd: 0.42,
+});
+
+describe('runCompleteEvent', () => {
+  it('reports outcome=complete + criticPassed when the hub page is built', () => {
+    expect(runCompleteEvent(runResult(true, 1), 2000)).toEqual({
+      eventType: 'run.complete',
+      costUsd: 0.42,
+      totalMs: 2000,
+      pages: 1,
+      outcome: 'complete',
+      criticPassed: true,
+    });
+  });
+
+  it('reports outcome=degraded even when pages is EMPTY — derived from the hub, not pages.length', () => {
+    expect(runCompleteEvent(runResult(false, 0), 1000)).toEqual({
+      eventType: 'run.complete',
+      costUsd: 0.42,
+      totalMs: 1000,
+      pages: 0,
+      outcome: 'degraded',
+      criticPassed: false,
+    });
+  });
+
+  it('treats an empty hub (no page) as degraded', () => {
+    const r = runResult(false, 0);
+    r.result.hub.tiers = [];
+    expect(runCompleteEvent(r, 5).outcome).toBe('degraded');
+  });
+});
+
+describe('runFailedEvent', () => {
+  it('reports outcome=failed with the error name as errorKind', () => {
+    expect(runFailedEvent(new TypeError('boom'))).toEqual({
+      eventType: 'run.failed',
+      outcome: 'failed',
+      errorKind: 'TypeError',
+    });
+  });
+
+  it('falls back to "unknown" for a non-Error throw', () => {
+    expect(runFailedEvent('nope')).toEqual({ eventType: 'run.failed', outcome: 'failed', errorKind: 'unknown' });
   });
 });

@@ -1,6 +1,8 @@
 import type { Pool } from 'pg';
 import type { ZodType } from 'zod';
 import { getPool } from '../store/db';
+import { PgStepEventSink } from '../store/pg-step-event-sink';
+import type { EventSink, WorkflowEvent } from '../telemetry/events';
 import type { Engine } from './engine';
 
 /**
@@ -10,14 +12,27 @@ import type { Engine } from './engine';
  * InlineEngine), so the per-node Promise.all fan-out shares a step; a resolved step stays cached
  * for the process (one DB read per key), a FAILED step is never persisted and is evicted, so a
  * retry re-runs it. One instance per run (constructed with the run's id); the pool is injectable.
+ *
+ * TIMING + TELEMETRY (issues #61, #166): on a REAL (cache-miss) step the engine emits `step.start`
+ * then `step.finish{ms,status}` to an injected `EventSink`. The DEFAULT sink is a `PgStepEventSink`
+ * over this run's pool — preserving the #61 behavior exactly (project the lifecycle to `step_event`
+ * for the live generating UI). The Job injects `multiSink([stdout, pgStepEvent])` so the same
+ * lifecycle ALSO reaches Cloud Logging (issue #166). A cache HIT emits nothing, so a resumed
+ * timeline stays complete + non-duplicated. Emission is best-effort: a misbehaving sink can never
+ * break a paid step.
  */
 export class GcpEngine implements Engine {
   private readonly inflight = new Map<string, Promise<unknown>>();
+  private readonly startedAt = new Map<string, number>();
+  private readonly events: EventSink;
 
   constructor(
     private readonly runId: string,
     private readonly deps: { pool: Pool } = { pool: getPool() },
-  ) {}
+    eventSink?: EventSink,
+  ) {
+    this.events = eventSink ?? new PgStepEventSink(runId, { pool: this.deps.pool });
+  }
 
   step<O>(name: string, key: string, fn: () => Promise<O>, validate?: ZodType<O>): Promise<O> {
     const cacheKey = `${name}:${key}`;
@@ -47,28 +62,28 @@ export class GcpEngine implements Engine {
       // re-persist below — so a stale shape can never feed a later stage. With no validator, the row
       // is returned as-is (legacy behavior). A successful parse returns the parsed (current-shape) value.
       //
-      // TIMING (issue #61): a cache HIT writes NO step_event — the row written when the step first
-      // ran (in this run, before the crash) already stands, so the resumed timeline is complete AND
-      // non-duplicated. Only a real run (the miss below) touches step_event.
+      // A cache HIT emits NO lifecycle event — the start/finish emitted when the step first ran (in
+      // this run, before the crash) already stand, so the resumed timeline is complete + non-duplicated.
       if (validate === undefined) return row.result_json; // already done; never re-run
       const parsed = validate.safeParse(row.result_json);
       if (parsed.success) return parsed.data;
       // else: stale shape → drop through to re-run (cache miss), do NOT return the stale row.
     }
 
-    // Cache MISS → this step REALLY runs. Stamp its start (issue #61). ON CONFLICT overwrites a
-    // dangling row left by a crash mid-step that is now re-running (and re-times a stale-shape re-run).
-    await this.markStepStarted(name, key);
+    // Cache MISS → this step REALLY runs. Time it + emit start (issues #61/#166).
+    const cacheKey = `${name}:${key}`;
+    this.startedAt.set(cacheKey, Date.now());
+    await this.emit({ eventType: 'step.start', stage: name, stepKey: key });
     let result: O;
     try {
       result = await fn();
     } catch (err) {
-      // The step threw — record it as failed so the timeline shows WHICH step failed (e.g. a
+      // The step threw — emit finish 'error' so the timeline shows WHICH step failed (e.g. a
       // truncating `code` stage), then re-throw so the engine's existing failure handling stands.
-      await this.markStepFinished(name, key, 'error');
+      await this.emitFinish(name, key, cacheKey, 'error');
       throw err;
     }
-    await this.markStepFinished(name, key, 'done');
+    await this.emitFinish(name, key, cacheKey, 'done');
     // ON CONFLICT DO NOTHING: if a concurrent process persisted this step first it wins; our
     // (identical, deterministic) result is returned either way. A rejected fn never reaches here.
     // On a validate-on-resume miss the OLD stale row remains (DO NOTHING won't overwrite it), so a
@@ -82,39 +97,25 @@ export class GcpEngine implements Engine {
     return result;
   }
 
-  /**
-   * Stamp a real step's START (issue #61). ON CONFLICT resets started_at + clears finished_at so a
-   * crash-mid-step's dangling 'running' row (or a stale-shape re-run) is re-timed from now, not
-   * left showing the abandoned attempt's clock.
-   */
-  private async markStepStarted(name: string, key: string): Promise<void> {
-    // Best-effort: step_event is KEPT observability data, not load-bearing. A timing-write failure
-    // (the table not yet migrated during a deploy window, or a transient DB error) must NEVER abort
-    // the paid pipeline step or mask its real error — log and continue.
-    try {
-      await this.deps.pool.query(
-        `INSERT INTO step_event (run_id, name, step_key, started_at, status)
-         VALUES ($1, $2, $3, now(), 'running')
-         ON CONFLICT (run_id, name, step_key)
-         DO UPDATE SET started_at = now(), finished_at = NULL, status = 'running'`,
-        [this.runId, name, key],
-      );
-    } catch (err) {
-      console.warn('[timing] step_event start write failed (ignored)', this.runId, name, err);
-    }
+  private async emitFinish(
+    name: string,
+    key: string,
+    cacheKey: string,
+    status: 'done' | 'error',
+  ): Promise<void> {
+    const startedAt = this.startedAt.get(cacheKey);
+    const ms = startedAt === undefined ? 0 : Math.max(0, Date.now() - startedAt);
+    await this.emit({ eventType: 'step.finish', stage: name, stepKey: key, ms, status });
   }
 
-  /** Stamp a step's END (issue #61): 'done' on success, 'error' on a thrown fn — the timeline shows it.
-   *  Best-effort, like markStepStarted: a timing-write failure never breaks the run. */
-  private async markStepFinished(name: string, key: string, status: 'done' | 'error'): Promise<void> {
+  /** Best-effort emit: `step_event` is KEPT observability data, not load-bearing — a sink fault
+   *  (table not yet migrated, transient DB error, a buggy custom sink) is logged and swallowed so it
+   *  can NEVER abort the paid pipeline step or mask its real error. */
+  private async emit(event: WorkflowEvent): Promise<void> {
     try {
-      await this.deps.pool.query(
-        `UPDATE step_event SET finished_at = now(), status = $4
-         WHERE run_id = $1 AND name = $2 AND step_key = $3`,
-        [this.runId, name, key, status],
-      );
+      await this.events.onEvent(event);
     } catch (err) {
-      console.warn('[timing] step_event finish write failed (ignored)', this.runId, name, err);
+      console.warn('[telemetry] event emit failed (ignored)', this.runId, event.eventType, err);
     }
   }
 }
