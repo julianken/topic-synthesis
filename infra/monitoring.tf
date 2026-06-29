@@ -181,6 +181,211 @@ resource "google_logging_metric" "critic_pass" {
   }
 }
 
+# ── Code-phase deep-dive metrics (PR-2, issue #178) ───────────────────────────────────────────
+# PR-1 (#176, deployed) made the `code` phase STREAM and enriched its `llm.call` event with per-call
+# timing/size — ttftMs/genMs/tokensPerSec/maxTokens/outputBytes (the pinned #166 envelope). These
+# fields are present ONLY on the streamed call, so an EXTRACT over (e.g.) jsonPayload.ttftMs yields
+# no point for the blocking analysis-stage calls — each metric self-scopes to the `code` call without
+# a brittle stage filter, and keeps working if streaming later widens. Same idiom as above: one
+# metric per field, scoped to llm.call, DELTA/DISTRIBUTION, stage+model low-cardinality labels.
+
+# TTFT (prefill / "think") latency — the first half of the code-phase wall-clock split.
+resource "google_logging_metric" "code_ttft_ms" {
+  name   = "topic_synthesis/code_ttft_ms"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"llm.call\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "ms"
+    display_name = "Code call time-to-first-token (ms)"
+    labels {
+      key        = "stage"
+      value_type = "STRING"
+    }
+    labels {
+      key        = "model"
+      value_type = "STRING"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.ttftMs)"
+  label_extractors = {
+    "stage" = "EXTRACT(jsonPayload.stage)"
+    "model" = "EXTRACT(jsonPayload.model)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 20
+      growth_factor      = 2
+      scale              = 50
+    }
+  }
+}
+
+# Generation latency — the second half of the split (the token-stream duration).
+resource "google_logging_metric" "code_gen_ms" {
+  name   = "topic_synthesis/code_gen_ms"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"llm.call\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "ms"
+    display_name = "Code call generation latency (ms)"
+    labels {
+      key        = "stage"
+      value_type = "STRING"
+    }
+    labels {
+      key        = "model"
+      value_type = "STRING"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.genMs)"
+  label_extractors = {
+    "stage" = "EXTRACT(jsonPayload.stage)"
+    "model" = "EXTRACT(jsonPayload.model)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 20
+      growth_factor      = 2
+      scale              = 50
+    }
+  }
+}
+
+# Generation throughput (tokens/sec) — derived in the span bridge (outputTokens / genMs).
+resource "google_logging_metric" "code_tokens_per_sec" {
+  name   = "topic_synthesis/code_tokens_per_sec"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"llm.call\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "1"
+    display_name = "Code call generation throughput (tokens/sec)"
+    labels {
+      key        = "stage"
+      value_type = "STRING"
+    }
+    labels {
+      key        = "model"
+      value_type = "STRING"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.tokensPerSec)"
+  label_extractors = {
+    "stage" = "EXTRACT(jsonPayload.stage)"
+    "model" = "EXTRACT(jsonPayload.model)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 25
+      growth_factor      = 1.5
+      scale              = 1
+    }
+  }
+}
+
+# Artifact size (output bytes) — the rendered standalone-HTML payload size.
+resource "google_logging_metric" "code_output_bytes" {
+  name   = "topic_synthesis/code_output_bytes"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"llm.call\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "By"
+    display_name = "Code artifact size (output bytes)"
+    labels {
+      key        = "stage"
+      value_type = "STRING"
+    }
+    labels {
+      key        = "model"
+      value_type = "STRING"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.outputBytes)"
+  label_extractors = {
+    "stage" = "EXTRACT(jsonPayload.stage)"
+    "model" = "EXTRACT(jsonPayload.model)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 20
+      growth_factor      = 2
+      scale              = 128
+    }
+  }
+}
+
+# The maxTokens cap (currently 32000) — EXTRACTed, not hard-coded, so the cap-proximity tile tracks
+# any future change. maxTokens is streamed-only, so this self-scopes to the code call.
+resource "google_logging_metric" "code_max_tokens" {
+  name   = "topic_synthesis/code_max_tokens"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"llm.call\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "1"
+    display_name = "Code call output-token cap (maxTokens)"
+    labels {
+      key        = "stage"
+      value_type = "STRING"
+    }
+    labels {
+      key        = "model"
+      value_type = "STRING"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.maxTokens)"
+  label_extractors = {
+    "stage" = "EXTRACT(jsonPayload.stage)"
+    "model" = "EXTRACT(jsonPayload.model)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 16
+      growth_factor      = 2
+      scale              = 1000
+    }
+  }
+}
+
+# The cap-proximity numerator — actual output tokens. Unlike the timing fields, `outputTokens` is on
+# EVERY llm.call (it lives in the span bridge's `base`, not the streamed-only branch), so this metric
+# does NOT self-scope. Filter it to jsonPayload.stage="code" (plan-review refinement #1) so the
+# "output vs cap" overlay is apples-to-apples — a code-only p95 against the code-only maxTokens cap,
+# not an all-stages p95 inflated by research fan-out / spec calls.
+resource "google_logging_metric" "code_output_tokens" {
+  name   = "topic_synthesis/code_output_tokens"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"llm.call\" AND jsonPayload.stage=\"code\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "DISTRIBUTION"
+    unit         = "1"
+    display_name = "Code call output tokens (cap-proximity numerator)"
+    labels {
+      key        = "stage"
+      value_type = "STRING"
+    }
+    labels {
+      key        = "model"
+      value_type = "STRING"
+    }
+  }
+  value_extractor = "EXTRACT(jsonPayload.outputTokens)"
+  label_extractors = {
+    "stage" = "EXTRACT(jsonPayload.stage)"
+    "model" = "EXTRACT(jsonPayload.model)"
+  }
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 16
+      growth_factor      = 2
+      scale              = 100
+    }
+  }
+}
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────────────────────
 # 12-col mosaic. Distribution percentiles via ALIGN_DELTA → REDUCE_PERCENTILE_*; counters via
 # ALIGN_DELTA → REDUCE_SUM grouped by their low-cardinality label.
@@ -188,6 +393,7 @@ resource "google_logging_metric" "critic_pass" {
 locals {
   ts_user_metric = { for k in [
     "stage_latency_ms", "stage_cost_usd", "llm_calls", "run_cost_usd", "run_latency_ms", "run_outcome", "critic_pass",
+    "code_ttft_ms", "code_gen_ms", "code_tokens_per_sec", "code_output_bytes", "code_max_tokens", "code_output_tokens",
   ] : k => "${local.ts_metric_prefix}/topic_synthesis/${k}" }
 }
 
@@ -336,6 +542,110 @@ resource "google_monitoring_dashboard" "workflow_runs" {
                 timeSeriesQuery = { timeSeriesFilter = {
                   filter      = "metric.type=\"run.googleapis.com/job/completed_execution_count\" resource.type=\"cloud_run_job\" resource.label.\"job_name\"=\"${google_cloud_run_v2_job.pipeline.name}\""
                   aggregation = { alignmentPeriod = "3600s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_SUM", groupByFields = ["metric.label.\"result\""] }
+                } }
+              }]
+            }
+          }
+        },
+        # ── Code-phase deep-dive band (PR-2, issue #178) — appended below the mosaic at yPos >= 20.
+        {
+          xPos = 0, yPos = 20, width = 6, height = 4
+          widget = {
+            title = "Code phase: TTFT vs generation (p50 / p95, ms)"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_ttft_ms"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_50" }
+                  } }
+                },
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_ttft_ms"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_95" }
+                  } }
+                },
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_gen_ms"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_50" }
+                  } }
+                },
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_gen_ms"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_95" }
+                  } }
+                },
+              ]
+            }
+          }
+        },
+        {
+          xPos = 6, yPos = 20, width = 6, height = 4
+          widget = {
+            title = "Code phase throughput (tokens/sec, p50 / p95)"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_tokens_per_sec"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_50" }
+                  } }
+                },
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_tokens_per_sec"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_95" }
+                  } }
+                },
+              ]
+            }
+          }
+        },
+        {
+          xPos = 0, yPos = 24, width = 6, height = 4
+          widget = {
+            # Apples-to-apples: code_output_tokens is stage-scoped to "code" (refinement #1), overlaid
+            # with the code_max_tokens cap line — the visual gap is the headroom under the 32k cap.
+            title = "Code output vs 32k cap (output-tokens p95 vs maxTokens)"
+            xyChart = {
+              dataSets = [
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_output_tokens"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_95" }
+                  } }
+                },
+                {
+                  plotType = "LINE"
+                  timeSeriesQuery = { timeSeriesFilter = {
+                    filter      = "metric.type=\"${local.ts_user_metric["code_max_tokens"]}\" resource.type=\"cloud_run_job\""
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_MAX" }
+                  } }
+                },
+              ]
+            }
+          }
+        },
+        {
+          xPos = 6, yPos = 24, width = 6, height = 4
+          widget = {
+            title = "Code artifact size (output bytes, p95)"
+            xyChart = {
+              dataSets = [{
+                plotType = "LINE"
+                timeSeriesQuery = { timeSeriesFilter = {
+                  filter      = "metric.type=\"${local.ts_user_metric["code_output_bytes"]}\" resource.type=\"cloud_run_job\""
+                  aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_95" }
                 } }
               }]
             }
