@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { deriveApparatus, type ApparatusModel } from './apparatus-state';
 import type { LessonApparatus } from './lesson-message';
 import { postScrollTo } from './lesson-scroll-sender';
@@ -98,6 +98,7 @@ export function ReaderShell({
   title,
   userName,
   head,
+  buildSummary,
 }: {
   id: string;
   href: string;
@@ -108,6 +109,10 @@ export function ReaderShell({
   /** The reader header content (eyebrow/title/level/depth) — rendered BELOW the integrated topbar so the
    *  topbar is the page's TOP chrome (PR-D), aligned to the [read] spine via `.reader-head`. */
   head: { eyebrow: string; title: string; level: string; depth: number };
+  /** The owner-only "How this was built" disclosure (issue #175) — a SERVER-rendered node passed in from
+   *  page.tsx (so it inherits the page's owner-scoped getLesson gate) and slotted quietly under the reader
+   *  head. Optional: it is `null` for a legacy lesson with no recorded timeline. */
+  buildSummary?: ReactNode;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [chrome, setChrome] = useState(INITIAL_READER_CHROME);
@@ -251,6 +256,10 @@ export function ReaderShell({
         <p className="lead">
           {head.level} · depth {head.depth}
         </p>
+        {/* Owner-only "How this was built" disclosure (issue #175) — quiet, near the reader head, aligned
+            to the [read] spine via `.reader-head`. A server-rendered node (passed from page.tsx so it
+            inherits the owner gate); null for a legacy lesson with no recorded timeline. */}
+        {buildSummary}
       </div>
 
       {/*

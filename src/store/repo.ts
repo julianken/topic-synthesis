@@ -146,24 +146,27 @@ export async function persistRun(
         [runId, pageId, tier, category, ordinal],
       );
     }
-    // Prune this run's transient per-run rows now that the curriculum has persisted. All FOUR are
-    // useful only during the run and have NO post-persist consumer: step_result is the engine's
-    // crash-resume memoization (only read mid-run, on retry); run_owner is the dispatch-time
-    // ownership stamp for the pre-persist poll window (redundant once curriculum.owner_sub exists);
-    // step_event is the live generating-UI timeline (read only while the run is in flight — the
-    // finished lesson page shows the artifact, not the timeline, and step_event is intentionally NOT
-    // kept for cross-run analysis: no such view exists); research_event is the live-research feed
-    // (live-research generating Stage 1 — the planned questions + each question's grounded
-    // findings/sources, also read ONLY by the in-flight generating UI; the finished lesson folds the
-    // research into the durable brief→lesson, so the live rows have no post-persist consumer and are
-    // likewise NOT kept for cross-run analysis). Deleting them here bounds these tables at exactly
-    // their useful lifetime. The deletes run AFTER the inserts and inside the SAME transaction, so a
-    // persist failure rolls them back too — leaving the run fully resumable. (A fire-and-forget sink
-    // write that lands AFTER this prune is a harmless straggler — bounded, owner-scoped, never read
-    // post-persist; the sink's 'done' UPDATE simply matches zero rows once they're gone.)
+    // Prune this run's transient per-run rows now that the curriculum has persisted. THREE of the four
+    // per-run tables have NO post-persist consumer: step_result is the engine's crash-resume
+    // memoization (only read mid-run, on retry); run_owner is the dispatch-time ownership stamp for the
+    // pre-persist poll window (redundant once curriculum.owner_sub exists); research_event is the
+    // live-research feed (live-research generating Stage 1 — the planned questions + each question's
+    // grounded findings/sources, read ONLY by the in-flight generating UI; the finished lesson folds the
+    // research into the durable brief→lesson, so the live rows have no post-persist consumer and are NOT
+    // kept for cross-run analysis). Deleting these bounds them at exactly their useful lifetime.
+    //
+    // step_event is DELIBERATELY KEPT past persist (issue #175): the owner-only "How this was built"
+    // disclosure on the persisted lesson page replays this run's per-step timeline (learner-safe labels +
+    // frozen per-step durations + status) — a durable consumer the prune used to foreclose. It is
+    // structurally leak-proof (no token/cost/model/error-text column — just name/key/timestamps/status),
+    // owner-gated for free by the page's existing `getLesson(id, sub)` filter, and the dispatch marker
+    // (recordDispatch) it carries is not a STAGE_RAIL position, so the frozen rail's `deriveRail` ignores
+    // it. The deletes run AFTER the inserts and inside the SAME transaction, so a persist failure rolls
+    // them back too — leaving the run fully resumable. (A fire-and-forget research-sink write that lands
+    // AFTER this prune is a harmless straggler — bounded, owner-scoped, never read post-persist; the
+    // sink's 'done' UPDATE simply matches zero rows once they're gone.)
     await client.query('DELETE FROM step_result WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM run_owner WHERE run_id = $1', [runId]);
-    await client.query('DELETE FROM step_event WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM research_event WHERE run_id = $1', [runId]);
     await client.query('COMMIT');
     client.release();
@@ -307,8 +310,10 @@ export const DISPATCH_STEP_NAME = 'dispatch';
  *  step_event. The marker is written with `finished_at = now()` and a NON-`running` status, so it is
  *  NEVER a live ticking timer (the view's LiveTimer fires only on `finishedAt === null && status ===
  *  'running'`) and it resolves the moment a real pipeline step appears. `getStepEvents` returns it first
- *  (ORDER BY started_at), so the status route needs no change. It is pruned at persist with the other
- *  transient `step_event` rows (the existing `DELETE FROM step_event` in `persistRun`).
+ *  (ORDER BY started_at), so the status route needs no change. Since issue #175 KEEPS step_event past
+ *  persist (for the owner-only "How this was built" disclosure), the marker survives persist too — but it
+ *  is NOT a STAGE_RAIL position, so the frozen build-summary rail's `deriveRail` ignores it (exactly as the
+ *  live rail does), and the summary's step count is the six real stages, never the marker.
  *
  *  BEST-EFFORT by contract: the SINGLE caller (`api/generate`) must treat any failure as non-fatal — a
  *  missing marker only costs the early indicator; the run still proceeds. Idempotent (ON CONFLICT). */
@@ -348,10 +353,12 @@ export interface StepEvent {
   status: string;
 }
 
-/** Read a run's per-step timeline, oldest-first (issue #61). NOT owner-scoped here — the caller
- *  (the status route) gates on `ownsRun` first, then reads this; a non-owner never reaches it. The
- *  step_event rows live only while the run is in flight: `persistRun` PRUNES them (with step_result +
- *  run_owner) once the curriculum lands, so this read only ever serves the pre-persist poll window. */
+/** Read a run's per-step timeline, oldest-first (issue #61). NOT owner-scoped here — each caller gates
+ *  FIRST, then reads this. Two callers, two gates: the in-flight status route gates on `ownsRun`; the
+ *  persisted lesson page reaches it through its existing owner-scoped `getLesson(id, sub)` render (issue
+ *  #175). A non-owner never reaches either. The step_event rows are KEPT past persist (issue #175 removed
+ *  their `persistRun` prune — step_result + run_owner + research_event are still pruned), so this serves
+ *  BOTH the pre-persist poll window AND the owner-only "How this was built" disclosure on the finished page. */
 export async function getStepEvents(
   runId: string,
   deps: StoreDeps = { pool: getPool() },

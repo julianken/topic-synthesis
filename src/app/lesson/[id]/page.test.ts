@@ -3,6 +3,38 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MORPH_RECEIVER_SCRIPT } from './reader-morph-guard';
 
+// ── issue #175: the owner-only "How this was built" disclosure is owner-gated BY CO-LOCATION ──────────
+// The disclosure has NO gate of its own — it inherits the page's existing owner-scoped `getLesson(id,
+// identity.sub)` filter (which 404s a foreign id BEFORE rendering). This byte-pins that the BuildSummary
+// render sites live ONLY inside that gated render (after the `if (!view)` guard), and that NO new
+// route / owner gate / `ownsRun`-for-the-disclosure was added (run_owner is pruned at persist, so an
+// `ownsRun` gate would 404 every completed run — the issue's load-bearing reasoning). The disclosure's
+// CONTENT + copy-gate are verified by `build-summary.test.ts`; the live owner→404 behavior by the e2e.
+describe('issue #175 — the build-summary disclosure is co-located under the owner-scoped getLesson gate', () => {
+  const PAGE = readFileSync(fileURLToPath(new URL('./page.tsx', import.meta.url)), 'utf8');
+
+  it('renders BuildSummary ONLY after the getLesson(id, identity.sub) owner gate (never before)', () => {
+    expect(PAGE).toContain("from './build-summary-view'");
+    // The owner gate is `const view = await getLesson(id, identity.sub)` followed by the `if (!view)`
+    // 404/generating branch. Every BuildSummary render site must come AFTER that guard returns/branches.
+    const gateIdx = PAGE.indexOf('getLesson(id, identity.sub)');
+    expect(gateIdx).toBeGreaterThan(-1);
+    const firstUse = PAGE.indexOf('<BuildSummary');
+    expect(firstUse).toBeGreaterThan(gateIdx);
+    // There are exactly the two intended render sites (the built branch's prop + the degraded branch).
+    expect(PAGE.match(/<BuildSummary\b/g)?.length).toBe(2);
+  });
+
+  it('adds NO new owner gate for the disclosure — it reuses the page owner-scoping (no per-disclosure ownsRun)', () => {
+    // `ownsRun` is CALLED once, for the pre-persist generating branch (the existing use) — NOT a second
+    // time to gate the disclosure (run_owner is pruned at persist, so that would 404 every completed run).
+    expect(PAGE.match(/ownsRun\(/g)?.length).toBe(1);
+    // The disclosure is server-rendered inline (no new route file, no client poll for it).
+    expect(PAGE).not.toContain('useEffect');
+    expect(PAGE).not.toContain('fetch(');
+  });
+});
+
 // ── TS-13 AC8 / TS-20 AC2 trust-boundary regression pin: the iframe sandbox is unchanged ────────────
 // The sandbox attribute is the PRIMARY trust boundary for the generated lesson (more load-bearing than
 // the strict CSP `serve.test.ts` already byte-pins): `allow-scripts` WITHOUT `allow-same-origin` gives

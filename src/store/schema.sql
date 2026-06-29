@@ -112,14 +112,17 @@ CREATE TABLE IF NOT EXISTS step_result (
   PRIMARY KEY (run_id, name, step_key)
 );
 
--- Per-step TIMING for the live generating timeline (issue #61). The GcpEngine emits step lifecycle
--- to an EventSink (issue #166); the default PgStepEventSink (src/store/pg-step-event-sink.ts) stamps started_at
--- when a step REALLY runs (cache miss) and finished_at on completion — a cache HIT (a crash-resume of
--- an already-done step) writes nothing, so the original row stands and the timeline stays complete +
--- non-duplicated across a resume. Same (run, name, key) shape as step_result. Read ONLY by the live
--- generating UI while the run is in flight; the finished lesson page shows the artifact, not the
--- timeline. Like step_result + run_owner, `persistRun` PRUNES this run's rows in its transaction once
--- the curriculum lands — step_event is intentionally NOT kept for cross-run analysis (no such view).
+-- Per-step TIMING for the live generating timeline (issue #61) AND the owner-only "How this was built"
+-- disclosure on the finished lesson page (issue #175). The GcpEngine emits step lifecycle to an EventSink
+-- (issue #166); the default PgStepEventSink (src/store/pg-step-event-sink.ts) stamps started_at when a step
+-- REALLY runs (cache miss) and finished_at on completion — a cache HIT (a crash-resume of an already-done
+-- step) writes nothing, so the original row stands and the timeline stays complete + non-duplicated across
+-- a resume. Same (run, name, key) shape as step_result. UNLIKE step_result + run_owner + research_event,
+-- `persistRun` does NOT prune step_event (issue #175 removed that DELETE): the persisted lesson page replays
+-- this run's per-step timeline (learner-safe labels + frozen durations + status) in the owner-only build
+-- disclosure, owner-gated for free by the page's `getLesson(id, sub)` filter. It is structurally leak-proof
+-- (no token/cost/model/error-text column — just name/key/timestamps/status), so it is safe to keep durable;
+-- it is still NOT used for cross-run analysis (no such view) — only the lesson's own owner reads it back.
 CREATE TABLE IF NOT EXISTS step_event (
   run_id      TEXT NOT NULL,
   name        TEXT NOT NULL,

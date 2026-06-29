@@ -1258,6 +1258,161 @@ body.has-ws-topbar > .appbar {
   gap: var(--sp-3);
 }
 
+/* ── Owner-only "How this was built" disclosure (issue #175) — a native <details> replaying the FROZEN
+   six-stage rail (learner-safe per-step timing + status). TIMELINE-ONLY (no token/cost/model/ms) and
+   status by LABEL + ICON, never colour alone (§Accessibility). The ONLY interactive target is the
+   <summary> (rows are inert). Aligned to the reading spine via --measure (the built branch is already
+   spine-capped by .reader-head; the degraded branch caps here). Component-local — NO §0 retoken: it
+   consumes §0 tokens + the catalog --tr-state primitive; the chevron rotate is zeroed under the global
+   reduced-motion reset. ──────────────────────────────────────────────────────────────────────────── */
+.build-summary {
+  margin-top: var(--sp-4);
+  max-inline-size: var(--measure);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+}
+/* The DEGRADED entry is higher-intent ("See what happened") — a warning-toned outline to draw the owner. */
+.build-summary[data-degraded] {
+  border-color: var(--status-soon);
+}
+
+.build-summary__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  list-style: none; /* hide the native disclosure marker; the chevron below is the affordance */
+  color: var(--text);
+  /* the open/close state change rides the catalog --tr-state primitive (no new token); reduced motion
+     zeroes it via the global reset. */
+  transition: var(--tr-state);
+}
+.build-summary__summary::-webkit-details-marker {
+  display: none;
+}
+.build-summary__summary:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+.build-summary__chevron {
+  flex: none;
+  align-self: center;
+  width: 0;
+  height: 0;
+  border-inline: 0.3em solid transparent;
+  border-top: 0.36em solid currentColor;
+  transform: rotate(-90deg);
+  transition: transform var(--dur-base) var(--ease);
+}
+.build-summary[open] .build-summary__chevron {
+  transform: rotate(0);
+}
+.build-summary__head {
+  font-weight: 700;
+  letter-spacing: var(--ls-meta);
+}
+.build-summary__meta,
+.build-summary__verdict {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.build-summary__dot {
+  color: var(--faint);
+}
+.build-summary__verdict-glyph {
+  font-weight: 700;
+  color: var(--pipeline);
+}
+.build-summary[data-degraded] .build-summary__verdict-glyph {
+  color: var(--status-error);
+}
+
+.build-summary__body {
+  padding: 0 var(--sp-4) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.build-summary__rail {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-3) 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.build-summary__row {
+  display: grid;
+  grid-template-columns: 1.4em 1fr auto;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.build-summary__glyph {
+  font-weight: 700;
+  text-align: center;
+  color: var(--pipeline); /* done (default) — green ✓ */
+}
+.build-summary__row[data-state='error'] .build-summary__glyph {
+  color: var(--status-error); /* a stage that actually threw — red ✗ (+ the sr "didn't finish" word) */
+}
+.build-summary__row[data-state='pending'] .build-summary__glyph {
+  color: var(--text-faint); /* a stage that didn't run — faint — */
+}
+.build-summary__label {
+  color: var(--text);
+}
+.build-summary__time {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* Visually-hidden state word — state read by TEXT to assistive tech, not glyph/colour alone (§Accessibility). */
+.build-summary__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.build-summary__legend {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+.build-summary__legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.build-summary__legend-glyph {
+  font-weight: 700;
+}
+.build-summary__legend-row[data-state='done'] .build-summary__legend-glyph {
+  color: var(--pipeline);
+}
+.build-summary__legend-row[data-state='error'] .build-summary__legend-glyph {
+  color: var(--status-error);
+}
+.build-summary__legend-term {
+  margin: 0;
+}
+
 /* ── Library home (Figma frame 6:2 / TS-17): the section title row + the card grid of lesson posters +
    the folded-in intake. SCOPED under `.library*` so it neither leaks to other routes nor collides with
    the `.signin*` scope. Colors resolve to §0 tokens 1:1 (OKLCH-verified equal to the Figma hexes):

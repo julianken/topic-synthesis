@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { displayName } from '../../auth/session-nav';
 import { getLesson, ownsRun } from '../../../store/repo';
+import { BuildSummary } from './build-summary-view';
 import { GeneratingPoller } from './generating';
 import { ReaderShell } from './reader-shell';
 
@@ -80,6 +81,10 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
           title={page.title}
           userName={displayName(identity.email)}
           head={head}
+          // Owner-only "How this was built" disclosure (issue #175) — server-rendered HERE (under the
+          // owner-scoped getLesson gate above, so it inherits the owner gate for free) and slotted quietly
+          // near the reader head. Returns null for a legacy lesson with no recorded timeline.
+          buildSummary={<BuildSummary id={id} degraded={false} />}
         />
       </main>
     );
@@ -110,6 +115,10 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
           This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
         </p>
       </div>
+      {/* Owner-only "How this was built" disclosure (issue #175) — on the DEGRADED branch it is the
+          higher-intent "See what happened" entry (the owner most wants to know what went wrong). Same
+          owner gate as the built branch: rendered only after the getLesson owner-scoping above. */}
+      <BuildSummary id={id} degraded />
     </main>
   );
 }
