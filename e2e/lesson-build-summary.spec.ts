@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
-import { SEED_DEGRADED_RUN_ID, SEED_RUN_ID } from './seed';
+import { SEED_DEGRADED_RUN_ID, SEED_RUN_ID, clearDegradedLesson, seedDegradedLesson } from './seed';
 
 // lesson-build-summary.spec — the owner-only "How this was built" disclosure (issue #175, epic PR-5).
 // RIGOROUS + DETERMINISTIC behavioural assertions (DOM + text, not pixels) at BOTH DESIGN.md viewports
@@ -98,6 +98,11 @@ test.describe('build-summary — BUILT lesson (the "How this was built" disclosu
 });
 
 test.describe('build-summary — DEGRADED lesson (the "See what happened" entry)', () => {
+  // Seed the `soon` degraded lesson ONLY for this describe (it is a 2nd owner library card, so it is kept
+  // out of the global seed) and clear it after, leaving the library-snapshot tests at one dense card.
+  test.beforeAll(seedDegradedLesson);
+  test.afterAll(clearDegradedLesson);
+
   test('the degraded branch surfaces a higher-intent disclosure with a per-stage ✗ on the thrown step', async ({
     page,
     context,

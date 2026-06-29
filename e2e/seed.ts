@@ -210,12 +210,29 @@ async function seedStepEvents(pool: Pool, runId: string, steps: SeedStep[]): Pro
   }
 }
 
-/** Seed (idempotently) the deterministic dense library card for the e2e owner. Clears the owner's prior
- *  curricula first so the grid is exactly this one card. Reads DATABASE_URL (same as the app/webServer). */
-export async function seedDenseLibraryCard(): Promise<void> {
+/** A Pool on the same Postgres the app/webServer use (DATABASE_URL, the compose default otherwise). */
+function makePool(): Pool {
   const connectionString =
     process.env.DATABASE_URL ?? 'postgresql://topic:topic_dev@localhost:5433/topic_synthesis';
-  const pool = new Pool({ connectionString });
+  return new Pool({ connectionString });
+}
+
+/** Delete the DEGRADED lesson's curriculum + its cascade pages + its step_event timeline — the
+ *  counterpart to seeding it (see seedDegradedLesson). Idempotent. */
+async function clearDegraded(pool: Pool): Promise<void> {
+  await pool.query(`DELETE FROM step_event WHERE run_id = $1`, [SEED_DEGRADED_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum_page WHERE curriculum_id = $1`, [SEED_DEGRADED_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum WHERE id = $1`, [SEED_DEGRADED_RUN_ID]);
+}
+
+/** Seed (idempotently) the deterministic dense library card for the e2e owner. Clears the owner's prior
+ *  curricula first so the grid is exactly this one card. Reads DATABASE_URL (same as the app/webServer).
+ *  NOTE: the DEGRADED lesson is deliberately NOT seeded here — it is a `soon` curriculum and therefore a
+ *  SECOND owner library card (listLessons is status-agnostic: `WHERE owner_sub`), so seeding it globally
+ *  would regress the one-card library-snapshot baseline. The build-summary DEGRADED specs seed it in
+ *  their own describe-scoped setup via seedDegradedLesson() and clear it in afterAll. */
+export async function seedDenseLibraryCard(): Promise<void> {
+  const pool = makePool();
   try {
     // Clear the owner's prior curricula (and the cascading curriculum_page rows) so the visual grid is
     // exactly the one seeded card every run. concept_page rows are content-identity-shared, left as-is.
@@ -240,17 +257,44 @@ export async function seedDenseLibraryCard(): Promise<void> {
       { pool },
     );
 
+    // FREEZE the dense card's created_at to a stable point in the past so the footer meta renders a
+    // DETERMINISTIC relative-time. With the default `now()` the meta drifts "just now" → "1m ago" → "2m
+    // ago" as the suite runs, which flaked the library-dense-card visual baseline (it PASSED in one CI run
+    // and FAILED the next on the SAME commit — "1m ago" vs "just now"). Pin it to exactly 3 DAYS ago:
+    // relativeTime rounds at each level, and the day bucket is ~24h wide, so created_at = now()-3d renders
+    // "3 days ago" for ANY plausible seed→snapshot gap (δ up to ~12h — far more than the few-minute serial
+    // CI suite needs, and visual.spec runs LAST). An hour-bucket value would sit too close to a round() .5
+    // boundary. The card's other fields are already fixed, so this makes the whole card byte-stable.
+    await pool.query(`UPDATE curriculum SET created_at = now() - interval '3 days' WHERE id = $1`, [
+      SEED_RUN_ID,
+    ]);
+
     // issue #175 — the BUILT lesson's durable step_event timeline (kept past persist) so the owner-only
     // "How this was built" disclosure renders deterministically on the persisted page. Written AFTER
     // persistRun to underscore that persistRun no longer prunes step_event (the deletes that DO run never
-    // touch it). The DEGRADED lesson + its thrown-`code` timeline drive the "See what happened" entry.
+    // touch it). The DEGRADED lesson's timeline is seeded separately (seedDegradedLesson), not here.
     await seedStepEvents(pool, SEED_RUN_ID, SEED_BUILT_STEPS);
 
-    await pool.query(
-      `DELETE FROM curriculum_page WHERE curriculum_id = $1`,
-      [SEED_DEGRADED_RUN_ID],
-    );
-    await pool.query(`DELETE FROM curriculum WHERE id = $1`, [SEED_DEGRADED_RUN_ID]);
+    // Stamp the IN-FLIGHT run owner (NO curriculum persisted for this id) so the reader route's
+    // generating branch renders for the visual spec. getLesson(this id) stays null → page.tsx shows
+    // the live-research generating view; ownsRun(this id) is true → it's the generating branch, not a 404.
+    // The mid-run research/steps data comes from the spec's status-poll interception (deterministic),
+    // not the DB, so no research_event/step_event rows are seeded here.
+    await recordRunOwner(SEED_GENERATING_RUN_ID, E2E_OWNER_SUB, { pool });
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Seed (idempotently) ONLY the DEGRADED lesson (issue #175): a `soon` curriculum owned by the e2e owner
+ *  plus its thrown-`code` step_event timeline (the "couldn't finish · ✗ not built" build disclosure). Kept
+ *  OUT of the global seed on purpose — a `soon` curriculum is still a library card (listLessons is
+ *  status-agnostic), so the build-summary DEGRADED specs seed it in a describe-scoped beforeAll and clear
+ *  it in afterAll (clearDegradedLesson), leaving the library-snapshot tests at exactly the one dense card. */
+export async function seedDegradedLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearDegraded(pool);
     await persistRun(
       {
         runId: SEED_DEGRADED_RUN_ID,
@@ -263,13 +307,17 @@ export async function seedDenseLibraryCard(): Promise<void> {
       { pool },
     );
     await seedStepEvents(pool, SEED_DEGRADED_RUN_ID, SEED_DEGRADED_STEPS);
+  } finally {
+    await pool.end();
+  }
+}
 
-    // Stamp the IN-FLIGHT run owner (NO curriculum persisted for this id) so the reader route's
-    // generating branch renders for the visual spec. getLesson(this id) stays null → page.tsx shows
-    // the live-research generating view; ownsRun(this id) is true → it's the generating branch, not a 404.
-    // The mid-run research/steps data comes from the spec's status-poll interception (deterministic),
-    // not the DB, so no research_event/step_event rows are seeded here.
-    await recordRunOwner(SEED_GENERATING_RUN_ID, E2E_OWNER_SUB, { pool });
+/** Remove the degraded lesson + its step_event rows (the afterAll counterpart to seedDegradedLesson), so
+ *  the library home returns to exactly the one seeded dense card for any later library-snapshot test. */
+export async function clearDegradedLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearDegraded(pool);
   } finally {
     await pool.end();
   }

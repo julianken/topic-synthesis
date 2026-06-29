@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
-import { SEED_DEGRADED_RUN_ID, SEED_GENERATING_RUN_ID, SEED_RUN_ID } from './seed';
+import {
+  SEED_DEGRADED_RUN_ID,
+  SEED_GENERATING_RUN_ID,
+  SEED_RUN_ID,
+  clearDegradedLesson,
+  seedDegradedLesson,
+} from './seed';
 import { GENERATING_STATUS_PAYLOAD } from './generating-fixture';
 
 // visual.spec — per-screen full-page VISUAL snapshots at the two DESIGN.md viewports (390×844 mobile +
@@ -237,6 +243,11 @@ test.describe('visual — build-summary disclosure (issue #175, owner-only)', ()
   // (the disclosure box, not the whole page) so the captures are deterministic regardless of the iframe
   // artifact / library grid. The seeded timelines (e2e/seed.ts) are FIXED, so the frozen per-step
   // durations + wall-clock span are byte-stable — no masking needed (the LiveTimer is dropped at rest).
+
+  // The DEGRADED `soon` lesson is a 2nd owner library card, so it is seeded ONLY for this describe (not
+  // globally) and cleared after — keeping the earlier library-dense-card snapshot at exactly one card.
+  test.beforeAll(seedDegradedLesson);
+  test.afterAll(clearDegradedLesson);
 
   test('BUILT — collapsed then expanded matches the committed baseline', async ({ page, context, baseURL }) => {
     await signInAsTestOwner(context, baseURL ?? '');
