@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PageSpec } from '../domain/stages';
-import { code, stripCodeFence } from './code';
+import { code, CODE_SYSTEM, stripCodeFence } from './code';
 import type { StageDeps } from './deps';
 
 const rec = {
@@ -43,6 +43,43 @@ describe('code', () => {
     const complete = vi.fn().mockResolvedValue({ text: fenced, record: rec });
     const out = await code(pageSpec, LEARNING_GOAL, { complete } as unknown as StageDeps);
     expect(out.artifact.html).toBe('<!doctype html><html></html>'); // fence removed
+  });
+});
+
+describe('CODE_SYSTEM — the coordinate-only progress + apparatus sender contract (PR-F)', () => {
+  // The prompt is the SENDER half of the decision-12 channel; the receiver
+  // (src/app/curriculum/[id]/lesson-message.ts) is the parse half. This pins that the prompt instructs
+  // the EXACT message shape the receiver validates, so the two halves can't silently drift.
+
+  it('instructs the EXACT lesson:progress message with sections + scrollProgress + apparatus', () => {
+    expect(CODE_SYSTEM).toContain('lesson:progress'); // the discriminant LESSON_MESSAGE_TYPE
+    expect(CODE_SYSTEM).toContain('sections');
+    expect(CODE_SYSTEM).toContain('scrollProgress');
+    expect(CODE_SYSTEM).toContain('apparatus');
+    expect(CODE_SYSTEM).toContain('window.parent'); // posts OUTWARD to the parent, the receive side
+  });
+
+  it('instructs every apparatus field as SERIALIZED data (glosses/figures/sources/checks/takeaways)', () => {
+    for (const field of ['glosses', 'figures', 'sources', 'checks', 'takeaways']) {
+      expect(CODE_SYSTEM).toContain(field);
+    }
+    // …and the per-entry shapes the receiver's sanitizer admits.
+    for (const key of ['term', 'definition', 'caption', 'title', 'url', 'prompt', 'answer']) {
+      expect(CODE_SYSTEM).toContain(key);
+    }
+  });
+
+  it('keeps the sender coordinate-only + known-origin: never "*", values not HTML/DOM refs', () => {
+    expect(CODE_SYSTEM).toContain('document.referrer'); // derive a KNOWN target origin
+    expect(CODE_SYSTEM).toMatch(/never\s+"\*"/i); // forbids the '*' wildcard target
+    expect(CODE_SYSTEM).toMatch(/never\s+(HTML|DOM)/i); // serialized data, not HTML/DOM nodes
+    expect(CODE_SYSTEM).toMatch(/try\s*\/\s*catch|try\/catch/i); // harmless frame-less open
+  });
+
+  it('keeps the existing standalone-doc + a11y generation requirements intact', () => {
+    expect(CODE_SYSTEM).toContain('standalone');
+    expect(CODE_SYSTEM).toContain('accessibility contract');
+    expect(CODE_SYSTEM).toMatch(/keyboard/i);
   });
 });
 
