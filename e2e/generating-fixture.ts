@@ -117,3 +117,38 @@ export const GENERATING_STATUS_PAYLOAD_STRESS = {
     };
   }),
 } as const;
+
+// ── A MIXED-LENGTH payload for the title-clamp integrity spec (generating-geometry.spec.ts) ──────────────
+// Three research questions whose titles span the wrap regimes a real fan-out produces: SHORT (1 line),
+// MEDIUM (2 lines), and LONG (wraps to 3+ lines → clamped to the 2-line ellipsis). The long one is the
+// regression case: before the fix, the grid's `1fr` track stretched the `-webkit-line-clamp:2` box past an
+// integer line count, so `overflow:hidden` clipped MID-line-3 — a sliced partial line bleeding above the
+// meta. The spec asserts EVERY node title (these + the spine descriptors) renders an integer number of
+// lines (clientHeight ∈ {1,2}×line-height, never fractional). Real-shaped: the two short rows are `done`
+// with one grounded finding each; the long row is `pending` (no findings, like the live feed) so the band
+// stays honest while the long QUESTION still renders as a research node to exercise the clamp.
+const TITLE_QUESTIONS: ReadonlyArray<{ q: string; done: boolean; claim: string; host: string; title: string }> = [
+  { q: 'Why are leaves green?', done: true, claim: 'Chlorophyll reflects green light.', host: 'https://www.britannica.com/science/chlorophyll', title: 'Britannica' },
+  { q: 'How do the light reactions differ from the Calvin cycle?', done: true, claim: 'The light reactions make ATP; the Calvin cycle fixes carbon.', host: 'https://www.nature.com/articles/photosynthesis', title: 'Nature' },
+  { q: 'How does commercial bottom trawling differ from the other deep-water fishing methods used across the world’s oceans today?', done: false, claim: '', host: '', title: '' },
+];
+
+export const GENERATING_STATUS_PAYLOAD_TITLES = {
+  ready: false,
+  steps: [
+    { name: 'plan', stepKey: 'plan:k', startedAt: T(0), finishedAt: T(2100), status: 'done' },
+    { name: 'research', stepKey: 'research:a', startedAt: T(2100), finishedAt: T(7400), status: 'done' },
+    { name: 'research', stepKey: 'research:b', startedAt: T(2100), finishedAt: T(9200), status: 'done' },
+    { name: 'research', stepKey: 'research:c', startedAt: T(2100), finishedAt: null, status: 'running' },
+  ],
+  research: TITLE_QUESTIONS.map((r, i) => ({
+    question: r.q,
+    subtopic: null,
+    status: r.done ? 'done' : 'pending',
+    findings: r.done ? [{ claim: r.claim, url: r.host, title: r.title }] : [],
+    sources: r.done ? [{ url: r.host, title: r.title }] : [],
+    findingCount: r.done ? 1 : null,
+    startedAt: T(2100),
+    finishedAt: r.done ? T(7400 + i * 700) : null,
+  })),
+} as const;
