@@ -8,6 +8,7 @@ import {
 import { STAGE_MODELS } from '../llm/models';
 import type { Research } from '../domain/stages';
 import {
+  DISPATCH_STEP_NAME,
   getCurriculum,
   getOwnedPage,
   getResearchEvents,
@@ -17,6 +18,7 @@ import {
   persistRun,
   PgResearchSink,
   rebuildHub,
+  recordDispatch,
   recordRunOwner,
   type StoreDeps,
 } from './repo';
@@ -167,6 +169,9 @@ describe('persistRun (transaction shape, fake pool)', () => {
     // …and all BEFORE the COMMIT, so they share the run's atomic transaction.
     const commit = sqls.indexOf('COMMIT');
     expect(Math.max(...delIdxs)).toBeLessThan(commit);
+    // A5 (issue #162): the dispatch marker is a `step_event` row, so it is covered by this same
+    // `DELETE FROM step_event` — no marker rows survive persist (no separate prune needed).
+    expect(sqls.some((s) => s.includes('DELETE FROM step_event'))).toBe(true);
   });
 
   it('keeps the deletes INSIDE the tx — a persist failure ROLLBACKs them too (run stays resumable)', async () => {
@@ -399,6 +404,25 @@ describe('getStepEvents (issue #61 — the live timeline read)', () => {
 
   it('returns [] for a run with no recorded steps', async () => {
     expect(await getStepEvents('absent', fakePool().deps)).toEqual([]);
+  });
+});
+
+// ── recordDispatch — the "Starting…" dispatch marker (issue #162) ─────────────────────────────────
+describe('recordDispatch (the dispatch marker)', () => {
+  it('INSERTs a step_event named "dispatch" with a NON-running status (never a live timer)', async () => {
+    const { deps, client } = fakePool();
+    await recordDispatch('run-d', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('INSERT INTO step_event'));
+    expect(sql, 'writes a step_event row').toBeDefined();
+    // Idempotent (a re-dispatch is a no-op), so a retry can't duplicate-key the marker.
+    expect(sql).toContain('ON CONFLICT (run_id, name, step_key) DO NOTHING');
+    // NON-running status + a finished_at → the view's LiveTimer (finishedAt===null && status==='running')
+    // can NEVER fire for the marker (A4: never a perpetual "dispatch" timer).
+    expect(sql).toContain("'dispatched'");
+    expect(sql).not.toContain("'running'");
+    expect(sql).toContain('finished_at');
+    // The marker's name is the shared DISPATCH_STEP_NAME constant the client maps to "Starting…".
+    expect(paramsOf(client.query, 'INSERT INTO step_event')).toEqual(['run-d', DISPATCH_STEP_NAME]);
   });
 });
 

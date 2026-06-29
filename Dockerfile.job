@@ -1,12 +1,33 @@
 # syntax=docker/dockerfile:1
-# Cloud Run JOB image — runs the pipeline entrypoint via tsx. No compile step: tsx IS the runtime,
-# so the FULL install (not --omit=dev) is intentional. The import fence keeps the core Next-free;
-# the Next-free-core workspace split (a smaller image, dropping tsx + next from the runtime) is the
-# deferred follow-up (GAPS.md) — for a scale-to-zero Job idling at $0, image size is rounding error.
+# Cloud Run JOB image. The per-generation `run-job` ENTRYPOINT boots from COMPILED JS (node
+# dist/job/run-job.js), cutting the per-cold-start `tsx` TS-transpilation off the Job boot (issue #162 —
+# the cold start can't be kept warm for a Cloud Run Job, so we shrink the boot instead).
+#
+# tsx is DELIBERATELY KEPT installed (the FULL `npm ci`, NOT `--omit=dev`): the migrate Job
+# command-overrides this SAME image to run `tsx src/store/migrate.ts` (infra/cloud-run.tf), so
+# node_modules/.bin/tsx must stay present — and the TS source stays in the image for it. The migrate
+# path keeps transpiling on demand by design: it runs only at deploy/apply time, never per user
+# generation, so its boot latency is irrelevant. Pruning tsx or switching to --omit=dev would break the
+# next `topic-synthesis-migrate` execution.
+#
+# The Next-free-core workspace split (a smaller image dropping next/tsx) stays the deferred follow-up
+# (GAPS.md) — this change is purely the run-job boot, not that packaging split.
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
+
+# Compile the run-job entry + its LOCAL imports into a single ESM bundle. npm deps stay EXTERNAL
+# (--packages=external → resolved from the copied node_modules at runtime), so the bundle is tiny and
+# pulls in NOTHING the entry doesn't statically import: run-job's graph touches neither firebase-admin
+# (auth-only, src/app) nor @eleatic/eval (trace-only — persistInput lives in its own trace-free module),
+# so neither enters the job bundle and the import fence holds.
+FROM node:22-bookworm-slim AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json tsconfig.json ./
+COPY src ./src
+RUN npm run build:job
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
@@ -14,6 +35,10 @@ ENV NODE_ENV=production
 RUN useradd --uid 1001 --create-home job
 USER job
 COPY --from=deps --chown=job:job /app/node_modules ./node_modules
+# package.json ("type": "module" → dist/*.js is ESM) + tsconfig.json + src stay in the image: the
+# migrate Job command-override runs `tsx src/store/migrate.ts`, which needs the TS source + tsx.
 COPY --chown=job:job package.json tsconfig.json ./
 COPY --chown=job:job src ./src
-ENTRYPOINT ["node_modules/.bin/tsx", "src/eval/run-job.ts"]
+COPY --from=build --chown=job:job /app/dist ./dist
+# run-job boots from the compiled bundle; the migrate Job command-overrides this to `tsx src/store/migrate.ts`.
+ENTRYPOINT ["node", "dist/job/run-job.js"]

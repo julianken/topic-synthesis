@@ -137,3 +137,34 @@ export function formatDuration(ms: number): string {
   if (ms < 0) return '0.0s';
   return `${(ms / 1000).toFixed(1)}s`;
 }
+
+// ── The dispatch marker (the leading "Starting…" indicator — issue #162) ────────────────────────────────
+
+/** The synthetic dispatch marker's engine `name` (mirrors `repo.ts` DISPATCH_STEP_NAME) — written at
+ *  dispatch, before the cold-starting Job emits its first real `step_event`. It is NOT a STAGE_RAIL
+ *  position, so `deriveRail` ignores it (it never becomes a rail node or a LiveTimer); it surfaces only
+ *  as the single leading indicator below. */
+export const DISPATCH_STEP_NAME = 'dispatch';
+
+/** The user-facing label for the dispatch marker. The raw `dispatch` identifier is NEVER rendered (the
+ *  no-project-internals rule); this label is. */
+export const DISPATCH_LABEL = 'Starting…';
+
+/**
+ * Is the run in the pre-`plan` DISPATCH WINDOW — the marker has been written but no REAL pipeline step
+ * has emitted a `step_event` yet? Drives the single leading "Starting…" indicator. PURE.
+ *
+ * Returns false the instant ANY non-dispatch step appears, so the indicator YIELDS to the live rail
+ * (whose running stage carries the one LiveTimer) — there are never two concurrent live timers. The
+ * marker itself is never a LiveTimer regardless (it isn't a rail stage, and it's written non-`running`
+ * with a `finished_at`); this guard is what removes the "Starting…" copy once `plan` lands.
+ */
+export function isStarting(steps: ReadonlyArray<StepEvent>): boolean {
+  let hasDispatch = false;
+  let hasRealStep = false;
+  for (const s of steps) {
+    if (s.name === DISPATCH_STEP_NAME) hasDispatch = true;
+    else hasRealStep = true;
+  }
+  return hasDispatch && !hasRealStep;
+}

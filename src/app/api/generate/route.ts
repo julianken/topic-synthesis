@@ -6,7 +6,7 @@ import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../../..
 import { defaultDeps, type StageDeps } from '../../../pipeline/deps';
 import { e2eStubDeps } from '../../../pipeline/e2e-stub-deps';
 import { runLesson } from '../../../pipeline/run-pipeline';
-import { persistRun, recordRunOwner } from '../../../store/repo';
+import { persistRun, recordDispatch, recordRunOwner } from '../../../store/repo';
 import { getSessionIdentity } from '../../auth/require-session';
 import { isSameOrigin } from '../../auth/session';
 import { dispatchJob, isJobDispatchEnabled } from './dispatch';
@@ -118,6 +118,14 @@ export async function POST(req: Request): Promise<Response> {
   // Stamp ownership at dispatch (before the curriculum persists) so the hub can owner-scope the
   // pre-persist poll window with no existence oracle; the Job writes owner_sub onto the curriculum.
   await recordRunOwner(runId, identity.sub);
+  // BEST-EFFORT (issue #162): write a "Starting…" dispatch marker so the generating view shows
+  // immediate progress during the Job's cold-start window — before the first real step_event lands. A
+  // failed marker write must NEVER fail the dispatch: the run still proceeds; the UI just lacks the
+  // early indicator. `.catch` keeps a rejection off the spend path (it is awaited so the marker is in
+  // place before the client's first poll — change B's immediate poll — picks it up).
+  await recordDispatch(runId).catch((err: unknown) => {
+    console.warn('[generate] dispatch marker write failed (ignored)', runId, err);
+  });
   if (isJobDispatchEnabled()) {
     // Deployed: dispatch the durable Cloud Run Job — the Service stays scale-to-zero (it never holds
     // the run in-process). A failed dispatch is honest (502), not a phantom 202 the poller waits on.

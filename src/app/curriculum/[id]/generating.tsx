@@ -30,14 +30,22 @@ export function GeneratingPoller({ id }: { id: string }) {
 
   useEffect(() => {
     let active = true;
-    const timer = setInterval(async () => {
-      attempts.current += 1;
-      if (attempts.current > MAX_ATTEMPTS) {
-        clearInterval(timer);
-        if (active) setStalled(true);
-        return;
-      }
+    // Guards (issue #162 B2): `inFlight` serializes requests — if a response is slower than POLL_MS, the
+    // next interval tick is SKIPPED rather than firing a second overlapping request, and a skipped tick
+    // never increments `attempts` (no double-count). `active` ignores any in-flight response after unmount.
+    let inFlight = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const poll = async (): Promise<void> => {
+      if (!active || inFlight) return;
+      inFlight = true;
       try {
+        attempts.current += 1;
+        if (attempts.current > MAX_ATTEMPTS) {
+          if (timer) clearInterval(timer);
+          if (active) setStalled(true);
+          return;
+        }
         const res = await fetch(`/api/curriculum/${encodeURIComponent(id)}/status`, { // concept-drift-ok: route identifier, deferred rename (ADR-0003)
           cache: 'no-store',
         });
@@ -51,16 +59,24 @@ export function GeneratingPoller({ id }: { id: string }) {
         if (body.steps) setSteps(body.steps);
         if (body.research) setResearch(body.research);
         if (body.ready) {
-          clearInterval(timer);
+          if (timer) clearInterval(timer);
           router.refresh();
         }
       } catch {
         // transient network error — keep polling
+      } finally {
+        inFlight = false;
       }
-    }, POLL_MS);
+    };
+
+    // B1 (issue #162): fire the FIRST poll IMMEDIATELY on mount — so the dispatch marker / first steps
+    // surface within ~100ms instead of after a full POLL_MS of blank "Generating…". Then poll on the
+    // interval as before; the `inFlight` guard keeps the immediate poll and the first tick from overlapping.
+    void poll();
+    timer = setInterval(() => void poll(), POLL_MS);
     return () => {
       active = false;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
   }, [id, router]);
 

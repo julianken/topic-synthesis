@@ -296,6 +296,34 @@ export async function recordRunOwner(
   );
 }
 
+/** The synthetic step name (and step_key) of the dispatch marker. NOT a pipeline stage — it's the
+ *  leading "Starting…" indicator the generating view shows during the Job's cold-start window, before
+ *  the first REAL step_event lands. The generating client maps this name to a user-facing label
+ *  (`stage-rail.ts` DISPATCH_LABEL); the raw identifier is never rendered. (issue #162) */
+export const DISPATCH_STEP_NAME = 'dispatch';
+
+/** Write a dispatch marker into `step_event` so the generating view can show "Starting…" the instant a
+ *  run is dispatched — closing the ~12–16s gap before the cold-starting Job writes its first real
+ *  step_event. The marker is written with `finished_at = now()` and a NON-`running` status, so it is
+ *  NEVER a live ticking timer (the view's LiveTimer fires only on `finishedAt === null && status ===
+ *  'running'`) and it resolves the moment a real pipeline step appears. `getStepEvents` returns it first
+ *  (ORDER BY started_at), so the status route needs no change. It is pruned at persist with the other
+ *  transient `step_event` rows (the existing `DELETE FROM step_event` in `persistRun`).
+ *
+ *  BEST-EFFORT by contract: the SINGLE caller (`api/generate`) must treat any failure as non-fatal — a
+ *  missing marker only costs the early indicator; the run still proceeds. Idempotent (ON CONFLICT). */
+export async function recordDispatch(
+  runId: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<void> {
+  await deps.pool.query(
+    `INSERT INTO step_event (run_id, name, step_key, started_at, finished_at, status)
+     VALUES ($1, $2, $2, now(), now(), 'dispatched')
+     ON CONFLICT (run_id, name, step_key) DO NOTHING`,
+    [runId, DISPATCH_STEP_NAME],
+  );
+}
+
 /** Does this caller own this runId? Lets the hub show "generating" for the caller's own not-yet-
  *  persisted run while returning a uniform 404 for a foreign/absent id. */
 export async function ownsRun(

@@ -8,7 +8,10 @@ import { defaultStages, noopSink } from '../pipeline/ports';
 import { runLesson, type RunOptions } from '../pipeline/run-pipeline';
 import { closePool, getPool } from '../store/db';
 import { PgResearchSink, persistRun } from '../store/repo';
-import { persistInput } from './run-skeleton';
+// persistInput from its OWN trace-free module (issue #162) — NOT run-skeleton, which top-level-imports
+// the @eleatic/eval trace adapter. This keeps run-job's static graph free of @eleatic/eval (its
+// better-sqlite3/express deps) so the compiled job bundle stays lean + fence-clean.
+import { persistInput } from './persist-input';
 
 /**
  * The durable, headless sibling of `run-skeleton` — the Cloud Run **Job** entrypoint. A Job

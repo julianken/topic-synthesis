@@ -1,7 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { STAGE_RAIL, deriveRail, formatDuration, type StepEvent } from './stage-rail';
+import {
+  DISPATCH_LABEL,
+  DISPATCH_STEP_NAME,
+  STAGE_RAIL,
+  deriveRail,
+  formatDuration,
+  isStarting,
+  type StepEvent,
+} from './stage-rail';
 
 // A minimal step-event builder for the derivation tests.
 function ev(name: string, over: Partial<StepEvent> = {}): StepEvent {
@@ -14,6 +22,33 @@ function ev(name: string, over: Partial<StepEvent> = {}): StepEvent {
     ...over,
   };
 }
+
+// ── isStarting — the dispatch-window "Starting…" indicator (issue #162 A4) ──────────────────────────
+describe('isStarting — the pre-`plan` dispatch window (issue #162)', () => {
+  it('the marker label is user-facing copy, never the raw "dispatch" identifier', () => {
+    expect(DISPATCH_LABEL).toBe('Starting…');
+    expect(DISPATCH_LABEL).not.toContain(DISPATCH_STEP_NAME);
+  });
+
+  it('is true when only the dispatch marker is present (no real step yet)', () => {
+    expect(isStarting([ev(DISPATCH_STEP_NAME, { finishedAt: '2026-06-21T00:00:00.000Z', status: 'dispatched' })])).toBe(true);
+  });
+
+  it('is false once a REAL pipeline step appears — so it yields to the rail (never two live timers)', () => {
+    const steps = [
+      ev(DISPATCH_STEP_NAME, { finishedAt: '2026-06-21T00:00:00.000Z', status: 'dispatched' }),
+      ev('plan'), // plan running → the rail carries the single live timer
+    ];
+    expect(isStarting(steps)).toBe(false);
+    // And the dispatch marker is NOT a rail position — deriveRail ignores it (no "dispatch" node/timer).
+    expect(deriveRail(steps).some((s) => s.name === DISPATCH_STEP_NAME)).toBe(false);
+  });
+
+  it('is false on an empty feed and on a feed with no marker', () => {
+    expect(isStarting([])).toBe(false);
+    expect(isStarting([ev('plan')])).toBe(false);
+  });
+});
 
 // ── AC1/AC2 — the rail is EXACTLY the six live single-lesson stages, in order, with NO graph ─────────
 describe('STAGE_RAIL — the canonical six-stage live single-lesson rail (TS-23 AC1/AC2)', () => {
