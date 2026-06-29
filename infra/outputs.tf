@@ -34,6 +34,11 @@ output "migrate_job_name" {
   value = google_cloud_run_v2_job.migrate.name
 }
 
+output "workflow_dashboard_url" {
+  description = "Cloud Monitoring dashboard for workflow runs (per-phase latency/cost/model, run outcome, critic — issue #167)."
+  value       = "https://console.cloud.google.com/monitoring/dashboards/builder/${reverse(split("/", google_monitoring_dashboard.workflow_runs.id))[0]}?project=${var.project_id}"
+}
+
 output "auth_web_api_key" {
   description = "Identity Platform web API key for the firebase/auth client SDK (public — browser-shipped by design)."
   value       = google_identity_platform_config.default.client[0].api_key
