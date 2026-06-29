@@ -32,16 +32,17 @@ const SEED_REQUEST: TopicRequest = {
 
 /**
  * The seeded built lesson's HTML carries a COORDINATE-ONLY stub sender so the lesson-workspace apparatus
- * panel (PR-B) can be exercised deterministically end to end. It posts the SHIPPED { sections,
- * scrollProgress } contract (lesson-message.ts — UNCHANGED) to `window.parent` on load (scrollProgress
- * 0), and re-posts at a TEST-CHOSEN progress when the e2e driver sends a `lesson:set-progress`
- * parent→child message. This mirrors how a real lesson's in-iframe sender will post on scroll, but is
- * driven deterministically by the spec rather than by real scrolling — so the spec can assert the
- * where-am-i widget + scrubber track a known scrollProgress. NO richer-card payload is posted (that is
- * PR-F): the richer cards stay best-effort placeholders, exactly as PR-B ships them.
+ * panel (PR-B + PR-F) can be exercised deterministically end to end. It posts the { sections,
+ * scrollProgress } contract (lesson-message.ts) to `window.parent` on load (scrollProgress 0), and
+ * re-posts at a TEST-CHOSEN progress when the e2e driver sends a `lesson:set-progress` parent→child
+ * message. PR-F: it ALSO posts the OPTIONAL `apparatus` extension (key terms / figure caption / source /
+ * self-check / takeaways) in the SAME message — the richer cards now light up with REAL data. The driver
+ * can toggle apparatus OFF (`withApparatus:false`) to exercise the BACKWARD-COMPAT old shape (no
+ * apparatus → the cards fall back to placeholders), so one fixture proves both paths. This mirrors how a
+ * real lesson's in-iframe sender posts, driven deterministically by the spec rather than real scrolling.
  *
- * The sender posts ONLY coordinate-only data (a section list of {id, title} + a number) — never HTML,
- * never a URL — honoring the trust boundary the validator enforces on the receive side.
+ * The sender posts ONLY coordinate-only data (sections {id,title}, a number, and serialized text/url
+ * apparatus) — never HTML, never a DOM node ref — honoring the trust boundary the validator enforces.
  */
 const SEED_SECTIONS = [
   { id: 's1', title: 'The tree puzzle' },
@@ -52,22 +53,46 @@ const SEED_SECTIONS = [
   { id: 's6', title: 'What to carry away' },
 ];
 
+/** The PR-F apparatus payload — coordinate-only TEXT (+ an http(s) source URL), what a real lesson's
+ *  serialized glosses/figures/sources/checks/takeaways look like. Deterministic for the panel asserts. */
+const SEED_APPARATUS = {
+  glosses: [
+    { term: 'Chlorophyll', definition: 'The green pigment that captures light energy in a leaf.' },
+    { term: 'Stomata', definition: 'Tiny adjustable pores on a leaf that let CO₂ in and O₂ out.' },
+  ],
+  figures: [{ caption: 'A leaf cross-section: light in, water up, sugar out.' }],
+  sources: [
+    { title: 'Encyclopaedia Britannica — Photosynthesis', url: 'https://www.britannica.com/science/photosynthesis' },
+  ],
+  checks: [
+    { prompt: 'Where does most of a tree’s mass come from?', answer: 'From carbon in the air (CO₂), not from the soil.' },
+  ],
+  takeaways: [
+    'A plant builds its body mostly from air and water, using light.',
+    'Leaves are green because chlorophyll reflects green light.',
+  ],
+};
+
 const SEED_SENDER_SCRIPT = `
 <script>
   (function () {
     var sections = ${JSON.stringify(SEED_SECTIONS)};
-    function post(p) {
-      try { parent.postMessage({ type: 'lesson:progress', sections: sections, scrollProgress: p }, '*'); } catch (e) {}
+    var apparatus = ${JSON.stringify(SEED_APPARATUS)};
+    function post(p, withApparatus) {
+      var msg = { type: 'lesson:progress', sections: sections, scrollProgress: p };
+      // PR-F: include the apparatus extension by DEFAULT; the driver can omit it (withApparatus:false)
+      // to drive the backward-compat old shape (no apparatus → the panel renders placeholders).
+      if (withApparatus !== false) msg.apparatus = apparatus;
+      try { parent.postMessage(msg, '*'); } catch (e) {}
     }
-    // TEST DRIVER: the e2e posts {type:'lesson:set-progress', scrollProgress} INTO this frame to drive
-    // a deterministic reading position; we re-emit the SHIPPED coordinate-only progress message outward.
-    // It ALSO ACKS a PR-C parent->child {type:'lesson:scrollTo', id}: PR-F has not yet taught the real
-    // lesson to SCROLL on this verb, so the seed stub stands in as a minimal receiver that echoes a
-    // coordinate-only {type:'lesson:scrollTo-ack', id} back OUT — proving the jump message actually
-    // crossed the opaque boundary carrying the right id (the e2e listens for the ack on window.parent).
+    // TEST DRIVER: the e2e posts {type:'lesson:set-progress', scrollProgress, withApparatus?} INTO this
+    // frame to drive a deterministic reading position; we re-emit the coordinate-only message outward.
+    // It ALSO ACKS a PR-C parent->child {type:'lesson:scrollTo', id} by echoing a coordinate-only
+    // {type:'lesson:scrollTo-ack', id} back OUT — proving the jump message crossed the opaque boundary
+    // carrying the right id (the e2e listens for the ack on window.parent).
     window.addEventListener('message', function (e) {
       var d = e.data;
-      if (d && d.type === 'lesson:set-progress' && typeof d.scrollProgress === 'number') post(d.scrollProgress);
+      if (d && d.type === 'lesson:set-progress' && typeof d.scrollProgress === 'number') post(d.scrollProgress, d.withApparatus);
       if (d && d.type === 'lesson:scrollTo' && typeof d.id === 'string') {
         try { parent.postMessage({ type: 'lesson:scrollTo-ack', id: d.id }, '*'); } catch (e2) {}
       }

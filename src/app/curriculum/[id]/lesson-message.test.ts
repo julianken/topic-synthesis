@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   LESSON_MESSAGE_TYPE,
   PARENT_TO_CHILD_TARGET_ORIGIN,
+  sanitizeApparatus,
   validateMessage,
   type LessonMessage,
 } from './lesson-message';
@@ -183,6 +184,175 @@ describe('validateMessage — the untrusted coordinate-only data parse (AC5)', (
       g.eval = originalEval;
       g.fetch = originalFetch;
     }
+  });
+});
+
+// ── The OPTIONAL apparatus extension (PR-F) — coordinate-only, fail-safe, bounded ────────────────────
+describe('validateMessage — the OPTIONAL apparatus extension (PR-F)', () => {
+  /** A well-formed apparatus payload covering every field. */
+  function withApparatus(apparatus: unknown) {
+    return { type: LESSON_MESSAGE_TYPE, sections: [], scrollProgress: 0.5, apparatus };
+  }
+  function validate(payload: unknown) {
+    return validateMessage({ source: readerWindow, expectedWindow: readerWindow, payload });
+  }
+
+  it('passes a well-formed apparatus through (all five fields), as bounded TEXT-only data', () => {
+    const result = validate(
+      withApparatus({
+        glosses: [{ term: 'Stomata', definition: 'Leaf pores that exchange gases.' }],
+        figures: [{ caption: 'A cross-section of a leaf.' }],
+        sources: [{ title: 'Britannica — Photosynthesis', url: 'https://www.britannica.com/science/photosynthesis' }],
+        checks: [{ prompt: 'Where does the carbon come from?', answer: 'From CO₂ in the air.' }],
+        takeaways: ['Plants build mass from air, not soil.'],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.apparatus).toEqual({
+        glosses: [{ term: 'Stomata', definition: 'Leaf pores that exchange gases.' }],
+        figures: [{ caption: 'A cross-section of a leaf.' }],
+        sources: [{ title: 'Britannica — Photosynthesis', url: 'https://www.britannica.com/science/photosynthesis' }],
+        checks: [{ prompt: 'Where does the carbon come from?', answer: 'From CO₂ in the air.' }],
+        takeaways: ['Plants build mass from air, not soil.'],
+      });
+    }
+  });
+
+  it('the OLD shape (no apparatus field) stays backward-compatible — data carries no apparatus', () => {
+    const result = validate({ type: LESSON_MESSAGE_TYPE, sections: [], scrollProgress: 0.5 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.apparatus).toBeUndefined();
+  });
+
+  it('accepts a PARTIAL apparatus — only the present fields survive, the rest stay absent (placeholders)', () => {
+    const result = validate(withApparatus({ takeaways: ['One thing to remember.'] }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.apparatus).toEqual({ takeaways: ['One thing to remember.'] });
+      expect(result.data.apparatus?.glosses).toBeUndefined();
+    }
+  });
+
+  it('FAIL-SAFE: a malformed apparatus NEVER rejects the whole message — progress/sections still flow', () => {
+    // apparatus is a string / array / number → dropped entirely; the message stays ok (placeholders).
+    for (const bad of ['<script>', 42, ['x'], null]) {
+      const result = validate({ type: LESSON_MESSAGE_TYPE, sections: [{ id: 's1', title: 'A' }], scrollProgress: 0.3, apparatus: bad });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.apparatus).toBeUndefined(); // sanitized away → placeholders
+        expect(result.data.scrollProgress).toBe(0.3); // the core coordinate data still flows
+        expect(result.data.sections).toEqual([{ id: 's1', title: 'A' }]);
+      }
+    }
+  });
+
+  it('DROPS malformed entries field-by-field — a valid sibling in the same array survives', () => {
+    const result = validate(
+      withApparatus({
+        glosses: [
+          { term: 'Good', definition: 'kept' },
+          { term: 'NoDefinition' }, // dropped — missing definition
+          { definition: 'NoTerm' }, // dropped — missing term
+          { term: 1, definition: 2 }, // dropped — non-string
+        ],
+        checks: [{ prompt: 'Q?' }], // dropped — missing answer → the whole checks field omits
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.apparatus?.glosses).toEqual([{ term: 'Good', definition: 'kept' }]);
+      expect(result.data.apparatus?.checks).toBeUndefined();
+    }
+  });
+
+  it('SECURITY: a source URL must be http(s) — a javascript:/data: URL drops that source (no link reflected)', () => {
+    const result = validate(
+      withApparatus({
+        sources: [
+          { title: 'evil', url: 'javascript:alert(1)' }, // dropped
+          { title: 'evil2', url: 'data:text/html,<script>x</script>' }, // dropped
+          { title: 'ok', url: 'https://example.com/a' }, // kept
+          { title: 'relative', url: '/local/path' }, // dropped — not absolute http(s)
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.apparatus?.sources).toEqual([{ title: 'ok', url: 'https://example.com/a' }]);
+    }
+  });
+
+  it('SECURITY: oversized COUNTS are capped (a flood of entries cannot exceed the per-field cap)', () => {
+    const glosses = Array.from({ length: 5000 }, (_v, i) => ({ term: `t${String(i)}`, definition: `d${String(i)}` }));
+    const result = validate(withApparatus({ glosses }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Capped to 24 (APPARATUS_COUNT_CAP.glosses) — the panel can never be flooded with 5000 rows.
+      expect(result.data.apparatus?.glosses?.length).toBe(24);
+    }
+  });
+
+  it('SECURITY: oversized STRINGS drop that entry (no truncation — a half-value would be fabricated)', () => {
+    const huge = 'x'.repeat(100_000);
+    const result = validate(
+      withApparatus({
+        glosses: [
+          { term: 'ok', definition: 'short' },
+          { term: 'flood', definition: huge }, // dropped — definition exceeds the length cap
+        ],
+        takeaways: ['fine', 'y'.repeat(100_000)], // the oversized takeaway dropped, the short one kept
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.apparatus?.glosses).toEqual([{ term: 'ok', definition: 'short' }]);
+      expect(result.data.apparatus?.takeaways).toEqual(['fine']);
+    }
+  });
+
+  it('rebuilds each entry with ONLY its contract fields — no extra attacker-controlled property rides in', () => {
+    const result = validate(
+      withApparatus({
+        glosses: [{ term: 'T', definition: 'D', onclick: 'evil()', __proto__: { polluted: true } }],
+        sources: [{ title: 'S', url: 'https://ok.test/x', href: 'javascript:1', extra: 'leak' }],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Object.keys(result.data.apparatus!.glosses![0]!).sort()).toEqual(['definition', 'term']);
+      expect(Object.keys(result.data.apparatus!.sources![0]!).sort()).toEqual(['title', 'url']);
+    }
+  });
+
+  it('an all-invalid apparatus collapses to undefined (every card falls back to its placeholder)', () => {
+    const result = validate(withApparatus({ glosses: 'nope', figures: 42, sources: [{ title: 'x' }] }));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.apparatus).toBeUndefined();
+  });
+
+  it('a malformed apparatus does NOT defeat the identity check — a foreign window is still rejected', () => {
+    // Origin-spoof guard: even a perfectly-formed apparatus from a FOREIGN window is rejected by IDENTITY
+    // (the validator never reads origin), so apparatus can never be a back-door around the trust check.
+    const result = validateMessage({
+      source: foreignWindow,
+      expectedWindow: readerWindow,
+      payload: withApparatus({ takeaways: ['x'] }),
+    });
+    expect(result).toEqual({ ok: false, reason: 'untrusted-source' });
+  });
+});
+
+describe('sanitizeApparatus (the pure parser, used by validateMessage)', () => {
+  it('returns undefined for a non-object input (string / array / null / number)', () => {
+    for (const bad of ['x', ['a'], null, 42, undefined]) {
+      expect(sanitizeApparatus(bad)).toBeUndefined();
+    }
+  });
+
+  it('returns undefined when every field is absent or empties out', () => {
+    expect(sanitizeApparatus({})).toBeUndefined();
+    expect(sanitizeApparatus({ glosses: [] })).toBeUndefined();
   });
 });
 

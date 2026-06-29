@@ -3,10 +3,48 @@ import type { LlmCallRecord } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
 
-export const CODE_SYSTEM =
-  'You are a front-end engineer. Generate ONE standalone, self-contained HTML document ' +
-  '(inline CSS + JS, no external dependencies or network requests) that teaches the concept ' +
-  'interactively and satisfies the accessibility contract exactly. Output only the HTML document.';
+/**
+ * CODE_SYSTEM (Sonnet) — the blob-arm synthesis prompt. Beyond generating the standalone interactive
+ * lesson it instructs ONE content-internal addition: the decision-12 coordinate-only `postMessage`
+ * SENDER (PR-F) that lets the reader CHROME light up its reading-progress bar, section-jump, and the
+ * apparatus panel WITHOUT ever reading this opaque-origin frame's DOM. The receive side is
+ * `src/app/curriculum/[id]/lesson-message.ts` (`validateMessage` — identity-checked, untrusted-data sanitized; concept-drift-ok: route/code identifier path, deferred rename — ADR-0003).
+ * The sender is the ONLY pipeline change PR-F makes; it lands INSIDE the sandboxed HTML and
+ * does NOT relax the sandbox or the `ARTIFACT_CSP` (the trust boundary is the sandbox, not this prompt).
+ * Editing this prompt auto-bumps `PROMPTS_VERSION` (it is hashed in `src/pipeline/prompts.ts`).
+ */
+export const CODE_SYSTEM = [
+  'You are a front-end engineer. Generate ONE standalone, self-contained HTML document (inline CSS +',
+  'JS, no external dependencies, assets, or network requests) that teaches the concept interactively',
+  'and satisfies the accessibility contract EXACTLY (keyboard operability + the stated text',
+  'alternative are generation targets, stated up front, not retrofitted). Output ONLY the HTML',
+  'document. Organize the lesson into `<section>` blocks, each with a heading.',
+  '',
+  'PROGRESS + APPARATUS postMessage (HARD, non-negotiable — decision-12 path a, PR-F): emit a small',
+  'inline script that posts COORDINATE-ONLY data to the parent so the (host) reader shell can render a',
+  'reading-progress bar, a section-jump rail, and an apparatus panel WITHOUT reading this frame. The',
+  'sender MUST:',
+  '  (1) build `sections` — an array of `{ id, title }` from the rendered `<section>` headings (give',
+  '      each `<section>` a stable `id`; `title` is the heading TEXT), and a `scrollProgress` scalar in',
+  '      0..1 (how far the reader has scrolled, 0 at top, 1 at bottom);',
+  '  (2) build `apparatus` — an object serializing the apparatus the lesson ALREADY contains, as plain',
+  '      DATA (strings only, NEVER DOM nodes, NEVER HTML markup): `glosses` = `[{ term, definition }]`',
+  '      (the key terms + their plain-text definitions), `figures` = `[{ caption }]` (each figure’s',
+  '      plain-text caption — NOT the figure itself), `sources` = `[{ title, url }]` (each cited',
+  '      source’s title + its absolute http(s) URL), `checks` = `[{ prompt, answer }]` (each',
+  '      self-check’s question + its plain-text answer), and `takeaways` = `[string]` (the recap',
+  '      bullets). OMIT any field the lesson has none of — every field is optional; send only what the',
+  '      lesson genuinely contains, never a fabricated or placeholder value;',
+  '  (3) post the EXACT shape `{ type: "lesson:progress", sections, scrollProgress, apparatus }` to',
+  '      `window.parent` via `window.parent.postMessage(msg, targetOrigin)`. Compute `apparatus` ONCE',
+  '      and include it in EVERY post (so the panel never flickers between data and empty);',
+  '  (4) target a KNOWN origin string, NEVER "*" — derive it from `document.referrer`',
+  '      (`new URL(document.referrer).origin`), falling back to the literal opaque-origin token "null"',
+  '      when there is no referrer;',
+  '  (5) post once on load AND on scroll (rAF-throttled or debounced). It reads ONLY this document and',
+  '      sends coordinates + serialized text — never HTML, never a DOM node reference. Wrap the posting',
+  '      in a try/catch so a frame-less standalone open is harmless.',
+].join('\n');
 
 function codePrompt(spec: PageSpec, learningGoal: string): string {
   return [
