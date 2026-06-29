@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS step_result (
   PRIMARY KEY (run_id, name, step_key)
 );
 
--- Per-step TIMING for the live generating timeline (issue #61). The GcpEngine stamps started_at
+-- Per-step TIMING for the live generating timeline (issue #61). The GcpEngine emits step lifecycle
+-- to an EventSink (issue #166); the default PgStepEventSink (src/store/pg-step-event-sink.ts) stamps started_at
 -- when a step REALLY runs (cache miss) and finished_at on completion — a cache HIT (a crash-resume of
 -- an already-done step) writes nothing, so the original row stands and the timeline stays complete +
 -- non-duplicated across a resume. Same (run, name, key) shape as step_result. Read ONLY by the live

@@ -20,11 +20,11 @@ export default {
     {
       name: 'core-no-frontend',
       comment:
-        'Business-logic layers (domain/llm/pipeline/engine/store/eval) must NOT import the ' +
-        'frontend. Keeps the core a Next-free deployable (a Cloud Run Job image), per ADR 0001 §4. ' +
+        'Business-logic layers (domain/llm/pipeline/engine/store/eval/trace/telemetry) must NOT import ' +
+        'the frontend. Keeps the core a Next-free deployable (a Cloud Run Job image), per ADR 0001 §4. ' +
         'Starts green — the decoupling audit found zero such imports.',
       severity: 'error',
-      from: { path: '^src/(domain|llm|pipeline|engine|store|eval|trace)/' },
+      from: { path: '^src/(domain|llm|pipeline|engine|store|eval|trace|telemetry)/' },
       to: { path: 'node_modules/(next|react-dom|react|server-only|client-only)(/|$)' },
     },
     {
