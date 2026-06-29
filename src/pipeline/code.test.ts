@@ -48,7 +48,7 @@ describe('code', () => {
 
 describe('CODE_SYSTEM — the coordinate-only progress + apparatus sender contract (PR-F)', () => {
   // The prompt is the SENDER half of the decision-12 channel; the receiver
-  // (src/app/curriculum/[id]/lesson-message.ts) is the parse half. This pins that the prompt instructs
+  // (src/app/lesson/[id]/lesson-message.ts) is the parse half. This pins that the prompt instructs
   // the EXACT message shape the receiver validates, so the two halves can't silently drift.
 
   it('instructs the EXACT lesson:progress message with sections + scrollProgress + apparatus', () => {

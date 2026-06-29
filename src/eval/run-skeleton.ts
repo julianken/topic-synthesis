@@ -248,8 +248,8 @@ async function main(): Promise<void> {
     );
   }
   if (args.includes('--persist')) {
-    const { curriculumId } = await persistRun(persistInput(runId, request, run, options));
-    console.log(`\nPersisted curriculum ${curriculumId} — view at /curriculum/${curriculumId} (needs DATABASE_URL + a migrated DB).`);
+    const { lessonId } = await persistRun(persistInput(runId, request, run, options));
+    console.log(`\nPersisted lesson ${lessonId} — view at /lesson/${lessonId} (needs DATABASE_URL + a migrated DB).`);
   }
 }
 

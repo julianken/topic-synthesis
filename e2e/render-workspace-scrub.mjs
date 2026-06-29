@@ -27,7 +27,7 @@ try {
     ]);
     const page = await context.newPage();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto(`${BASE}/curriculum/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/lesson/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { level: 1 }).first().waitFor();
     await page.locator('.ws-grid').waitFor();
     // Drive a deterministic reading position (~60%) so the dot-rail lights an active dot + the where-am-i.

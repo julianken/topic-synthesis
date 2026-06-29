@@ -113,7 +113,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: 'A non-empty "topic" is required.' }, { status: 400 });
   }
   // The runId IS the curriculum id (persistRun keys on it); the client redirects to
-  // /curriculum/<id> and the hub polls it. 202: accepted, generation in flight.
+  // /lesson/<id> and the hub polls it. 202: accepted, generation in flight.
   const runId = randomUUID();
   // Stamp ownership at dispatch (before the curriculum persists) so the hub can owner-scope the
   // pre-persist poll window with no existence oracle; the Job writes owner_sub onto the curriculum.

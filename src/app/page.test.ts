@@ -47,11 +47,11 @@ describe('create-form flow — the four fields + the POST contract are UNCHANGED
     expect(ISLAND).toContain('`Generation request failed (${res.status}).`');
   });
 
-  it('reads the 202 body as { id } and lands on /curriculum/[id] (the redirect contract)', () => {
+  it('reads the 202 body as { id } and lands on /lesson/[id] (the redirect contract)', () => {
     expect(ISLAND).toContain('as { id: string }');
     // The handoff navigates to the reader route once the run lands (router.replace from the in-place
-    // generating shell — the same /curriculum/[id] target the prior router.push used).
-    expect(ISLAND).toContain('/curriculum/${encodeURIComponent(runId)}');
+    // generating shell — the same /lesson/[id] target the prior router.push used).
+    expect(ISLAND).toContain('/lesson/${encodeURIComponent(runId)}');
   });
 
   it('guards submit on a non-empty topic + not-already-submitting (unchanged validation)', () => {

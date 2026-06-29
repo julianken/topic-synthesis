@@ -1,21 +1,21 @@
 import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { displayName } from '../../auth/session-nav';
-import { getCurriculum, ownsRun } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
+import { getLesson, ownsRun } from '../../../store/repo';
 import { GeneratingPoller } from './generating';
 import { ReaderShell } from './reader-shell';
 
 const STATUS_LABEL = { built: 'Built', soon: 'Soon', text: 'Text' } as const;
 const STATUS_ICON = { built: '✓', soon: '◷', text: '≡' } as const;
 
-// Read per request — the persisted lesson row lives in Postgres, not at build time. concept-drift-ok: persisted-entity / route identifier, deferred rename (ADR-0003)
+// Read per request — the persisted lesson row lives in Postgres, not at build time.
 export const dynamic = 'force-dynamic';
 
 export default async function LessonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const identity = await getSessionIdentity();
   if (!identity) redirect('/sign-in');
-  const view = await getCurriculum(id, identity.sub); // concept-drift-ok: code identifier, deferred rename (ADR-0003)
+  const view = await getLesson(id, identity.sub);
 
   // Owner-scoped null: show "generating" ONLY for the caller's own not-yet-persisted run (persistRun
   // writes the lesson row atomically on completion); a foreign/absent id is a uniform 404 (no oracle).
@@ -32,7 +32,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  // The single-lesson run persists as a one-page curriculum row — persistRun/getCurriculum reuse (ADR-0002). concept-drift-ok: persisted-entity / code identifier, deferred rename (ADR-0003)
+  // The single-lesson run persists as a one-page `curriculum`-table row — persistRun/getLesson reuse (ADR-0002). concept-drift-ok: names the RETAINED `curriculum` table (ADR-0003 — DB rename still deferred)
   // Resolve the lone page out of the existing view regardless of `built` (a
   // soon/text lesson is a valid, non-`built` page), then branch on its status: built → render the
   // sandboxed artifact directly; soon/text → a labeled degraded state (never a blank iframe).
@@ -72,7 +72,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
           src/app/artifact/serve.ts), authorized through the owning row (the same-origin GET carries the
           session cookie — ADR-0002 §5). The shell never reads the iframe DOM and never relaxes the
           sandbox/CSP. PR-D: it also renders the integrated topbar + the y=0 reading-progress hairline.
-          concept-drift-ok: persisted-entity (curriculum) identifier, deferred rename (ADR-0003)
+          concept-drift-ok: names the RETAINED `curriculum` table (ADR-0003 — DB rename still deferred)
         */}
         <ReaderShell
           id={id}

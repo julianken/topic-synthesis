@@ -265,7 +265,7 @@ describe('generating-view.tsx — renders the compact progress pill, never a gra
 // a future change that quietly edits the route/store/schema alongside the view trips here.
 describe('TS-23 — the view is a pure presentation reshape over the EXISTING stream (AC5/AC6/AC7)', () => {
   const ROUTE = readFileSync(
-    fileURLToPath(new URL('../../api/curriculum/[id]/status/route.ts', import.meta.url)),
+    fileURLToPath(new URL('../../api/lesson/[id]/status/route.ts', import.meta.url)),
     'utf8',
   );
   const REPO = readFileSync(fileURLToPath(new URL('../../../store/repo.ts', import.meta.url)), 'utf8');

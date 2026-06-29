@@ -98,7 +98,7 @@ try {
     await page.route('**/api/generate', async (route) => {
       await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: RUN_ID }) });
     });
-    await page.route(`**/api/curriculum/${RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${RUN_ID}/status`, async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PAYLOAD) });
     });
     // Drive the CREATE-FORM path so the typed topic lands in the header: open +New → type the topic →

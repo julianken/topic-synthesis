@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Serve a stored page's HTML, authorized THROUGH the owning curriculum (ADR 0002 §5). The httpOnly
  * session cookie rides this same-origin GET — the iframe's `sandbox` opaques only the framed DOM, not
- * this load request — and `getOwnedPage` scopes by (curriculumId owned by `sub`, slug). A uniform 404
+ * this load request — and `getOwnedPage` scopes by (lessonId owned by `sub`, slug). A uniform 404
  * for absent / not-owned; the `pageId` (a content hash shared across curricula) is never the gate, so
  * there is no per-page bearer token to leak via the URL.
  */

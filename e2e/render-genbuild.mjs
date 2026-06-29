@@ -112,10 +112,10 @@ try {
     ]);
     const page = await context.newPage();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.route(`**/api/curriculum/${RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${RUN_ID}/status`, async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(shot.payload) });
     });
-    await page.goto(`${BASE}/curriculum/${RUN_ID}`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/lesson/${RUN_ID}`, { waitUntil: 'networkidle' });
     await page.getByText('Where does a plant’s mass come from?').waitFor({ timeout: 15000 });
     // Let the layout effect measure + the settled edges draw.
     await page.waitForFunction(() => document.querySelectorAll('.gen-plane__edges path').length > 0, null, { timeout: 5000 }).catch(() => {});

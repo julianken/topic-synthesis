@@ -9,9 +9,9 @@ import {
   SPECIMEN_TOPIC_NAME,
   vtOff,
 } from './library-morph';
-import { GeneratingView } from './curriculum/[id]/generating-view'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
-import type { StepEvent } from './curriculum/[id]/stage-rail'; // concept-drift-ok: route identifier, deferred rename (ADR-0003)
-import type { ResearchEvent } from '../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
+import { GeneratingView } from './lesson/[id]/generating-view';
+import type { StepEvent } from './lesson/[id]/stage-rail';
+import type { ResearchEvent } from '../store/repo';
 
 /**
  * The library home's LIBRARY + CREATE client island (the create-form flow). It wraps the server-rendered
@@ -25,7 +25,7 @@ import type { ResearchEvent } from '../store/repo'; // concept-drift-ok: code id
  *   generating — on a successful submit (`202 {id}`) the form RECEDES and the typed topic text LIFTS into
  *                the generating shell's header (the `begin-generate` typed transition + the `specimen-topic`
  *                shared element); the in-place generating shell polls status and navigates to
- *                `/curriculum/[id]` once the run lands. concept-drift-ok: route identifier, deferred rename (ADR-0003)
+ *                `/lesson/[id]` once the run lands.
  *
  * The four fields + the POST contract are UNCHANGED from the prior `intake-form.tsx`: topic / level /
  * depth(1..5) / optional audience → `POST /api/generate { topic, level, depth, audience }` → `202 {id}`,
@@ -159,7 +159,7 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
     });
   }, [topic, level, depth, audience, submitting]);
 
-  // ── In-place generating shell: poll status, navigate to /curriculum/[id] on ready ─────────────────── // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+  // ── In-place generating shell: poll status, navigate to /lesson/[id] on ready ───────────────────────
   // Reuses the generating.tsx poller PATTERN (the same status endpoint + the same pure stage-rail core)
   // but, because the generating shell renders in-place on `/`, it NAVIGATES (router.replace) to the reader
   // route when the run lands rather than router.refresh()ing the library.
@@ -178,7 +178,7 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
         return;
       }
       try {
-        const res = await fetch(`/api/curriculum/${encodeURIComponent(runId)}/status`, { // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+        const res = await fetch(`/api/lesson/${encodeURIComponent(runId)}/status`, {
           cache: 'no-store',
         });
         if (!res.ok) return;
@@ -192,7 +192,7 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
         if (body.research) setResearch(body.research);
         if (body.ready) {
           clearInterval(timer);
-          router.replace(`/curriculum/${encodeURIComponent(runId)}`); // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+          router.replace(`/lesson/${encodeURIComponent(runId)}`);
         }
       } catch {
         // transient network error — keep polling

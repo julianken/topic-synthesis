@@ -2,7 +2,7 @@ import './globals.css';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { SessionNav } from './auth/session-nav';
-import { MorphReceiverGuard } from './curriculum/[id]/morph-receiver-guard'; // concept-drift-ok: retained route identifier (ADR-0003 deferred rename)
+import { MorphReceiverGuard } from './lesson/[id]/morph-receiver-guard';
 
 // Fonts are CHROME (DESIGN.md §Typography), loaded once here at the app boundary — the only place
 // next/font runs. `display: 'swap'` keeps text visible during load (FOUT over FOIT) and next/font

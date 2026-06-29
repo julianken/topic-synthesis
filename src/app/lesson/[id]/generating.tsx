@@ -46,7 +46,7 @@ export function GeneratingPoller({ id }: { id: string }) {
           if (active) setStalled(true);
           return;
         }
-        const res = await fetch(`/api/curriculum/${encodeURIComponent(id)}/status`, { // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+        const res = await fetch(`/api/lesson/${encodeURIComponent(id)}/status`, {
           cache: 'no-store',
         });
         if (!res.ok) return;

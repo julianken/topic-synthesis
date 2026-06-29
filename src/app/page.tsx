@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
  * (declared in `globals.css`, NOT here) morphs into the reader's `#readerPanel.morph-box` (TS-20). The
  * transport + box-geometry tween live at the route seam (`globals.css`); this page sets only the inline
  * per-card endpoint name — box-only, per the TS-5b verdict; the library `/` and reader route stay two
- * independent App-Router routes (`/curriculum/[id]`). concept-drift-ok: route identifier, deferred rename (ADR-0003)
+ * independent App-Router routes (`/lesson/[id]`).
  *
  * A SERVER component (the owner-scoped `listLessons` fetch must run behind the session gate, off the
  * client). It renders the poster cards as a server subtree and passes them as `children` into the
@@ -83,7 +83,7 @@ export default async function Library() {
                   card's `view-transition-name` endpoint (morphName, id-scoped) with the reader's box. */}
               <a
                 className="library-poster__card"
-                href={`/curriculum/${encodeURIComponent(lesson.id)}`} // concept-drift-ok: route identifier, deferred rename (ADR-0003)
+                href={`/lesson/${encodeURIComponent(lesson.id)}`}
                 style={{ viewTransitionName: morphName(lesson.id) }}
               >
                 <span className="library-poster__wash" aria-hidden="true">

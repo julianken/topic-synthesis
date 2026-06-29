@@ -28,7 +28,7 @@ async function openBuiltLesson(
   baseURL: string | undefined,
 ): Promise<void> {
   await signInAsTestOwner(context, baseURL ?? '');
-  await page.goto(`/curriculum/${SEED_RUN_ID}`);
+  await page.goto(`/lesson/${SEED_RUN_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.locator('.ws-grid')).toBeVisible();
 }

@@ -1,6 +1,6 @@
 // stepthrough-fixture — a SCRIPTED SEQUENCE of mid-run `{ ready, steps, research }` status snapshots that
 // drives the live-research GENERATING view through ALL SIX pipeline phases, one push at a time, for the
-// step-through e2e (e2e/generating-stepthrough.spec.ts). The status poll (GET /api/curriculum/[id]/status)
+// step-through e2e (e2e/generating-stepthrough.spec.ts). The status poll (GET /api/lesson/[id]/status)
 // is intercepted and fulfilled with the CURRENT snapshot; the spec advances a cursor between assertions and
 // the page's next 2.5s poll lands the new state — so a single test STEPS through plan → research → brief →
 // spec → code → critic → ready, re-querying the DOM + asserting after each push.
@@ -13,7 +13,7 @@
 // Timestamps are FIXED + in the past so the frozen durations are stable; the single in-flight row's live
 // timer is the one ticking cell (the spec waits on STATE, never the timer).
 
-import type { StepEvent } from '../src/app/curriculum/[id]/stage-rail';
+import type { StepEvent } from '../src/app/lesson/[id]/stage-rail';
 import type { ResearchEvent } from '../src/store/repo';
 
 /** A fixed clock so every frozen duration is stable run-to-run. */

@@ -1,7 +1,7 @@
 import { expect, test, type Route } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
 import { SEED_GENERATING_RUN_ID } from './seed';
-import { DISPATCH_STEP_NAME } from '../src/app/curriculum/[id]/stage-rail';
+import { DISPATCH_STEP_NAME } from '../src/app/lesson/[id]/stage-rail';
 
 // generating-poll.spec — the RIGOROUS e2e for issue #162's perceived-latency fixes on the live-research
 // generating view: (B) the generating poller fires its FIRST status poll IMMEDIATELY on mount (not after
@@ -17,7 +17,7 @@ import { DISPATCH_STEP_NAME } from '../src/app/curriculum/[id]/stage-rail';
 
 // Must match generating.tsx POLL_MS.
 const POLL_MS = 2500;
-const STATUS_GLOB = `**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`;
+const STATUS_GLOB = `**/api/lesson/${SEED_GENERATING_RUN_ID}/status`;
 
 /** The dispatch marker exactly as recordDispatch writes it + getStepEvents returns it: a NON-running,
  *  already-finished step_event — so it is never a LiveTimer. */
@@ -54,7 +54,7 @@ test('B1/B2 — first status poll fires immediately on mount, then on the POLL_M
   });
 
   const navStart = Date.now();
-  await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+  await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
 
   // B1: the FIRST poll has fired, and it fired WELL before a full POLL_MS elapsed from navigation — i.e.
@@ -100,7 +100,7 @@ test('B2 — a slow response NEVER overlaps with the next interval tick (one req
     inFlight -= 1;
   });
 
-  await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+  await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
 
   // Wait until polling has continued PAST the first slow response (≥2 real requests) — proving the guard
@@ -133,7 +133,7 @@ test('A2/A4 — the dispatch marker renders as a single "Starting…" indicator,
     });
   });
 
-  await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+  await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
 
   // (1) The cold-start window: the single leading "Starting…" indicator (top chrome live phase + caption).

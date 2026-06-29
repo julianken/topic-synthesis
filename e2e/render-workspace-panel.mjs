@@ -37,7 +37,7 @@ try {
     const page = await context.newPage();
     await page.emulateMedia({ reducedMotion: 'reduce' });
     if (empty) await page.route('**/artifact/**', (r) => r.fulfill({ status: 204, body: '' }));
-    await page.goto(`${BASE}/curriculum/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/lesson/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
     await page.locator('.ws-panel .ws-app').waitFor();
     if (!empty) await driveProgress(page, progress);
     await page.screenshot({ path: out, animations: 'disabled' });

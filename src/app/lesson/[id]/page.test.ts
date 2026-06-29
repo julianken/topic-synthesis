@@ -115,7 +115,7 @@ describe('TS-20/TS-21 — the morph transport lives in globals.css; the per-id n
   });
 
   it('declares the cross-document View-Transition transport (TS-21 AC1)', () => {
-    // `@view-transition { navigation: auto }` makes library `/` ↔ reader `/curriculum/[id]` navigations
+    // `@view-transition { navigation: auto }` makes library `/` ↔ reader `/lesson/[id]` navigations
     // run as a cross-document VT — the routes stay two independent App-Router routes (no SPA shell).
     expect(CSS).toMatch(/@view-transition\s*\{[^}]*navigation\s*:\s*auto/m);
   });

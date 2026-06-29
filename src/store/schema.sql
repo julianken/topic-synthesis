@@ -47,8 +47,9 @@ ALTER TABLE concept_page ALTER COLUMN title SET NOT NULL;
 
 -- RETAINED(v1-persistence — ADR-0003): the `curriculum` table NAME is a code identifier, not a live
 -- product descriptor. The single-lesson run persists as a one-page `curriculum` row (persistRun/
--- getCurriculum reuse). The table/route rename (`/lesson` atom vs `/curriculum` wrapper hub) is a
--- DEFERRED refactor needing a `page.href` redirect shim for existing rows — see ADR-0003 + GAPS.md.
+-- getLesson reuse). The `/lesson` ROUTE + read-path identifiers were renamed off this table (#172); the
+-- TABLE rename stays DEFERRED — and needs NO redirect shim: hrefs are rebuilt at READ time from `concept_slug`
+-- (rebuildHub), never persisted as a `page.href` column — see ADR-0003 + GAPS.md.
 -- One curriculum (a single topic request).
 CREATE TABLE IF NOT EXISTS curriculum (
   id            TEXT PRIMARY KEY,
