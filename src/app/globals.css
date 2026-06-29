@@ -481,6 +481,125 @@ h1 {
   transform: scale(1.4);
 }
 
+/* ── Mobile section-jump TOC (PR-E) ────────────────────────────────────────────────────────────────
+   On the ≤900 single-column collapse the in-frame [scrub] dot-rail has no room, so it folds away and is
+   REPLACED by this labeled phone TOC DISCLOSURE — a "Sections" toggle over a collapsible list of jump
+   controls. HIDDEN ON DESKTOP (the scrub rail is the section nav there); SHOWN only inside the ≤900 media
+   query below. The toggle + each item are ≥24×24 CSS px (WCAG 2.2 SC 2.5.8). Tapping an item posts the
+   SAME coordinate-only `lesson:scrollTo` the desktop dots use. NO §0 retoken — component-local --ws-*. */
+.ws-toc {
+  display: none; /* desktop: the in-frame scrub rail is the section nav; the TOC shows only ≤900 */
+  --ws-toc-target: 44px; /* comfortable touch target — well above the 24px SC 2.5.8 floor */
+}
+.ws-toc__toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  inline-size: 100%;
+  min-block-size: var(--ws-toc-target);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  /* §0 catalog color/bg primitives — reduced-motion makes the hover instant via the global guard. */
+  transition: var(--tr-color), var(--tr-bg);
+}
+.ws-toc__toggle:hover {
+  border-color: var(--accent);
+}
+.ws-toc__toggle:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+.ws-toc__toggle-label {
+  font-weight: 600;
+}
+.ws-toc__count {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+/* The chevron — a CSS triangle that rotates when the disclosure opens. Pushed to the far end. The
+   rotation rides the §0 --dur-fast/--ease tier; the global reduced-motion guard zeroes it. */
+.ws-toc__chevron {
+  flex: none;
+  margin-inline-start: auto;
+  inline-size: 0;
+  block-size: 0;
+  border-inline: 5px solid transparent;
+  border-block-start: 6px solid var(--text-muted);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.ws-toc__chevron[data-open] {
+  transform: rotate(180deg);
+}
+/* The collapsible list. While collapsed the markup carries the `hidden` attribute (it leaves the a11y
+   tree + tab order); when open it's a normal column of jump controls. */
+.ws-toc__list {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-toc__list[hidden] {
+  display: none;
+}
+.ws-toc__item {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  inline-size: 100%;
+  min-block-size: var(--ws-toc-target); /* ≥24×24 SC 2.5.8 (44px comfortable) */
+  padding: var(--sp-2) var(--sp-4);
+  background: none;
+  border: 0;
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  text-align: start;
+  cursor: pointer;
+  /* §0 catalog color primitive — reduced-motion makes the active/hover brighten instant (global guard). */
+  transition: var(--tr-color);
+}
+.ws-toc__item:hover {
+  color: var(--text);
+}
+.ws-toc__item:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: -2px;
+}
+.ws-toc__item[data-done] {
+  color: var(--text);
+}
+/* The approximate-current item reads by WEIGHT + a leading marker too (status by style + label + aria-
+   current, never color alone). */
+.ws-toc__item[data-active] {
+  color: var(--text);
+  font-weight: 600;
+}
+.ws-toc__ord {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
 /* Responsive collapse to a single column ≤900px (--ws-collapse): the panel/scrub reflow below the
    prose, no horizontal overflow at 390 (DESIGN.md §Lesson layout invariant). */
 @media (max-width: 60rem) {
@@ -499,7 +618,14 @@ h1 {
     margin-top: var(--sp-5);
   }
   .ws-scrub {
-    display: none; /* the in-frame rail folds away on the narrow single column (PR-C → a TOC there) */
+    display: none; /* the in-frame rail folds away on the narrow single column → the .ws-toc disclosure */
+  }
+  /* PR-E: the phone TOC disclosure REPLACES the folded-away scrub rail on the single column. Shown as a
+     block inset to match the collapsed grid's gutter, above the reading prose (a nav-before-content order
+     — the logical mobile tab position for a section jumper). */
+  .ws-toc {
+    display: block;
+    margin-inline: clamp(16px, 4vw, 28px);
   }
 }
 
@@ -784,7 +910,8 @@ body.has-ws-topbar > .appbar {
    nothing edge-pinned. NO JS layout, NO postMessage — chrome-local state only. The transition zeroes
    under reduced motion (the global guard). */
 .reader--ws[data-focus] .ws-panel,
-.reader--ws[data-focus] .ws-scrub {
+.reader--ws[data-focus] .ws-scrub,
+.reader--ws[data-focus] .ws-toc {
   display: none;
 }
 .reader--ws[data-focus] .ws-grid {

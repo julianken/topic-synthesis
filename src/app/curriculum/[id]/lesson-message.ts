@@ -18,8 +18,16 @@
  *      bounds-checked data; the CALLER must use it WITHOUT reflecting it into DOM / `innerHTML` /
  *      navigation / `eval`. The validator itself performs NO such side effect — it is a pure
  *      function: input → `{ ok }` result, nothing else.
- *   3. Parent→child messages (a future direction TS-20 may add) target a KNOWN origin, never `'*'`
- *      — documented in `PARENT_TO_CHILD_TARGET_NOTE` so TS-20 inherits the rule, not just the code.
+ *   3. The two cross-boundary SENDERS target origins DIFFERENTLY — keep them distinct:
+ *      • The iframe→parent OUTWARD sender (THIS `lesson:progress` channel — the in-iframe sender posts
+ *        to `window.parent`) targets the parent's KNOWN app origin, NEVER `'*'`: the parent has a real
+ *        URL origin, so a precise targetOrigin is both possible and required (no `'*'` leak).
+ *      • The parent→child INWARD sender (`lesson:scrollTo`, `lesson-scroll-sender.ts`, shipped PR-C)
+ *        CANNOT target a known origin — the child is OPAQUE-ORIGIN (`sandbox="allow-scripts"` with NO
+ *        `allow-same-origin`), which has no URL representation, so the engine rejects the documented
+ *        `'null'` token and the post ships on a `'*'` FALLBACK. That `'*'` is SOUND here: the target is
+ *        our own non-navigable sandbox under a strict CSP, with no foreign-origin frame for `'*'` to
+ *        leak to (see `PARENT_TO_CHILD_TARGET_ORIGIN` below + `lesson-scroll-sender.ts`'s WIRE REALITY).
  *
  * This is a PURE, framework-free function (no React/Next/DOM import) so it unit-tests under
  * `vitest`'s `environment: 'node'` with hand-built fake `Window` sentinels — object identity is all
@@ -79,11 +87,17 @@ export interface ValidateArgs {
 }
 
 /**
- * For the (future, TS-20) parent→child direction: when the parent posts BACK into the iframe it MUST
- * target a known origin, NEVER `'*'`. Across the opaque boundary the child's origin is `"null"`, so
- * the parent calls `iframe.contentWindow.postMessage(msg, 'null')` (the literal opaque-origin token),
- * NOT `'*'` — a `'*'` target would leak the message to whatever happens to occupy the frame. TS-13
- * ships no parent→child sender (none is needed yet); this note pins the rule so TS-20 inherits it.
+ * The parent→child target-origin token. The parent→child sender SHIPPED in `lesson-scroll-sender.ts`
+ * (PR-C's `postScrollTo`, reused by PR-E's mobile TOC + the topbar ⌘K jumper): when the chrome posts a
+ * `lesson:scrollTo` BACK into the iframe it tries to target the child's opaque origin by this documented
+ * `'null'` token FIRST. In practice the opaque origin has NO URL representation, so Chromium REJECTS
+ * `'null'` as a targetOrigin (`SyntaxError: Invalid target origin 'null'`) and the post falls back to
+ * `'*'` — which is SOUND for THIS sandbox: an opaque-origin, NON-NAVIGABLE `sandbox="allow-scripts"`
+ * (no `allow-same-origin`) frame under a strict CSP has no foreign-origin frame for `'*'` to leak to.
+ * The `'null'` attempt is kept as forward-compat (honored the moment any engine accepts it), not a
+ * runtime guarantee. This is the parent→child direction ONLY; the OUTWARD `lesson:progress` sender
+ * targets the parent's KNOWN origin and never `'*'` (RECEIVE-SIDE discipline item 3 above). See
+ * `lesson-scroll-sender.ts`'s WIRE REALITY note for the full target-origin model.
  */
 export const PARENT_TO_CHILD_TARGET_ORIGIN = 'null' as const;
 

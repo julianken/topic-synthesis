@@ -37,6 +37,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eleatic/eval": "^0.1.0",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "4.3.1",
