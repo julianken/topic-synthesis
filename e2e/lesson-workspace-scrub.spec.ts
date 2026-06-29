@@ -3,11 +3,12 @@ import { signInAsTestOwner } from './auth';
 import { SEED_RUN_ID } from './seed';
 
 // lesson-workspace-scrub.spec — the BUILT-APP proof for the lesson-workspace SCRUB RAIL + SECTION JUMP
-// (PR-C). The [scrub] track (reader-shell.tsx + globals.css) is now a VERTICAL DOT-RAIL of KEYBOARD-
-// OPERABLE jump <button>s — one dot per SHIPPED section (from the coordinate-only { sections,
-// scrollProgress } postMessage, lesson-message.ts UNCHANGED), sticky, justify-self:center INSIDE the
-// --scrub-w track (never viewport/edge-pinned), active/done by style + aria-label (not color alone), the
-// active dot driven by { sections, scrollProgress }. Activating a dot posts the COORDINATE-ONLY
+// (PR-C). The scrub rail (reader-shell.tsx + globals.css) is a VERTICAL DOT-RAIL of KEYBOARD-OPERABLE
+// jump <button>s — one dot per SHIPPED section (from the coordinate-only { sections, scrollProgress }
+// postMessage, lesson-message.ts UNCHANGED), now a `position: fixed`, RIGHT-EDGE-PINNED, full-height
+// (below the topbar), vertically-centered COMPACT cluster matching Figma 3:2 node 3:1120 (clamped
+// adjacent to the capped frame on viewports wider than --frame-max), active/done by style + aria-label
+// (not color alone), the active dot driven by { sections, scrollProgress }. Activating a dot posts the COORDINATE-ONLY
 // parent→child message `{ type:'lesson:scrollTo', id }` to iframe.contentWindow — it tries targetOrigin
 // 'null' but Chromium rejects 'null' for an opaque-origin frame, so it actually ships on the '*' fallback
 // (safe: a non-navigable sandbox under strict CSP has no foreign-origin frame to leak to). The chrome
@@ -125,12 +126,16 @@ test.describe('lesson-workspace scrubber — dot-rail count + active tracking', 
   });
 });
 
-// ── The rail sits INSIDE the [scrub] track — measured within the frame, NOT edge-pinned ───────────────
-// (Desktop only: at ≤900 the [scrub] track folds away — `display:none` — so an in-frame measurement is
-// meaningless there; the mobile collapse is asserted in its own describe below.)
-test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)', () => {
+// ── The rail is RIGHT-EDGE-PINNED, full-height below the topbar, a vertically-centered COMPACT cluster ──
+// (Figma 3:2 node 3:1120 "Navigation - Section scrubber"). Desktop only: at ≤900 the rail folds away
+// (`display:none` → the TOC), so this geometry is meaningless there; the mobile collapse has its own
+// describe below. These two tests are written to FAIL on both wrong layouts: a top-aligned/top-bunched
+// cluster (cluster center ≠ rail center) AND a distributed full-height "minimap" (cluster height ≈ rail
+// height) — so a regression to either is caught, not silently accepted.
+test.describe('lesson-workspace scrubber — edge-pinned, full-height, vertically-centered cluster', () => {
   test.skip(({ viewport }) => (viewport?.width ?? 0) <= 900, 'scrub is hidden on the ≤900 collapse');
-  test('the dot-rail sits within the [scrub] track, inset from the viewport edge, 0px overflow', async ({
+
+  test('@1440: right-edge-pinned, spans full-height below the topbar, dots a CENTERED COMPACT cluster; the active dot tracks while the fixed rail stays put', async ({
     page,
     context,
     baseURL,
@@ -140,29 +145,108 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
     await driveProgress(page, 0.5);
 
     const g = await page.evaluate(() => {
-      const r = (sel: string) => {
+      const rect = (sel: string) => {
         const el = document.querySelector(sel);
         if (!el) return null;
         const b = el.getBoundingClientRect();
-        return { left: b.left, right: b.right, width: b.width };
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
       };
-      const panel = (() => {
-        const el = document.querySelector('.ws-panel');
-        return el ? el.getBoundingClientRect().right : null;
-      })();
       const dots = Array.from(document.querySelectorAll('.ws-scrub__dot')).map((el) => {
         const b = el.getBoundingClientRect();
-        // The center is robust to the active dot's `transform: scale(1.4)` (which symmetrically enlarges
-        // the box but keeps the center fixed) — so a centered rail measures clean regardless of state.
-        return { center: b.left + b.width / 2 };
+        return { top: b.top, bottom: b.bottom };
+      });
+      const topbar = rect('.ws-topbar');
+      return {
+        scrub: rect('.ws-scrub'),
+        topbarBottom: topbar ? topbar.bottom : null,
+        dots,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+
+    expect(g.scrub).not.toBeNull();
+    expect(g.dots.length).toBe(SEED_SECTION_COUNT);
+
+    // (a) RIGHT-EDGE-PINNED: the rail's right edge sits ~one edge-gap (≈35px @1440) from the VIEWPORT
+    // edge — clearly pinned to the edge, NOT abutting the panel deep in the frame (the old read floated it
+    // ~170px+ from the viewport edge; this < 60 bound FAILS on that in-frame placement).
+    const rightInset = g.innerWidth - g.scrub!.right;
+    expect(rightInset).toBeGreaterThan(8); // off the literal edge (has the Figma inset)
+    expect(rightInset).toBeLessThan(60); // pinned NEAR the viewport edge (≈ the edge-gap), not mid-frame
+
+    // (b) FULL-HEIGHT BELOW THE TOPBAR: top ≈ the 54px topbar bottom, bottom ≈ the viewport bottom, so the
+    // strip spans calc(100dvh - --ws-topbar-h). A short top-anchored rail (the bug) would NOT span this.
+    expect(g.topbarBottom).not.toBeNull();
+    expect(g.scrub!.top).toBeGreaterThanOrEqual(g.topbarBottom! - PX); // starts at/after the topbar
+    expect(g.scrub!.top).toBeLessThan(60); // ≈ the 54px topbar height
+    expect(Math.abs(g.scrub!.bottom - g.innerHeight)).toBeLessThan(3); // reaches the viewport bottom
+    expect(g.scrub!.height).toBeGreaterThan(g.innerHeight - 60); // ≈ innerHeight − topbar
+
+    // (c) The dots are a COMPACT cluster VERTICALLY CENTERED in the full-height strip — the core fix.
+    const clusterTop = Math.min(...g.dots.map((d) => d.top));
+    const clusterBottom = Math.max(...g.dots.map((d) => d.bottom));
+    const clusterHeight = clusterBottom - clusterTop;
+    const clusterCenter = (clusterTop + clusterBottom) / 2;
+    const railCenter = g.scrub!.top + g.scrub!.height / 2;
+    // COMPACT: the cluster is far shorter than the rail — FAILS on a distributed/full-height minimap
+    // (clusterHeight ≈ railHeight there, ratio ≈ 1).
+    expect(clusterHeight).toBeLessThan(g.scrub!.height * 0.5);
+    // CENTERED: the cluster's vertical center is within 10% of the rail's center — FAILS on a top-bunched
+    // cluster (whose center sits near the top of the strip, far above the rail center).
+    expect(Math.abs(clusterCenter - railCenter)).toBeLessThan(g.scrub!.height * 0.1);
+
+    // (d) 0px horizontal overflow at this width.
+    expect(g.scrollWidth).toBeLessThanOrEqual(g.innerWidth + PX);
+
+    // (e) ACTIVE DOT TRACKS scrollProgress while the FIXED rail stays put: at 0.5 → floor(0.5*6)=3 is the
+    // active dot; re-driving to the END moves the active to the LAST dot, and the rail's box is unchanged
+    // (it is fixed, not following the scroll).
+    await expect(page.locator('.ws-scrub__dot').nth(3)).toHaveAttribute('data-active', 'true');
+    await driveProgress(page, 1);
+    await expect(page.locator('.ws-scrub__dot').nth(SEED_SECTION_COUNT - 1)).toHaveAttribute('data-active', 'true');
+    await expect(page.locator('.ws-scrub__dot[data-active]')).toHaveCount(1);
+    const after = await page.evaluate(() => {
+      const b = document.querySelector('.ws-scrub')!.getBoundingClientRect();
+      return { right: b.right, top: b.top, height: b.height, innerWidth: window.innerWidth };
+    });
+    expect(Math.abs(after.innerWidth - after.right - rightInset)).toBeLessThan(PX); // same right inset
+    expect(Math.abs(after.top - g.scrub!.top)).toBeLessThan(PX); // same top
+    expect(Math.abs(after.height - g.scrub!.height)).toBeLessThan(PX); // same height
+  });
+
+  // The WIDE-SCREEN CLAMP (DESIGN.md §Lesson layout decision 3, reconciled to the Figma SoT): past the
+  // frame cap the rail must track the FRAME's right edge, NOT orphan at the viewport edge ("an edge-pinned
+  // lone element at wide viewports"). At 1920 the frame caps at --frame-max (1640) centered, so the rail
+  // sits just inside the frame's right edge — far (>100px) from the viewport edge, unlike the standard pin.
+  test('@1920: the rail clamps adjacent to the capped frame (not orphaned at the viewport edge), still full-height + centered', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1920, height: 1000 });
+    await openBuiltLesson(page, context, baseURL);
+    await driveProgress(page, 0.5);
+
+    const g = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
+      };
+      const dots = Array.from(document.querySelectorAll('.ws-scrub__dot')).map((el) => {
+        const b = el.getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom };
       });
       return {
-        scrub: r('.ws-scrub'),
-        grid: r('.ws-grid'),
-        panelRight: panel,
+        scrub: rect('.ws-scrub'),
+        grid: rect('.ws-grid'),
         dots,
-        scrollWidth: document.documentElement.scrollWidth,
         innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        scrollWidth: document.documentElement.scrollWidth,
       };
     });
 
@@ -170,26 +254,23 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
     expect(g.grid).not.toBeNull();
     expect(g.dots.length).toBe(SEED_SECTION_COUNT);
 
-    // Every dot's CENTER sits WITHIN the [scrub] track's measured box (justify-self:center keeps the rail
-    // centered, not pinned to either edge of the track). Centers are scale-robust (the active dot scales).
-    for (const dot of g.dots) {
-      expect(dot.center).toBeGreaterThanOrEqual(g.scrub!.left - PX);
-      expect(dot.center).toBeLessThanOrEqual(g.scrub!.right + PX);
-    }
-    // The track is the NARROW --scrub-w track (1.1rem ≈ 17.6px), NOT the wide outer 1fr gutter: it sits
-    // in the `panel-end / scrub` span immediately right of the panel, not orphaned in the screen-edge
-    // gutter (the MAJOR finding — a rail in the `scrub / screen-end` track would be ~--scrub-w wide but
-    // floated ~140px right against the viewport edge). Assert (a) the track is narrow, and (b) it abuts
-    // the panel's right edge — both false if it were placed in the outer gutter.
-    expect(g.panelRight).not.toBeNull();
-    expect(g.scrub!.width).toBeLessThan(40); // ≈1.1rem track, not a ~140px+ gutter
-    expect(g.scrub!.left).toBeGreaterThanOrEqual(g.panelRight! - PX); // immediately right of [panel-end]
-    expect(g.scrub!.left - g.panelRight!).toBeLessThan(8); // abuts the panel, not floated into the gutter
-    // The track sits INSIDE the capped frame (its right edge ≤ the grid's right edge) and is clearly OFF
-    // the viewport edge — NOT pinned to the screen edge (DESIGN.md §Lesson layout decision 3).
-    expect(g.scrub!.right).toBeLessThanOrEqual(g.grid!.right + PX);
-    expect(g.innerWidth - g.scrub!.right).toBeGreaterThan(8);
-    // 0px horizontal overflow at this width.
+    // CLAMPED, not orphaned: the rail is FAR from the viewport edge (it tracked the frame instead of
+    // staying at the ~35px standard inset) — this FAILS on a naive `right: 35px` that orphans at 4K.
+    const rightInset = g.innerWidth - g.scrub!.right;
+    expect(rightInset).toBeGreaterThan(100);
+    // ADJACENT to the capped frame: the rail's right edge sits just inside the frame's right edge (the grid
+    // is capped at --frame-max + centered), within ~one edge-gap of it — not deep in the content.
+    const insideFrame = g.grid!.right - g.scrub!.right;
+    expect(insideFrame).toBeGreaterThanOrEqual(-PX); // at or inside the frame's right edge
+    expect(insideFrame).toBeLessThan(80); // hugging the frame edge
+
+    // Still full-height + a centered compact cluster + 0px overflow at the wide width.
+    expect(g.scrub!.height).toBeGreaterThan(g.innerHeight - 60);
+    const clusterTop = Math.min(...g.dots.map((d) => d.top));
+    const clusterBottom = Math.max(...g.dots.map((d) => d.bottom));
+    expect(clusterBottom - clusterTop).toBeLessThan(g.scrub!.height * 0.5);
+    const clusterCenter = (clusterTop + clusterBottom) / 2;
+    expect(Math.abs(clusterCenter - (g.scrub!.top + g.scrub!.height / 2))).toBeLessThan(g.scrub!.height * 0.1);
     expect(g.scrollWidth).toBeLessThanOrEqual(g.innerWidth + PX);
   });
 
@@ -197,9 +278,9 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
   // The VISIBLE dot stays 8px (a centered ::before), but the focusable <button>'s OWN box (its
   // getBoundingClientRect — the real pointer/touch target, padding included) is enlarged to ≥ 24×24
   // CSS px, and adjacent hit boxes do NOT overlap (the 20px-pitch spacing-exception failure is gone).
-  // Crucially this is achieved WITHOUT widening the [scrub] track — re-asserted here so the a11y fix
-  // can't silently regress the in-frame layout the test above proves.
-  test('each dot has a ≥24×24 CSS-px POINTER hit target, non-overlapping, with the track unwidened', async ({
+  // Crucially this is achieved WITHOUT widening the rail's 8px dot column — re-asserted here so the a11y
+  // fix can't silently regress the edge-pinned geometry the tests above prove.
+  test('each dot has a ≥24×24 CSS-px POINTER hit target, non-overlapping, with the dot column unwidened', async ({
     page,
     context,
     baseURL,
@@ -271,9 +352,10 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
     expect(m.dotH).toBeGreaterThanOrEqual(8 - PX);
     expect(m.dotH).toBeLessThanOrEqual(8 + PX);
 
-    // (d) The track was NOT widened to fit the 24px hit boxes: the [scrub] track stays the narrow
-    // ≈1.1rem column (< 40px), inside the capped frame, 0px horizontal overflow. The 24px hit box
-    // overflows the track centered (negative inline margin) instead of growing it.
+    // (d) The dot column was NOT widened to fit the 24px hit boxes: the fixed rail stays the narrow 8px
+    // visible-dot column (< 40px), inside the capped frame (right ≤ grid right), clearly off the viewport
+    // edge, 0px horizontal overflow. The 24px hit box overflows the column centered (negative inline
+    // margin) instead of growing it.
     expect(m.scrub).not.toBeNull();
     expect(m.scrub!.width).toBeLessThan(40);
     expect(m.gridRight).not.toBeNull();

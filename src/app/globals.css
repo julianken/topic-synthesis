@@ -329,6 +329,10 @@ h1 {
   --ws-col-gap: var(--col-gap);
   --ws-scrub-w: var(--scrub-w);
   --ws-collapse: 60rem; /* ≤900px → single-column collapse (DESIGN.md §Lesson layout invariant) */
+  /* The 54px integrated-topbar height (= the shipped `.appbar`). SHARED by the topbar itself AND the
+     fixed scrub rail (which spans `calc(100dvh - var(--ws-topbar-h))` below it) — one source of truth so
+     the two can't drift. Hoisted here from `.ws-topbar` (a descendant that still consumes it). */
+  --ws-topbar-h: 54px;
 
   margin: 0;
   display: block;
@@ -379,27 +383,50 @@ h1 {
   container-type: inline-size;
 }
 
-/* The scrub column — the NARROW --scrub-w track between [panel-end] and the [scrub] line, INSIDE the
-   frame (never viewport-pinned, `justify-self: center` in the --scrub-w track). The track is the
-   `panel-end / scrub` span (the 1.1rem --ws-scrub-w track) — NOT the `scrub / screen-end` OUTER 1fr
-   gutter (placing the rail there would orphan it ~140px to the right against the viewport edge, the
-   exact "scrubber not against the screen edge" anti-pattern of DESIGN.md §Lesson layout decisions 3/4
-   + the named-grid-set note "[scrub] reserved … parked inside the capped frame"). PR-C fills the track
-   with the section dot-rail of KEYBOARD-OPERABLE jump <button>s (one per posted section, active dot
-   tracks scrollProgress). The rail is sticky so it tracks the reader. */
+/* The scrub rail — a RIGHT-EDGE-PINNED, full-height, vertically-centered COMPACT dot cluster
+   (Figma 3:2 node 3:1120 "Navigation - Section scrubber"; supersedes the prior inside-the-[scrub]-track
+   placement — DESIGN.md §Lesson layout PR-C is reconciled to this Figma SoT). It is `position: fixed`, so
+   it reads as a FIXED scrubber that stays put while the lesson scrolls INSIDE the 80vh iframe — the active
+   dot tracks the posted scrollProgress (`apparatus-state.ts`, the same floor(scrollProgress × count)
+   estimate), the rail itself never moves. It spans the full viewport height below the 54px topbar
+   (`top: --ws-topbar-h`, `block-size: calc(100dvh - --ws-topbar-h)`), and its dots are a COMPACT cluster
+   centered in that strip (`justify-content: center`) — NOT distributed across the full height (the wrong
+   "minimap" read), NOT top-bunched.
+
+   Horizontal pin + the wide-screen CLAMP (DESIGN.md §Lesson layout decision 3, reconciled): the rail's
+   right edge sits `--ws-scrub-inset` (≈35px @1440 — = the right --edge-gap gutter) from the VIEWPORT edge
+   on standard screens; on viewports WIDER than the capped frame the `+ max(0px, (100vw - --ws-frame-max)/2)`
+   term grows so the rail tracks the FRAME's right edge instead of the viewport edge, staying adjacent to the
+   capped content and NEVER orphaning against a 4K viewport edge (DESIGN.md anti-pattern "an edge-pinned lone
+   element at wide viewports"). Below the cap that term is 0px, so the rail is exactly at the Figma inset. The
+   [scrub] grid track it used to live in is now vestigial — the fixed rail floats over the right gutter. */
 .ws-scrub {
-  grid-column: panel-end / scrub;
-  min-inline-size: 0;
-  justify-self: center;
+  --ws-scrub-dot: 8px; /* the visible dot — visually UNCHANGED from the prototype */
+  --ws-scrub-target: 24px; /* the WCAG 2.2 minimum pointer/touch target (≥ 24×24 CSS px) */
+  --ws-scrub-inset: var(--ws-edge-gap); /* right inset from the viewport edge (≈35px @1440 = the gutter) */
+
+  position: fixed;
+  top: var(--ws-topbar-h);
+  right: calc(var(--ws-scrub-inset) + max(0px, (100vw - var(--ws-frame-max)) / 2));
+  block-size: calc(100dvh - var(--ws-topbar-h));
+  inline-size: var(--ws-scrub-dot); /* the 8px visible-dot column; the 24px hit targets overflow it centered */
+  z-index: 4; /* below the sticky topbar (z-index:5), above the scrolling reading column */
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center; /* the COMPACT dot cluster is vertically centered in the full-height strip */
 }
 .ws-scrub__rail {
-  position: sticky;
-  top: var(--sp-5);
+  /* The compact cluster — a static column of dots, intrinsically sized (cluster height ≪ the full-height
+     rail) and centered by the parent's justify-content. NOT sticky, NOT space-between/distributed (that
+     full-column minimap was the wrong read the owner rejected). */
   list-style: none;
   margin: 0;
-  padding: var(--sp-2) 0;
-  display: grid;
-  grid-auto-flow: row;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   /* a11y (WCAG 2.2 AA, SC 2.5.8 Target Size Minimum): the HIT TARGET is the 24px button BOX, not the
      8px visible dot. Each button is laid out at --ws-scrub-target (24px) tall, so the row pitch is
      24px + gap ≥ 24px and adjacent 24px hit boxes never overlap — the spacing-exception failure of the
@@ -410,12 +437,6 @@ h1 {
 .ws-scrub__rail li {
   display: block;
   line-height: 0;
-}
-/* component-local a11y metrics — the 8px VISIBLE dot vs. the 24px CSS-px POINTER/touch hit target
-   (SC 2.5.8). No §0 retoken: both are --ws-* component tokens, like the rest of the workspace. */
-.ws-scrub {
-  --ws-scrub-dot: 8px; /* the visible dot — visually UNCHANGED from the prototype */
-  --ws-scrub-target: 24px; /* the WCAG 2.2 minimum pointer/touch target (≥ 24×24 CSS px) */
 }
 /* Each dot is a keyboard-operable jump <button> (PR-C). a11y (SC 2.5.8): the focusable control's HIT
    target is the full --ws-scrub-target (24×24) button box — the visible 8px dot is painted by a
@@ -686,8 +707,9 @@ h1 {
    --ws-* tokens that CONSUME the §0 tokens (the 54px height matches the shipped .appbar). It sticks to
    the top so it stays over the scrolling workspace. */
 .ws-topbar {
-  /* component-local topbar metrics — consume §0 tokens; introduce no new §0 token. */
-  --ws-topbar-h: 54px;
+  /* component-local topbar metrics — consume §0 tokens; introduce no new §0 token. `--ws-topbar-h` is
+     defined ONCE on `.reader--ws` (the shared root) and inherited here, so the topbar and the fixed scrub
+     rail read the same 54px height. */
   --ws-progress-h: 2.5px; /* the y=0 reading-progress hairline thickness (Figma 3:1119) */
 
   position: sticky;
