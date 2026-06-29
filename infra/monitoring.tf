@@ -629,7 +629,7 @@ resource "google_monitoring_dashboard" "workflow_runs" {
                   plotType = "LINE"
                   timeSeriesQuery = { timeSeriesFilter = {
                     filter      = "metric.type=\"${local.ts_user_metric["code_max_tokens"]}\" resource.type=\"cloud_run_job\""
-                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_MAX" }
+                    aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_50" }
                   } }
                 },
               ]
