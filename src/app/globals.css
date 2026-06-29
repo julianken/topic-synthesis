@@ -1117,6 +1117,95 @@ body.has-ws-topbar > .appbar {
   color: var(--text-faint);
 }
 
+/* The RICHER cards' filled content (PR-F) — key terms / figure caption / source / self-check / takeaways
+   rendered from the OPTIONAL coordinate-only `apparatus` extension. All TEXT-only at §0 tokens — NO §0
+   retoken. A filled card carries `data-filled` (no dashed border, unlike a `data-awaiting` placeholder). */
+.ws-card[data-filled] {
+  border-style: solid;
+}
+
+/* Key terms — a term→definition list (the term in the reading-accent, the definition muted/small). */
+.ws-gloss__list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.ws-gloss__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-gloss__term {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+.ws-gloss__def {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+
+/* Figure — caption TEXT only (the chrome renders no figure image; coordinate-only). */
+.ws-fig__list,
+.ws-src__list,
+.ws-check__list,
+.ws-take__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.ws-fig__caption,
+.ws-take__item {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+.ws-take__item {
+  display: list-item;
+  list-style: disc;
+  margin-left: 1.1em;
+}
+
+/* Source — a validated http(s) link (rel=noopener), styled as the reading accent. */
+.ws-src__link {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-word;
+  /* TS-24: the hover color rides the catalog --tr-color primitive (@ --dur-fast/--ease). */
+  transition: var(--tr-color);
+}
+.ws-src__link:hover {
+  text-decoration: underline;
+}
+
+/* Self-check — a keyboard-operable predict-then-reveal: the prompt is a <summary>, the answer behind it. */
+.ws-check__item {
+  border-radius: var(--r-sm);
+}
+.ws-check__prompt {
+  cursor: pointer;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text);
+  font-weight: 600;
+  list-style-position: inside;
+}
+.ws-check__answer {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+
 /* Card reveal-on-mount (lesson-workspace SPEC §8 — the §0 catalog, NOT a second motion vocabulary):
    a translateY 16px + fade at the §0 --dur-base/--ease tier. DECLARED ONLY under
    prefers-reduced-motion: no-preference, so under reduced motion the cards mount in place with no

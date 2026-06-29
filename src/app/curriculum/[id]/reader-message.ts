@@ -23,7 +23,7 @@
  * to a progress fill / a section list, never reflecting it into `innerHTML` / navigation / `eval`.
  */
 
-import { validateMessage, type LessonSection } from './lesson-message';
+import { validateMessage, type LessonApparatus, type LessonSection } from './lesson-message';
 
 /** The reader-chrome state the shell renders: the progress-fill scalar + the posted section list. */
 export interface ReaderChromeState {
@@ -31,6 +31,10 @@ export interface ReaderChromeState {
   scrollProgress: number;
   /** The lesson's section list (id + title), driving the section list. Empty before any valid message. */
   sections: LessonSection[];
+  /** The OPTIONAL apparatus extension (PR-F) — the panel's richer cards (glosses/figures/sources/
+   *  checks/takeaways), already sanitized by `validateMessage`. Undefined when the lesson posts only
+   *  the old `{sections, scrollProgress}` shape (the panel shows placeholders then — decision-13). */
+  apparatus?: LessonApparatus;
 }
 
 /** The starting chrome state — empty/zero, so the shell renders fully usable over a bare iframe (AC6). */
@@ -63,5 +67,12 @@ export function reduceReaderMessage({
 }: ReduceReaderArgs): ReaderChromeState | null {
   const result = validateMessage({ source, expectedWindow, payload });
   if (!result.ok) return null; // untrusted source OR off-contract payload → ignore, no DOM write (AC5).
-  return { scrollProgress: result.data.scrollProgress, sections: result.data.sections };
+  const next: ReaderChromeState = {
+    scrollProgress: result.data.scrollProgress,
+    sections: result.data.sections,
+  };
+  // apparatus (PR-F): already sanitized by the validator. Carried through ONLY when present, so the
+  // old `{sections, scrollProgress}` shape returns exactly `{scrollProgress, sections}` (back-compat).
+  if (result.data.apparatus) next.apparatus = result.data.apparatus;
+  return next;
 }

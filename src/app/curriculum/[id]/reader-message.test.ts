@@ -113,3 +113,32 @@ describe('reduceReaderMessage — the no-data path (AC6)', () => {
     expect(INITIAL_READER_CHROME).toEqual({ scrollProgress: 0, sections: [] });
   });
 });
+
+describe('reduceReaderMessage — the OPTIONAL apparatus extension (PR-F)', () => {
+  it('threads the sanitized apparatus through to the chrome state when present', () => {
+    const next = reduceReaderMessage({
+      source: iframeWindow,
+      expectedWindow: iframeWindow,
+      payload: {
+        type: LESSON_MESSAGE_TYPE,
+        sections: [],
+        scrollProgress: 0.5,
+        apparatus: { takeaways: ['Plants build mass from air.'] },
+      },
+    });
+    expect(next).toEqual({
+      scrollProgress: 0.5,
+      sections: [],
+      apparatus: { takeaways: ['Plants build mass from air.'] },
+    });
+  });
+
+  it('omits apparatus from the chrome state on the old shape — back-compat, no apparatus key', () => {
+    const next = reduceReaderMessage({
+      source: iframeWindow,
+      expectedWindow: iframeWindow,
+      payload: validPayload(),
+    });
+    expect(next && 'apparatus' in next).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { deriveApparatus, type ApparatusModel } from './apparatus-state';
+import type { LessonApparatus } from './lesson-message';
 import { postScrollTo } from './lesson-scroll-sender';
 import { INITIAL_READER_CHROME, reduceReaderMessage } from './reader-message';
 import { morphName } from './reader-morph';
@@ -44,11 +45,15 @@ import { morphName } from './reader-morph';
  * widget), and an EXPLICITLY APPROXIMATE position ("≈ around section N of M") — because the channel has no
  * posted active-section signal, deriving a confident discrete NN/total would be a fabricated mapping
  * (the reviewer's MAJOR finding; AGENTS.md anti-invention). The scrubber's approximate dot is labeled
- * "(approx. here)" for the same reason. The RICHER cards (gloss,
- * mini-figure, source, self-check, takeaways) render EMPTY/best-effort PLACEHOLDERS labeled as awaiting
- * data — their real content is a coordinate-only payload EXTENSION that PR-F adds + the in-iframe sender
- * pushes (lesson-message.ts is UNCHANGED here; no DOM scrape). Decision-13 best-effort: a lesson posting
- * nothing leaves every card empty/zero and the shell fully usable.
+ * "(approx. here)" for the same reason. The RICHER cards (key terms, figure caption, source, self-check,
+ * takeaways) now render REAL data from the OPTIONAL coordinate-only `apparatus` EXTENSION (PR-F): the
+ * in-iframe sender serializes the values the lesson already contains (its glosses/figures/sources/checks/
+ * takeaways) as bounded TEXT-only data in the SAME `lesson:progress` message, `validateMessage` sanitizes
+ * it (bounded counts/lengths, http(s)-only URLs, no DOM scrape), and each card renders that data —
+ * falling back to its best-effort PLACEHOLDER when its field is absent/empty. Decision-13 best-effort: a
+ * lesson posting nothing (or only the old `{sections, scrollProgress}` shape) leaves the cards as
+ * placeholders and the shell fully usable — never a crash, never a fabricated value. A source `url` is a
+ * validated `rel="noopener"` link; everything else is React-escaped text (never `innerHTML`).
  *
  * Integrated topbar + Focus-reading (PR-D): the bare reading-progress bar under the generic page header is
  * replaced by a 54px frosted TOPBAR — the ONLY chrome OUTSIDE the iframe. A `1fr auto 1fr` bar (back-to-
@@ -357,7 +362,7 @@ export function ReaderShell({
             placeholders awaiting the PR-F payload extension. All copy is user-facing — no internals.
           */}
           <aside className="ws-panel" aria-label="Lesson apparatus">
-            <ApparatusPanel model={apparatus} />
+            <ApparatusPanel model={apparatus} apparatus={chrome.apparatus} />
           </aside>
 
           {/*
@@ -408,13 +413,22 @@ export function ReaderShell({
 }
 
 /**
- * The apparatus panel (PR-B) — the [panel] track's card stack, fed ONLY by the SHIPPED coordinate-only
- * `{ sections, scrollProgress }` channel (already folded into `model` by `deriveApparatus`). The
- * where-am-i widget + the section list are LIVE (they light up from the posted data); the richer cards
- * are best-effort placeholders that clearly read as awaiting data until PR-F extends the payload. Pure
- * presentation — it reads no DOM and holds no state; a model with no sections renders the empty state.
+ * The apparatus panel (PR-B + PR-F) — the [panel] track's card stack, fed ONLY by the coordinate-only
+ * `postMessage` channel (the chrome NEVER reads the iframe DOM). The where-am-i widget + the section
+ * list come from `{ sections, scrollProgress }` (folded into `model` by `deriveApparatus`); the RICHER
+ * cards (key terms / figure / source / self-check / takeaways) come from the OPTIONAL `apparatus`
+ * EXTENSION (PR-F — `validateMessage` already sanitized it to bounded, text-only data). Each richer
+ * card renders its REAL data when present and falls back to the existing best-effort PLACEHOLDER when
+ * absent (decision-13 — a lesson posting only the old `{sections, scrollProgress}` shape still works,
+ * never a crash, never a fabricated value). Pure presentation — it reads no DOM and holds no state.
  */
-function ApparatusPanel({ model }: { model: ApparatusModel }) {
+function ApparatusPanel({
+  model,
+  apparatus,
+}: {
+  model: ApparatusModel;
+  apparatus?: LessonApparatus | undefined;
+}) {
   return (
     <div className="ws-app">
       {/*
@@ -480,16 +494,17 @@ function ApparatusPanel({ model }: { model: ApparatusModel }) {
       </div>
 
       {/*
-        2–6 — the RICHER cards. Their real content is a coordinate-only payload EXTENSION (PR-F) the
-        in-iframe sender will push; in PR-B they render as best-effort placeholders that clearly read as
-        awaiting data, so the panel shape is real now and a lesson posting nothing never crashes. Each is
-        labeled with its purpose (user-facing copy, no internals) and a "soon" awaiting-data hint.
+        2–6 — the RICHER cards (PR-F). Each renders its REAL content from the OPTIONAL `apparatus`
+        extension when present (sanitized to bounded, TEXT-only data by `validateMessage` — no DOM
+        scrape), and falls back to its best-effort PLACEHOLDER when absent (decision-13 — a lesson
+        posting only the old shape, or nothing, still renders the panel shape, never a crash). All copy
+        is user-facing — it never names a pipeline stage, a payload field, or any internal.
       */}
-      <ApparatusPlaceholder className="ws-glosscard" eyebrow="Key terms" hint="Key terms appear here as you reach them." />
-      <ApparatusPlaceholder className="ws-fig" eyebrow="Figure" hint="Diagrams appear beside the steps they illustrate." />
-      <ApparatusPlaceholder className="ws-src" eyebrow="Source" hint="Cited sources appear beside the claims they support." />
-      <ApparatusPlaceholder className="ws-check" eyebrow="Self-check" hint="Check-yourself prompts appear here as you go." />
-      <ApparatusPlaceholder className="ws-take" eyebrow="Takeaways" hint="A recap appears here at the end." />
+      <GlossCard glosses={apparatus?.glosses} />
+      <FigureCard figures={apparatus?.figures} />
+      <SourceCard sources={apparatus?.sources} />
+      <SelfCheckCard checks={apparatus?.checks} />
+      <TakeawaysCard takeaways={apparatus?.takeaways} />
     </div>
   );
 }
@@ -512,6 +527,122 @@ function ApparatusPlaceholder({
     <div className={`ws-card ${className}`} data-awaiting="true">
       <p className="ws-card__eyebrow">{eyebrow}</p>
       <p className="ws-card__hint">{hint}</p>
+    </div>
+  );
+}
+
+/** Key terms (PR-F) — the posted glosses as a term→definition list, or the placeholder when none.
+ *  Every value is React-escaped TEXT (the validator stripped each entry to {term, definition}). */
+function GlossCard({ glosses }: { glosses?: LessonApparatus['glosses'] }) {
+  if (!glosses || glosses.length === 0) {
+    return (
+      <ApparatusPlaceholder className="ws-glosscard" eyebrow="Key terms" hint="Key terms appear here as you reach them." />
+    );
+  }
+  return (
+    <div className="ws-card ws-glosscard" data-filled="true">
+      <p className="ws-card__eyebrow">Key terms</p>
+      <dl className="ws-gloss__list">
+        {glosses.map((g, i) => (
+          <div className="ws-gloss__row" key={`${g.term}-${String(i)}`}>
+            <dt className="ws-gloss__term">{g.term}</dt>
+            <dd className="ws-gloss__def">{g.definition}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/** Figure (PR-F) — the posted figure CAPTIONS as text (coordinate-only: the chrome never renders the
+ *  lesson's actual figure, only its caption text), or the placeholder when none. */
+function FigureCard({ figures }: { figures?: LessonApparatus['figures'] }) {
+  if (!figures || figures.length === 0) {
+    return (
+      <ApparatusPlaceholder className="ws-fig" eyebrow="Figure" hint="Diagrams appear beside the steps they illustrate." />
+    );
+  }
+  return (
+    <div className="ws-card ws-fig" data-filled="true">
+      <p className="ws-card__eyebrow">Figure</p>
+      <ul className="ws-fig__list">
+        {figures.map((f, i) => (
+          <li className="ws-fig__caption" key={`${f.caption}-${String(i)}`}>
+            {f.caption}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Source (PR-F) — the posted cited sources. The `url` was http(s)-validated by the sanitizer, so it
+ *  renders as a SAFE `rel="noopener noreferrer"` link (never `dangerouslySetInnerHTML`); the title is
+ *  escaped text. Falls back to the placeholder when none. */
+function SourceCard({ sources }: { sources?: LessonApparatus['sources'] }) {
+  if (!sources || sources.length === 0) {
+    return (
+      <ApparatusPlaceholder className="ws-src" eyebrow="Source" hint="Cited sources appear beside the claims they support." />
+    );
+  }
+  return (
+    <div className="ws-card ws-src" data-filled="true">
+      <p className="ws-card__eyebrow">Source</p>
+      <ul className="ws-src__list">
+        {sources.map((s, i) => (
+          <li className="ws-src__item" key={`${s.url}-${String(i)}`}>
+            <a className="ws-src__link" href={s.url} target="_blank" rel="noopener noreferrer">
+              {s.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Self-check (PR-F) — the posted prompts as a keyboard-operable predict-then-reveal: a native
+ *  `<details>` gates the answer behind the prompt `<summary>`. Falls back to the placeholder when none. */
+function SelfCheckCard({ checks }: { checks?: LessonApparatus['checks'] }) {
+  if (!checks || checks.length === 0) {
+    return (
+      <ApparatusPlaceholder className="ws-check" eyebrow="Self-check" hint="Check-yourself prompts appear here as you go." />
+    );
+  }
+  return (
+    <div className="ws-card ws-check" data-filled="true">
+      <p className="ws-card__eyebrow">Self-check</p>
+      <ul className="ws-check__list">
+        {checks.map((c, i) => (
+          <li key={`${c.prompt}-${String(i)}`}>
+            <details className="ws-check__item">
+              <summary className="ws-check__prompt">{c.prompt}</summary>
+              <p className="ws-check__answer">{c.answer}</p>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Takeaways (PR-F) — the posted recap bullets as escaped text, or the placeholder when none. */
+function TakeawaysCard({ takeaways }: { takeaways?: LessonApparatus['takeaways'] }) {
+  if (!takeaways || takeaways.length === 0) {
+    return (
+      <ApparatusPlaceholder className="ws-take" eyebrow="Takeaways" hint="A recap appears here at the end." />
+    );
+  }
+  return (
+    <div className="ws-card ws-take" data-filled="true">
+      <p className="ws-card__eyebrow">Takeaways</p>
+      <ul className="ws-take__list">
+        {takeaways.map((t, i) => (
+          <li className="ws-take__item" key={`${t}-${String(i)}`}>
+            {t}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

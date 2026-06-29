@@ -53,14 +53,53 @@ export interface LessonSection {
 }
 
 /**
+ * The OPTIONAL apparatus extension (PR-F) — the panel's richer cards (key-term glosses, figure
+ * captions, cited sources, self-check Q/A, takeaways) as STRUCTURED COORDINATE-ONLY DATA, NOT DOM
+ * node refs and NOT HTML. The in-iframe sender serializes values the lesson already contains (its
+ * rendered glosses/figures/sources/checks/takeaways) into plain strings; the panel renders every
+ * field as TEXT (a source's `url` becomes a validated `rel=noopener` link, never `innerHTML`). It is
+ * a CONTENT-INTERNAL extension to the sandboxed doc — the trust boundary / CSP / iframe attrs are
+ * byte-unchanged. Every field is optional and INDEPENDENTLY sanitized on receive (bounded counts +
+ * string lengths, http(s)-only URLs); a missing / partial / malformed field falls back to the card's
+ * placeholder (decision-13 best-effort — a lesson posting only the old `{sections, scrollProgress}`
+ * shape still works). See {@link sanitizeApparatus}.
+ */
+export interface LessonGloss {
+  term: string;
+  definition: string;
+}
+export interface LessonFigure {
+  caption: string;
+}
+export interface LessonSource {
+  title: string;
+  /** A validated absolute http/https URL (the only protocols the sanitizer admits). */
+  url: string;
+}
+export interface LessonCheck {
+  prompt: string;
+  answer: string;
+}
+export interface LessonApparatus {
+  glosses?: LessonGloss[];
+  figures?: LessonFigure[];
+  sources?: LessonSource[];
+  checks?: LessonCheck[];
+  takeaways?: string[];
+}
+
+/**
  * The coordinate-only payload the in-iframe sender posts to `window.parent`: the section list + a
- * normalized scroll-progress scalar in `0..1`. NO HTML, NO URLs, NO executable content — purely the
- * coordinates TS-20's reading-progress bar / section-jump need.
+ * normalized scroll-progress scalar in `0..1`, plus the OPTIONAL {@link LessonApparatus} extension
+ * (PR-F). NO HTML, NO executable content, NO DOM refs — purely the coordinates + serialized text the
+ * reading-progress bar / section-jump / apparatus panel need. `apparatus` is absent on the old
+ * `{sections, scrollProgress}` shape (backward-compatible — the panel shows placeholders then).
  */
 export interface LessonMessage {
   type: typeof LESSON_MESSAGE_TYPE;
   sections: LessonSection[];
   scrollProgress: number;
+  apparatus?: LessonApparatus;
 }
 
 /** A trusted, parsed message, or a typed rejection with a machine-readable reason. */
@@ -100,6 +139,130 @@ export interface ValidateArgs {
  * `lesson-scroll-sender.ts`'s WIRE REALITY note for the full target-origin model.
  */
 export const PARENT_TO_CHILD_TARGET_ORIGIN = 'null' as const;
+
+/**
+ * Bounded caps on the OPTIONAL apparatus payload (PR-F). The apparatus is UNTRUSTED data from the
+ * sandboxed lesson, so it is bounded both ways: a per-array COUNT cap (a flood of entries beyond the
+ * cap is dropped, not rendered) and a per-string LENGTH cap (an over-long string drops that entry —
+ * never truncates, which would fabricate a half-value). The ceilings are generous-but-finite: the
+ * panel renders these as plain text, so they only have to be large enough for real lesson copy and
+ * small enough that a hostile sender can't flood the panel DOM.
+ */
+const APPARATUS_COUNT_CAP = {
+  glosses: 24,
+  figures: 12,
+  sources: 24,
+  checks: 12,
+  takeaways: 16,
+} as const;
+const STRLEN = {
+  term: 160,
+  definition: 600,
+  caption: 400,
+  sourceTitle: 240,
+  url: 2048,
+  prompt: 600,
+  answer: 800,
+  takeaway: 600,
+} as const;
+
+/** A non-empty string within `max` chars, else null (an over-long / non-string value is rejected). */
+function boundedString(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
+}
+
+/**
+ * An absolute http/https URL within the length cap, else null. Uses `URL` (available in both the
+ * browser and `environment: 'node'`) to reject `javascript:` / `data:` / relative / malformed URLs —
+ * only `http:`/`https:` are admitted, so a source href the panel renders can never be a script URL.
+ */
+function safeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > STRLEN.url) return null;
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Sanitize one array field: keep at most `cap` entries; DROP any entry the mapper rejects. Returns
+ *  undefined for a non-array or an all-dropped field, so an absent/empty field omits cleanly. */
+function sanitizeList<T>(
+  raw: unknown,
+  cap: number,
+  map: (entry: Record<string, unknown>) => T | null,
+): T[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: T[] = [];
+  for (const entry of raw) {
+    if (out.length >= cap) break; // count cap — drop the overflow, never render an unbounded list
+    if (typeof entry !== 'object' || entry === null) continue; // drop a malformed entry
+    const mapped = map(entry as Record<string, unknown>);
+    if (mapped) out.push(mapped); // drop an entry that failed field validation
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/** Sanitize a plain string[] field (takeaways): at most `cap` non-empty strings within `max` chars. */
+function sanitizeStringList(raw: unknown, cap: number, max: number): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (out.length >= cap) break;
+    const s = boundedString(entry, max);
+    if (s) out.push(s);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Parse the UNTRUSTED, OPTIONAL apparatus payload into a bounded {@link LessonApparatus}, or
+ * undefined (PR-F). FAIL-SAFE BY DESIGN: unlike the core contract (bad sections/progress hard-reject
+ * the whole message), a malformed/oversized apparatus is NEVER a whole-message rejection — it is
+ * sanitized down to the valid subset (or undefined), so the panel falls back to placeholders for the
+ * affected cards and the reading-progress/section data still flows. Every entry is rebuilt as a fresh
+ * object carrying ONLY its contract fields, so no extra attacker-controlled property rides into the
+ * rendered panel; URLs are http(s)-validated; strings are length-bounded. Returns undefined when the
+ * input is not a plain object or nothing valid survives, so an empty apparatus omits cleanly.
+ */
+export function sanitizeApparatus(raw: unknown): LessonApparatus | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  const a = raw as Record<string, unknown>;
+  const out: LessonApparatus = {};
+
+  const glosses = sanitizeList<LessonGloss>(a.glosses, APPARATUS_COUNT_CAP.glosses, (e) => {
+    const term = boundedString(e.term, STRLEN.term);
+    const definition = boundedString(e.definition, STRLEN.definition);
+    return term && definition ? { term, definition } : null;
+  });
+  if (glosses) out.glosses = glosses;
+
+  const figures = sanitizeList<LessonFigure>(a.figures, APPARATUS_COUNT_CAP.figures, (e) => {
+    const caption = boundedString(e.caption, STRLEN.caption);
+    return caption ? { caption } : null;
+  });
+  if (figures) out.figures = figures;
+
+  const sources = sanitizeList<LessonSource>(a.sources, APPARATUS_COUNT_CAP.sources, (e) => {
+    const title = boundedString(e.title, STRLEN.sourceTitle);
+    const url = safeHttpUrl(e.url);
+    return title && url ? { title, url } : null;
+  });
+  if (sources) out.sources = sources;
+
+  const checks = sanitizeList<LessonCheck>(a.checks, APPARATUS_COUNT_CAP.checks, (e) => {
+    const prompt = boundedString(e.prompt, STRLEN.prompt);
+    const answer = boundedString(e.answer, STRLEN.answer);
+    return prompt && answer ? { prompt, answer } : null;
+  });
+  if (checks) out.checks = checks;
+
+  const takeaways = sanitizeStringList(a.takeaways, APPARATUS_COUNT_CAP.takeaways, STRLEN.takeaway);
+  if (takeaways) out.takeaways = takeaways;
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 /**
  * Validate one received `postMessage` from the lesson iframe. PURE: it reads only its three args,
@@ -155,5 +318,14 @@ export function validateMessage({ source, expectedWindow, payload }: ValidateArg
     sections.push({ id: e.id, title: e.title });
   }
 
-  return { ok: true, data: { type: LESSON_MESSAGE_TYPE, sections, scrollProgress: progress } };
+  // apparatus (PR-F): OPTIONAL + FAIL-SAFE. Absent on the old shape → omitted (backward compatible).
+  // Present but malformed/oversized → sanitized to the valid subset (or dropped), NEVER a whole-
+  // message rejection — so progress/sections still flow and the panel falls back to placeholders.
+  const data: LessonMessage = { type: LESSON_MESSAGE_TYPE, sections, scrollProgress: progress };
+  if (raw.apparatus !== undefined) {
+    const apparatus = sanitizeApparatus(raw.apparatus);
+    if (apparatus) data.apparatus = apparatus;
+  }
+
+  return { ok: true, data };
 }

@@ -106,7 +106,7 @@ test.describe('lesson-workspace apparatus — where-am-i widget (live from postM
 
 // ── The 6 card slots render in the [panel] track within --panel-w, no overflow ───────────────────────
 test.describe('lesson-workspace apparatus — the 6 card slots within --panel-w', () => {
-  test('the panel renders 6 cards (where-am-i + 5 richer placeholders), all within the [panel] track, no overflow', async ({
+  test('the panel renders 6 cards (where-am-i + 5 richer cards), all within the [panel] track, no overflow', async ({
     page,
     context,
     baseURL,
@@ -115,10 +115,12 @@ test.describe('lesson-workspace apparatus — the 6 card slots within --panel-w'
     await openBuiltLesson(page, context, baseURL);
     await driveProgress(page, 0.4);
 
-    // Six card slots: 1 where-am-i + 5 best-effort placeholders (gloss/figure/source/self-check/takeaways).
+    // Six card slots: 1 where-am-i + 5 richer cards (gloss/figure/source/self-check/takeaways). The seed
+    // posts the PR-F apparatus by default, so the 5 richer cards are FILLED (data-filled), not awaiting.
     await expect(page.locator('.ws-panel .ws-card')).toHaveCount(6);
     await expect(page.locator('.ws-panel .ws-where')).toHaveCount(1);
-    await expect(page.locator('.ws-panel .ws-card[data-awaiting]')).toHaveCount(5);
+    await expect(page.locator('.ws-panel .ws-card[data-filled]')).toHaveCount(5);
+    await expect(page.locator('.ws-panel .ws-card[data-awaiting]')).toHaveCount(0);
 
     // Every card sits WITHIN the [panel] track and within --panel-w — no card overflows the column.
     const geom = await page.evaluate(() => {
