@@ -2,21 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResearchEvent, StepEvent } from '../../../../../store/repo';
 
 // Mock the auth gate + the store reads. The route's ready-vs-steps-vs-research split (issue #61 +
-// live-research generating Stage 1) is the contract under test: `ready` ⇐ getCurriculum, `steps` ⇐
+// live-research generating Stage 1) is the contract under test: `ready` ⇐ getLesson, `steps` ⇐
 // ownsRun + getStepEvents, `research` ⇐ the SAME ownsRun + getResearchEvents — TWO owner gates total
 // (`ownsRun` computed once, reused for both steps + research).
 const getSessionIdentity = vi.hoisted(() => vi.fn());
-const getCurriculum = vi.hoisted(() => vi.fn());
+const getLesson = vi.hoisted(() => vi.fn());
 const ownsRun = vi.hoisted(() => vi.fn());
 const getStepEvents = vi.hoisted(() => vi.fn());
 const getResearchEvents = vi.hoisted(() => vi.fn());
 vi.mock('../../../../auth/require-session', () => ({ getSessionIdentity }));
-vi.mock('../../../../../store/repo', () => ({ getCurriculum, ownsRun, getStepEvents, getResearchEvents }));
+vi.mock('../../../../../store/repo', () => ({ getLesson, ownsRun, getStepEvents, getResearchEvents }));
 
 import { GET } from './route';
 
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
-const get = (id: string) => GET(new Request(`https://app.example/api/curriculum/${id}/status`), ctx(id));
+const get = (id: string) => GET(new Request(`https://app.example/api/lesson/${id}/status`), ctx(id));
 
 const sampleSteps: StepEvent[] = [
   { name: 'plan', stepKey: 'k1', startedAt: '2026-06-21T00:00:00.000Z', finishedAt: '2026-06-21T00:00:03.200Z', status: 'done' },
@@ -50,17 +50,17 @@ type Body = { ready: boolean; steps: StepEvent[]; research: ResearchEvent[] };
 
 beforeEach(() => {
   getSessionIdentity.mockReset();
-  getCurriculum.mockReset().mockResolvedValue(null);
+  getLesson.mockReset().mockResolvedValue(null);
   ownsRun.mockReset().mockResolvedValue(false);
   getStepEvents.mockReset().mockResolvedValue([]);
   getResearchEvents.mockReset().mockResolvedValue([]);
 });
 
-describe('GET /api/curriculum/[id]/status — the live timeline + research poll (issue #61 + live-research Stage 1)', () => {
+describe('GET /api/lesson/[id]/status — the live timeline + research poll (issue #61 + live-research Stage 1)', () => {
   it('returns the owner-scoped steps AND research during a run, even while the curriculum is not yet persisted (ready false)', async () => {
     getSessionIdentity.mockResolvedValue({ sub: 'owner-1' });
-    // Pre-persist window: getCurriculum is still null (not ready) but the owner sees the timeline + research feed.
-    getCurriculum.mockResolvedValue(null);
+    // Pre-persist window: getLesson is still null (not ready) but the owner sees the timeline + research feed.
+    getLesson.mockResolvedValue(null);
     ownsRun.mockResolvedValue(true);
     getStepEvents.mockResolvedValue(sampleSteps);
     getResearchEvents.mockResolvedValue(sampleResearch);
@@ -96,9 +96,9 @@ describe('GET /api/curriculum/[id]/status — the live timeline + research poll 
     expect(getResearchEvents).not.toHaveBeenCalled();
   });
 
-  it('reports ready (from getCurriculum) AND steps AND research once the run has persisted — the gates are independent', async () => {
+  it('reports ready (from getLesson) AND steps AND research once the run has persisted — the gates are independent', async () => {
     getSessionIdentity.mockResolvedValue({ sub: 'owner-1' });
-    getCurriculum.mockResolvedValue({ id: 'run-1', topic: 't', settings: {}, hub: { tiers: [] } });
+    getLesson.mockResolvedValue({ id: 'run-1', topic: 't', settings: {}, hub: { tiers: [] } });
     ownsRun.mockResolvedValue(true);
     getStepEvents.mockResolvedValue(sampleSteps);
     getResearchEvents.mockResolvedValue(sampleResearch);

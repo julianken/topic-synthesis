@@ -197,7 +197,7 @@ test.describe('step-through A — the full flow (auth gate → library → creat
       });
     });
     // Keep the generating shell quiet (no phase advance) — serve the first scripted snapshot once.
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -247,7 +247,7 @@ test.describe('step-through B — the phase progression (scripted status sequenc
     // The MUTABLE cursor the status route serves. The spec advances `current` between assertions; the page's
     // own 2.5s poll lands the new state, and the web-first matchers retry until it arrives. NO sleeps.
     let current: StepSnapshot = STEP_SEQUENCE[0]!;
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route: Route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -255,7 +255,7 @@ test.describe('step-through B — the phase progression (scripted status sequenc
       });
     });
 
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
 
     // Walk every scripted snapshot. After advancing the cursor, wait on a STATE signal unique to the snapshot
@@ -312,14 +312,14 @@ test.describe('step-through B — the phase progression (scripted status sequenc
 
     // FINALLY: push the terminal `ready: true` snapshot. The reader-route poller calls router.refresh(); the
     // run has NO persisted curriculum (seed stamps only the run_owner), so the refresh re-renders the
-    // generating branch (ownsRun true, getCurriculum still null) rather than a 404 — proving the ready path
+    // generating branch (ownsRun true, getLesson still null) rather than a 404 — proving the ready path
     // fires the navigation without a fabricated lesson. Assert the route stayed owned (no sign-in bounce, no
     // 404) and the heading resolved.
     current = READY_SNAPSHOT;
     await expect.poll(async () => {
       // Force a fresh poll cycle to deliver ready; the page either refreshes (reader) — assert it didn't bounce.
       return page.url();
-    }).toContain(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    }).toContain(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page).not.toHaveURL(/\/sign-in/);
     await expect(page.getByRole('main')).toBeVisible();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -342,14 +342,14 @@ test.describe('step-through C — states + edge (stress overflow · reduced moti
   }) => {
     test.skip((page.viewportSize()?.width ?? 0) < 1000, 'the fit-cap + overflow chip is a desktop-only model (SPEC §9)');
     await signInAsTestOwner(context, baseURL ?? '');
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...STRESS_PAYLOAD }),
       });
     });
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
     await expect(page.getByTestId('gen-research-count')).toHaveText('3 / 9 extracted');
 
@@ -381,14 +381,14 @@ test.describe('step-through C — states + edge (stress overflow · reduced moti
     // Two snapshots back-to-back; under forced reduced motion the swap is instant (no entrance stagger), so
     // the geometry is identical before + after — proving no motion-dependent layout.
     let current = STEP_SEQUENCE[1]!; // research running, questions appearing
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...current.payload }),
       });
     });
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page.getByTestId('gen-research-count')).toHaveText('0 / 3 extracted');
     await assertGeometryDesktop(page, 'reduced-motion-before');
     const before = await measureStep(page);
@@ -406,14 +406,14 @@ test.describe('step-through C — states + edge (stress overflow · reduced moti
   test('mobile 390px — single-column collapse, no horizontal overflow', async ({ page, context, baseURL }) => {
     test.skip((page.viewportSize()?.width ?? 0) >= 1000, 'mobile-collapse assertion runs on the mobile project only');
     await signInAsTestOwner(context, baseURL ?? '');
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...STEP_SEQUENCE[4]!.payload }),
       });
     });
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
     await expect(page.getByTestId('gen-research-count')).toHaveText('3 / 3 extracted');
 

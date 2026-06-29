@@ -12,16 +12,15 @@ import { fitColumn, type FitResult } from './fit-column';
 import { buildLedger, buildResearchGraph, type LedgerFinding } from './research-graph';
 import { deriveRail, DISPATCH_LABEL, formatDuration, isStarting, type RailStage, type StepEvent } from './stage-rail';
 import { SPECIMEN_TOPIC_NAME } from '../../library-morph';
-import type { ResearchEvent } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
+import type { ResearchEvent } from '../../../store/repo';
 
 const TICK_MS = 250; // how often the live in-progress timer re-renders
 
 /**
  * The SHARED live-research GENERATING view — a FULL-WIDTH, COLUMN-LOCKED TABLE (the owner-approved,
  * measured-sound layout in `.superpowers/generating-layout/`; supersedes the prior side-rail B view #154).
- * ONE component for BOTH the reader route's generating state (`/curriculum/[id]` — concept-drift-ok: route
- * identifier, deferred rename, ADR-0003 — when the run is in flight) and the create-form's in-place
- * generating shell (`/`), so the two never diverge.
+ * ONE component for BOTH the reader route's generating state (`/lesson/[id]` — when the run is in
+ * flight) and the create-form's in-place generating shell (`/`), so the two never diverge.
  *
  * The deliverable in one sentence (SPEC §"The deliverable"): the generating view is a 6-column GRID whose
  * columns ARE the pipeline phases (Plan · Research · Brief · Spec · Code · Critic), each column HEADED BY

@@ -39,7 +39,7 @@ try {
     ]);
     const page = await context.newPage();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto(`${BASE}/curriculum/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/lesson/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
     await page.locator('.ws-panel .ws-app').waitFor();
     await driveProgress(page, progress, withApparatus);
     if (openCheck) await page.locator('.ws-check[data-filled] .ws-check__prompt').first().click();

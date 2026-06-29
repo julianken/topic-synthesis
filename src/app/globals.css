@@ -238,7 +238,7 @@ h1 {
   }
 }
 
-/* ── Curriculum artifact detail + status ──────────────────────────────────── */
+/* ── Lesson artifact detail + status ──────────────────────────────────────── */
 .wrap--wide {
   max-width: 64rem;
 }
@@ -968,7 +968,7 @@ body.has-ws-topbar > .appbar {
    the route-level transport + the box-geometry tween keyed to those already-paired names. */
 
 /* The cross-document View-Transition TRANSPORT (decision 2 / TS-5b). `navigation: auto` makes a
-   same-origin MPA navigation between the library `/` and reader `/curriculum/[id]` routes run as a
+   same-origin MPA navigation between the library `/` and reader `/lesson/[id]` routes run as a
    cross-document VT — keeping them two INDEPENDENT App-Router routes (the same-document SPA shell is the
    REJECTED option). The browser pairs the old (card) and new (reader panel) snapshots by their shared
    `morphName(id)` and tweens the captured box from card geometry → reader panel geometry.
@@ -2432,7 +2432,7 @@ body.has-ws-topbar > .appbar {
 
 /* ── Sign in (DESIGN.md §Components → "Sign in"; Figma frame 5:2 / card 5:5) ───────────────────────
    A viewport-centered ~380px card on the §0 radial-glow background. SCOPED to `.signin*` so the rebuilt
-   sign-in chrome doesn't leak its look onto the library / curriculum routes (which keep the shared
+   sign-in chrome doesn't leak its look onto the library / lesson routes (which keep the shared
    `.wrap`/`h1`/`.lead`/`.btn`). Colors resolve to §0 tokens 1:1 (OKLCH-verified equal to the Figma hexes):
    ✦/synthesis #00dbfe → --accent · badge border #35afc9 → --accent-dim · topic· #ebeff4 → --text
    (fog-100) · H1/button-bg #f5f9fc → --fog-50 · lead #a4acb4 → --text-muted (fog-450) · footer #889099

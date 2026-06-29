@@ -47,10 +47,10 @@ try {
     ]);
     const page = await context.newPage();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.route(`**/api/curriculum/${RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${RUN_ID}/status`, async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(shot.payload) });
     });
-    await page.goto(`${BASE}/curriculum/${RUN_ID}`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/lesson/${RUN_ID}`, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { level: 1 }).first().waitFor();
     const expected = shot.name === 'starting' ? 'Starting…' : 'Planning';
     await page.getByTestId('gen-live-phase').filter({ hasText: expected }).waitFor({ timeout: 15000 });

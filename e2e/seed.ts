@@ -161,7 +161,7 @@ export async function seedDenseLibraryCard(): Promise<void> {
     );
 
     // Stamp the IN-FLIGHT run owner (NO curriculum persisted for this id) so the reader route's
-    // generating branch renders for the visual spec. getCurriculum(this id) stays null → page.tsx shows
+    // generating branch renders for the visual spec. getLesson(this id) stays null → page.tsx shows
     // the live-research generating view; ownsRun(this id) is true → it's the generating branch, not a 404.
     // The mid-run research/steps data comes from the spec's status-poll interception (deterministic),
     // not the DB, so no research_event/step_event rows are seeded here.

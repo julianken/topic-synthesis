@@ -8,7 +8,7 @@ import { defaultDeps, type StageDeps } from './deps';
  * lesson it instructs ONE content-internal addition: the decision-12 coordinate-only `postMessage`
  * SENDER (PR-F) that lets the reader CHROME light up its reading-progress bar, section-jump, and the
  * apparatus panel WITHOUT ever reading this opaque-origin frame's DOM. The receive side is
- * `src/app/curriculum/[id]/lesson-message.ts` (`validateMessage` — identity-checked, untrusted-data sanitized; concept-drift-ok: route/code identifier path, deferred rename — ADR-0003).
+ * `src/app/lesson/[id]/lesson-message.ts` (`validateMessage` — identity-checked, untrusted-data sanitized).
  * The sender is the ONLY pipeline change PR-F makes; it lands INSIDE the sandboxed HTML and
  * does NOT relax the sandbox or the `ARTIFACT_CSP` (the trust boundary is the sandbox, not this prompt).
  * Editing this prompt auto-bumps `PROMPTS_VERSION` (it is hashed in `src/pipeline/prompts.ts`).

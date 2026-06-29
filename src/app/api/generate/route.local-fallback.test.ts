@@ -35,7 +35,7 @@ beforeEach(() => {
   recordDispatch.mockReset();
   recordDispatch.mockResolvedValue(undefined);
   persistRun.mockReset();
-  persistRun.mockResolvedValue({ curriculumId: 'c1' });
+  persistRun.mockResolvedValue({ lessonId: 'c1' });
   runLesson.mockReset();
   runLesson.mockResolvedValue({ result: { hub: { tiers: [] }, pages: [] }, records: [], costUsd: 0 });
 });

@@ -240,14 +240,14 @@ test.describe('generating geometry — the four SPEC §10.4 guarantees (BUILT ap
     baseURL,
   }) => {
     await signInAsTestOwner(context, baseURL ?? '');
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD }),
       });
     });
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page.getByText('Where does a plant’s mass come from?')).toBeVisible();
     await expect(page.getByText(/2 \/ 3 extracted/)).toBeVisible();
     // Let the layout effect measure + the edges draw (reduced motion → no entrance to wait out).
@@ -265,14 +265,14 @@ test.describe('generating geometry — the four SPEC §10.4 guarantees (BUILT ap
     baseURL,
   }) => {
     await signInAsTestOwner(context, baseURL ?? '');
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD_STRESS }),
       });
     });
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     await expect(page.getByText('Where does a plant’s mass come from?')).toBeVisible();
     await expect.poll(async () => (await measureGeometry(page)).edges.length).toBeGreaterThan(0);
 
@@ -339,14 +339,14 @@ test.describe('generating title-clamp integrity — no node title is sliced (BUI
     baseURL,
   }) => {
     await signInAsTestOwner(context, baseURL ?? '');
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD_TITLES }),
       });
     });
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     // The LONG research question must render as a node — proves the mixed-length payload landed.
     await expect(
       page.locator('.gen-node__title', { hasText: 'commercial bottom trawling' }),

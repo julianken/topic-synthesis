@@ -69,7 +69,7 @@ test.describe('smoke — generate → generating (pipeline + dispatch mocked)', 
 
     // Fill the topic and submit. The form POSTs /api/generate which (E2E=1) runs the NETWORK-FREE stub
     // pipeline in-process and returns a runId; the in-place generating shell polls + navigates to
-    // /curriculum/<id> once the (fast) stub run lands.
+    // /lesson/<id> once the (fast) stub run lands.
     await page.getByRole('textbox').first().fill('Fourier transforms');
     await page.getByRole('button', { name: /generate/i }).click();
 
@@ -81,7 +81,7 @@ test.describe('smoke — generate → generating (pipeline + dispatch mocked)', 
     expect(body).toHaveProperty('audience'); // present (empty string when unfilled)
 
     // Land on the reader route for the new run (the in-place generating shell navigates on ready).
-    await expect(page).toHaveURL(/\/curriculum\/[0-9a-f-]+$/i, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/lesson\/[0-9a-f-]+$/i, { timeout: 30_000 });
 
     // The reader shows EITHER the generating state (run still in flight, polling status) OR — once the
     // fast network-free stub run has persisted — the built lesson. BOTH are valid harness-proving

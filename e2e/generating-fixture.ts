@@ -1,5 +1,5 @@
 // A DETERMINISTIC mid-run status payload for the live-research GENERATING view (Figma 1:2) — the exact
-// shape `GET /api/curriculum/[id]/status` returns ({ ready, steps, research }). The visual spec (and the
+// shape `GET /api/lesson/[id]/status` returns ({ ready, steps, research }). The visual spec (and the
 // /tmp render script) intercept the status poll with THIS payload so the captured node-graph + LIVE
 // RESEARCH panel are byte-stable, with NO live pipeline and NO model spend.
 //

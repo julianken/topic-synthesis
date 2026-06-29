@@ -72,7 +72,7 @@ test.describe('visual — library (authed)', () => {
     // same owner, so the grid count isn't deterministic, but the seeded card's pixels are. The seed uses a
     // FIXED system serif (Iowan Old Style) for the title; unlike the intake's native <select>/range that AA-
     // shimmer, a plain serif text card is stable, so this IS a pixel snapshot (the dense-card render gate).
-    const card = page.locator(`a.library-poster__card[href$="/curriculum/${SEED_RUN_ID}"]`);
+    const card = page.locator(`a.library-poster__card[href$="/lesson/${SEED_RUN_ID}"]`);
     await expect(card).toBeVisible();
     // Assert the dense rows are present (the eyebrow + description the card adds), then pixel-grade it.
     await expect(card.locator('.library-poster__eyebrow')).toHaveText('BIOLOGY');
@@ -144,7 +144,7 @@ test.describe('visual — generating (live-research, mid-run)', () => {
     // Intercept the owner-scoped status poll for the seeded in-flight run, returning the fixed mid-run
     // research+steps payload (REAL-shaped: plan done, two questions answered, one extracting, brief
     // forming). This is the SAME contract the route serves — only the data is pinned for determinism.
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -152,7 +152,7 @@ test.describe('visual — generating (live-research, mid-run)', () => {
       });
     });
 
-    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
     // The view renders its own "Generating…" heading + the live-research surfaces.
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
     // The node-graph carries the real research questions; the panel carries the grounded findings.
@@ -197,7 +197,7 @@ test.describe('visual — generating (live-research, mid-run)', () => {
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID }),
       });
     });
-    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

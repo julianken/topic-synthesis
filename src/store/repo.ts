@@ -19,7 +19,7 @@ export interface StoreDeps {
 }
 
 export interface PersistRunInput {
-  /** The run id; also the curriculum id (one run = one curriculum in v1). */
+  /** The run id; also the persisted `curriculum`-table row id (one run = one row in v1). */
   runId: string;
   request: TopicRequest;
   result: PipelineResult;
@@ -68,7 +68,7 @@ function flattenHub(hub: SitemapHub): FlatPage[] {
 export async function persistRun(
   input: PersistRunInput,
   deps: StoreDeps = { pool: getPool() },
-): Promise<{ curriculumId: string }> {
+): Promise<{ lessonId: string }> {
   const { runId, request, result, costUsd, modelSnapshots, eleaticRunId, ownerSub, category, summary } =
     input;
   const bucket = bucketize(request.settings);
@@ -167,7 +167,7 @@ export async function persistRun(
     await client.query('DELETE FROM research_event WHERE run_id = $1', [runId]);
     await client.query('COMMIT');
     client.release();
-    return { curriculumId: runId };
+    return { lessonId: runId };
   } catch (err) {
     // Guard the rollback so its own failure can't mask the original error, and release WITH
     // the error so a poisoned connection is destroyed rather than handed back to the pool.
@@ -181,7 +181,7 @@ export async function persistRun(
   }
 }
 
-export interface CurriculumView {
+export interface LessonView {
   id: string;
   topic: string;
   settings: Settings;
@@ -198,7 +198,7 @@ interface PageJoinRow {
 }
 
 /** Rebuild the tiered hub from ordered join rows (the inverse of flattenHub). Pure. */
-export function rebuildHub(rows: PageJoinRow[], curriculumId: string): SitemapHub {
+export function rebuildHub(rows: PageJoinRow[], lessonId: string): SitemapHub {
   const tiers: SitemapHub['tiers'] = [];
   for (const row of rows) {
     let tier = tiers.find((t) => t.tier === row.tier);
@@ -219,7 +219,7 @@ export function rebuildHub(rows: PageJoinRow[], curriculumId: string): SitemapHu
       // Authorize the artifact THROUGH the owning curriculum (the cookie-borne, owner-checked route),
       // NOT a per-pageId capability — pageId is a content hash SHARED across curricula (identity.ts), so
       // it is no secret. Keyed by the URL-safe slug; the route re-resolves it owner-scoped.
-      href: `/curriculum/${encodeURIComponent(curriculumId)}/artifact/${encodeURIComponent(row.concept_slug)}`,
+      href: `/lesson/${encodeURIComponent(lessonId)}/artifact/${encodeURIComponent(row.concept_slug)}`,
     });
   }
   return { tiers };
@@ -227,11 +227,11 @@ export function rebuildHub(rows: PageJoinRow[], curriculumId: string): SitemapHu
 
 /** Read a curriculum + its tiered hub, OWNER-SCOPED: absent and not-owned both yield null (a uniform
  *  404 upstream — no 403/404 existence oracle). ADR 0002 §5. */
-export async function getCurriculum(
+export async function getLesson(
   id: string,
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
-): Promise<CurriculumView | null> {
+): Promise<LessonView | null> {
   const cur = await deps.pool.query<{ id: string; topic: string; settings_json: Settings }>(
     `SELECT id, topic, settings_json FROM curriculum WHERE id = $1 AND owner_sub = $2`,
     [id, ownerSub],
@@ -257,10 +257,10 @@ export interface StoredPage {
 }
 
 /** Read a page's stored HTML, authorized THROUGH the owning curriculum (ADR 0002 §5): a JOIN scoped to
- *  (curriculumId owned by ownerSub, slug). null for absent / not-owned (uniform 404). The slug — not
+ *  (lessonId owned by ownerSub, slug). null for absent / not-owned (uniform 404). The slug — not
  *  the shared content-hash pageId — is the lookup key, so a per-pageId capability is never the gate. */
 export async function getOwnedPage(
-  curriculumId: string,
+  lessonId: string,
   slug: string,
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
@@ -276,7 +276,7 @@ export async function getOwnedPage(
        JOIN curriculum_page cp ON cp.curriculum_id = c.id
        JOIN concept_page p ON p.id = cp.page_id
       WHERE c.id = $1 AND c.owner_sub = $2 AND p.concept_slug = $3`,
-    [curriculumId, ownerSub, slug],
+    [lessonId, ownerSub, slug],
   );
   const row = res.rows[0];
   if (!row) return null;
@@ -527,8 +527,8 @@ export class PgResearchSink implements ResearchSink {
 }
 
 /** One poster-card descriptor the library home (TS-17) renders a card grid from (TS-16). Thin by
- *  design — only the card fields, NOT the full tiered hub `getCurriculum` reads. `id` is the
- *  curriculum id (the card's `/curriculum/[id]` href target).
+ *  design — only the card fields, NOT the full tiered hub `getLesson` reads. `id` is the
+ *  curriculum id (the card's `/lesson/[id]` href target).
  *
  *  Maps to the DENSE Figma `6:2` poster card. The `category` eyebrow (node `6:41`) + the `summary`
  *  description (node `6:47`) are the two new dense rows: `category` is the subject label (BIOLOGY /
@@ -538,7 +538,7 @@ export class PgResearchSink implements ResearchSink {
  *  (REAL saved Settings) + the relative-time from `createdAt`. Every field is REAL stored data — a NULL
  *  category/summary (an old row or a classifier miss) just drops that row, never a fabricated value. */
 export interface LessonCard {
-  /** The curriculum id — the card's href target, `/curriculum/[id]`. */
+  /** The curriculum id — the card's href target, `/lesson/[id]`. */
   id: string;
   /** The single lesson page's `concept_slug`. */
   slug: string;
@@ -563,7 +563,7 @@ export interface LessonCard {
  *  home (TS-17) builds its card grid on. OWNER-SCOPED (ADR 0002 §5): scoped on `curriculum.owner_sub`,
  *  so a caller with no owned lessons AND an unknown/foreign `ownerSub` both get `[]` — no existence
  *  oracle. ONE owner-scoped query joining `curriculum` → a single representative `concept_page`,
- *  projecting only the card fields — NOT a per-lesson `getCurriculum` loop (which would be N+1 and
+ *  projecting only the card fields — NOT a per-lesson `getLesson` loop (which would be N+1 and
  *  over-fetch the tiered hub).
  *
  *  ONE CARD PER CURRICULUM — enforced by the QUERY, not by a single-page coincidence. Today every
@@ -571,7 +571,7 @@ export interface LessonCard {
  *  is general (one `curriculum_page` per page in `flattenHub`) and the multi-page curriculum path
  *  (`runPipeline`) is RETAINED for the curriculum-wrapper milestone. A naïve `curriculum JOIN
  *  curriculum_page JOIN concept_page` yields one row PER PAGE, so a multi-page curriculum would emit N
- *  duplicate cards sharing one `/curriculum/[id]` href. The inner `DISTINCT ON (c.id) ... ORDER BY c.id,
+ *  duplicate cards sharing one `/lesson/[id]` href. The inner `DISTINCT ON (c.id) ... ORDER BY c.id,
  *  cp.ordinal` collapses each curriculum to its lowest-ordinal page (the representative card), and the
  *  outer query re-orders newest-first — so the one-card-per-curriculum contract holds even once the
  *  wrapper milestone lands a multi-page curriculum in the DB.
@@ -598,7 +598,7 @@ export async function listLessons(
   }>(
     // ONE card per curriculum, newest-first. The inner DISTINCT ON (c.id) ... ORDER BY c.id, cp.ordinal
     // collapses each curriculum to its lowest-ordinal (representative) page — so a multi-page curriculum
-    // (the RETAINED runPipeline path) emits ONE card, not N duplicates sharing one /curriculum/[id] href
+    // (the RETAINED runPipeline path) emits ONE card, not N duplicates sharing one /lesson/[id] href
     // (today every curriculum is single-page per ADR-0003, but the query enforces it regardless). The
     // outer query re-orders the representatives newest-first (DISTINCT ON forces ORDER BY c.id first).
     // settings_json is the request's saved Settings (NOT-NULL JSONB column) — its level + depth fill the

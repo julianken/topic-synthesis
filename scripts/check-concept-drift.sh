@@ -11,9 +11,11 @@
 # It is an ALLOWLIST gate, not a denylist: it scans only LIVE surfaces and FENCES
 # OUT the legitimately-historical/retained trees. A retired term appears
 # *correctly* in old ADRs/research (history — don't retro-edit it), in retained
-# DORMANT machinery (tagged, not deleted), as code identifiers / route topology
-# (`/curriculum/{id}`, getCurriculum — a deferred rename, ADR-0003), and as the
-# roadmap north-star (the curriculum WRAPPER is the future, per README). Those
+# DORMANT machinery (tagged, not deleted), as the retained DB TABLE identifiers
+# (the `curriculum` / `curriculum_page` tables + their SQL — a deferred TABLE-NAME
+# rename, ADR-0003 §4; the `/lesson` route + read-path identifiers were renamed in
+# #172), and as the roadmap north-star (the curriculum WRAPPER is the future, per
+# README). Those
 # pass via the per-line escape hatch below, never via whole-file suppression.
 #
 # A matched line FAILS unless it is one of:

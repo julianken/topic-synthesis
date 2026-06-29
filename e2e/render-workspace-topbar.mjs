@@ -29,7 +29,7 @@ try {
     ]);
     const page = await context.newPage();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto(`${BASE}/curriculum/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/lesson/${SEED_RUN_ID}`, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { level: 1 }).first().waitFor();
     await page.locator('.ws-topbar').waitFor();
     // Drive a deterministic reading position (~45%) so the y=0 hairline shows a partial fill.

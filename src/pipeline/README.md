@@ -66,16 +66,16 @@ sequenceDiagram
   Note over APP: spend gate — allowlist check BEFORE any spend
   APP->>DB: recordRunOwner(runId, sub)
   APP->>JOB: dispatch (env: RUN_ID, TOPIC, …, RUN_OWNER)
-  APP-->>U: redirect to /curriculum/{runId}
+  APP-->>U: redirect to /lesson/{runId}
   loop poll until the row lands
-    U->>APP: GET /api/curriculum/{runId}/status
-    APP->>DB: getCurriculum(runId, sub)
+    U->>APP: GET /api/lesson/{runId}/status
+    APP->>DB: getLesson(runId, sub)
     APP-->>U: { ready:false } — ownsRun → "generating"
   end
   JOB->>JOB: runLesson (plan→research→brief→spec→code→critic)
   JOB->>DB: persistRun (one-page curriculum + owner_sub)
-  U->>APP: GET /curriculum/{runId}
-  APP->>DB: getCurriculum(runId, sub)
+  U->>APP: GET /lesson/{runId}
+  APP->>DB: getLesson(runId, sub)
   APP-->>U: render lesson in a sandboxed iframe
 ```
 

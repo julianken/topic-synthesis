@@ -3,7 +3,7 @@
  *
  * The generated lesson runs in an OPAQUE-ORIGIN sandbox (`sandbox="allow-scripts"` WITHOUT
  * `allow-same-origin`, served under `default-src 'none'` — `src/app/artifact/serve.ts`), so the
- * parent (`src/app/curriculum/[id]/page.tsx`, and TS-20's reader shell that wraps it) CANNOT read the
+ * parent (`src/app/lesson/[id]/page.tsx`, and TS-20's reader shell that wraps it) CANNOT read the
  * iframe DOM. A small `postMessage` channel — the in-iframe sender emits it (instructed by the
  * `code` stage, `src/pipeline/code.ts`); this is the receive side — is the only mechanism for the
  * later reading-progress bar / ⌘K section-jump / in-iframe dot-scrubber coordination (TS-20).

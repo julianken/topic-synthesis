@@ -9,7 +9,7 @@ import { STAGE_MODELS } from '../llm/models';
 import type { Research } from '../domain/stages';
 import {
   DISPATCH_STEP_NAME,
-  getCurriculum,
+  getLesson,
   getOwnedPage,
   getResearchEvents,
   getStepEvents,
@@ -109,8 +109,8 @@ describe('rebuildHub', () => {
     );
     expect(hub.tiers).toHaveLength(1);
     expect(hub.tiers[0]?.categories[0]?.pages).toEqual([
-      { slug: 'sine', title: 'Sine', status: 'built', built: true, href: '/curriculum/c1/artifact/sine' },
-      { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, href: '/curriculum/c1/artifact/cosine' },
+      { slug: 'sine', title: 'Sine', status: 'built', built: true, href: '/lesson/c1/artifact/sine' },
+      { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, href: '/lesson/c1/artifact/cosine' },
     ]);
   });
 
@@ -120,7 +120,7 @@ describe('rebuildHub', () => {
       'cur-1',
     );
     const href = hub.tiers[0]?.categories[0]?.pages[0]?.href;
-    expect(href).toBe('/curriculum/cur-1/artifact/sine');
+    expect(href).toBe('/lesson/cur-1/artifact/sine');
     expect(href).not.toContain('a1b2c3'); // the shared content-hash pageId is never in the URL
   });
 });
@@ -132,7 +132,7 @@ describe('persistRun (transaction shape, fake pool)', () => {
       { runId: 'run-1', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
       deps,
     );
-    expect(out.curriculumId).toBe('run-1');
+    expect(out.lessonId).toBe('run-1');
     const sqls = sqlsOf(client.query);
     expect(sqls[0]).toBe('BEGIN');
     expect(sqls.at(-1)).toBe('COMMIT');
@@ -256,7 +256,7 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
       { runId: 'lesson-1', request, result: lessonResult, costUsd: 0.05, modelSnapshots: STAGE_MODELS, ownerSub: 'owner-1' },
       deps,
     );
-    expect(out.curriculumId).toBe('lesson-1');
+    expect(out.lessonId).toBe('lesson-1');
     const sqls = sqlsOf(client.query);
     // exactly one page row both sides of the join — flattenHub is total over a single page.
     expect(sqls.filter((s) => s.includes('INTO concept_page'))).toHaveLength(1);
@@ -308,13 +308,13 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
         rows: [{ tier: 'Tier 1', category: 'Lesson', page_id: 'p1', concept_slug: 'fourier', title: 'Fourier', status: 'built' }],
       },
     ]);
-    const view = await getCurriculum('lesson-1', 'owner-1', owned.deps);
+    const view = await getLesson('lesson-1', 'owner-1', owned.deps);
     const pages = view?.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
     expect(pages).toHaveLength(1);
     expect(pages?.[0]?.slug).toBe('fourier');
-    expect(pages?.[0]?.href).toBe('/curriculum/lesson-1/artifact/fourier');
+    expect(pages?.[0]?.href).toBe('/lesson/lesson-1/artifact/fourier');
     // a different owner → curriculum row absent → null (uniform 404, no cross-owner read)
-    expect(await getCurriculum('lesson-1', 'someone-else', fakePool().deps)).toBeNull();
+    expect(await getLesson('lesson-1', 'someone-else', fakePool().deps)).toBeNull();
     // the owned page is reachable owner-scoped; a foreign owner gets null
     const pageHit = fakePool([
       { match: 'JOIN concept_page', rows: [{ concept_slug: 'fourier', title: 'Fourier', status: 'built', html: '<h1>x</h1>' }] },
@@ -324,14 +324,14 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
   });
 });
 
-describe('getCurriculum / getOwnedPage (fake pool, owner-scoped)', () => {
+describe('getLesson / getOwnedPage (fake pool, owner-scoped)', () => {
   it('returns null when the curriculum is absent or not owned (uniform)', async () => {
-    expect(await getCurriculum('nope', 'owner-1', fakePool().deps)).toBeNull();
+    expect(await getLesson('nope', 'owner-1', fakePool().deps)).toBeNull();
   });
 
   it('scopes the read by owner_sub (no cross-owner read)', async () => {
     const { deps, client } = fakePool();
-    await getCurriculum('c1', 'owner-1', deps);
+    await getLesson('c1', 'owner-1', deps);
     expect(sqlsOf(client.query).some((s) => s.includes('owner_sub = $2'))).toBe(true);
   });
 
@@ -343,9 +343,9 @@ describe('getCurriculum / getOwnedPage (fake pool, owner-scoped)', () => {
         rows: [{ tier: 'T1', category: 'C', page_id: 'p1', concept_slug: 'sine', title: 'Sine', status: 'built' }],
       },
     ]);
-    const view = await getCurriculum('c1', 'owner-1', deps);
+    const view = await getLesson('c1', 'owner-1', deps);
     expect(view?.topic).toBe('Fourier');
-    expect(view?.hub.tiers[0]?.categories[0]?.pages[0]?.href).toBe('/curriculum/c1/artifact/sine');
+    expect(view?.hub.tiers[0]?.categories[0]?.pages[0]?.href).toBe('/lesson/c1/artifact/sine');
   });
 
   it('getOwnedPage returns the html via the owner-scoped JOIN, null when not owned', async () => {
@@ -718,7 +718,7 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
 
   it('dedups to ONE card per curriculum in the QUERY: a multi-page curriculum (RETAINED runPipeline) can never emit N duplicate cards', async () => {
     // The reader joins curriculum → curriculum_page → concept_page, which yields one row PER PAGE — a
-    // multi-page curriculum would emit N cards sharing one /curriculum/[id] href. The fix is structural:
+    // multi-page curriculum would emit N cards sharing one /lesson/[id] href. The fix is structural:
     // an inner DISTINCT ON (c.id) collapses each curriculum to its lowest-ordinal representative page.
     // Assert the SQL carries that dedup (the fake pool can't execute it; the guarantee lives in the query).
     const fp = fakePool([{ match: 'FROM curriculum c', rows: [cardRow()] }]);
@@ -742,7 +742,7 @@ describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', 
     const runId = `itest-${randomUUID()}`;
     const ownerSub = `owner-${randomUUID()}`;
     await persistRun({ runId, request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
-    const view = await getCurriculum(runId, ownerSub, deps);
+    const view = await getLesson(runId, ownerSub, deps);
     expect(view?.topic).toBe('Fourier');
     const built = view?.hub.tiers
       .flatMap((t) => t.categories.flatMap((c) => c.pages))
@@ -750,6 +750,6 @@ describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', 
     expect(built).toBeTruthy();
     const page = await getOwnedPage(runId, built?.slug ?? '', ownerSub, deps);
     expect(page?.html).toContain('Sine');
-    expect(await getCurriculum(runId, 'someone-else', deps)).toBeNull();
+    expect(await getLesson(runId, 'someone-else', deps)).toBeNull();
   });
 });
