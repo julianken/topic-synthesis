@@ -283,6 +283,107 @@ test.describe('lesson-workspace scrubber — inside the frame (not edge-pinned)'
   });
 });
 
+// ── The rail is a MINIMAP that SPANS the reading column (anchored, NOT a top cluster) ─────────────────
+// The fix's geometric contract: the lesson scrolls INSIDE the iframe (.artifact-frame is a fixed-height
+// viewport), so the outer chrome is near-static and a `position: sticky` rail had nothing to stick to —
+// it bunched as a ~180px cluster at the TOP of the 720px reading column (reading as absolutely-positioned,
+// not anchored). The fix stretches the [scrub] cell and spans the rail to the reading column's height,
+// distributing the dots evenly read-start → read-end, with the active dot's vertical position tracking
+// scrollProgress DOWN the column. Every threshold below is chosen to FAIL on the pre-fix CSS (rail
+// height ≈180, dot span ≈140, active movement ≈140) and PASS on the fix (rail ≈720, span ≈696, ≈696).
+// (Desktop only: the [scrub] track folds away ≤900 — asserted in its own describe below.)
+test.describe('lesson-workspace scrubber — minimap spans the reading column (not a top cluster)', () => {
+  test.skip(({ viewport }) => (viewport?.width ?? 0) <= 900, 'scrub is hidden on the ≤900 collapse');
+
+  test('the rail spans the reading column height and distributes its dots, top→bottom (not bunched)', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openBuiltLesson(page, context, baseURL);
+    await driveProgress(page, 0.5);
+
+    const g = await page.evaluate(() => {
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom, height: b.height };
+      };
+      const dots = Array.from(document.querySelectorAll('.ws-scrub__dot')).map((el) => {
+        const b = el.getBoundingClientRect();
+        return b.top + b.height / 2;
+      });
+      return { read: box('.ws-read'), rail: box('.ws-scrub__rail'), dots };
+    });
+
+    expect(g.read).not.toBeNull();
+    expect(g.rail).not.toBeNull();
+    expect(g.dots.length).toBe(SEED_SECTION_COUNT);
+    const readH = g.read!.height;
+
+    // (a) The rail SPANS the reading column: its height is essentially the reading column's height (the
+    // minimap is the SAME height as the reading area it maps onto), and its top/bottom are ANCHORED to
+    // the reading column's top/bottom — not a short content cluster floating at the top.
+    expect(g.rail!.height).toBeGreaterThanOrEqual(0.92 * readH); // pre-fix ≈180 << 0.92×720 → fails
+    expect(Math.abs(g.rail!.top - g.read!.top)).toBeLessThanOrEqual(4); // anchored to read-start
+    expect(Math.abs(g.rail!.bottom - g.read!.bottom)).toBeLessThanOrEqual(8); // and to read-end (pre-fix off by ~540)
+
+    // (b) The dots are DISTRIBUTED across the reading column, not bunched: the first dot sits near the
+    // top, the last near the bottom, and their span covers most of the column.
+    const first = g.dots[0]!;
+    const last = g.dots[g.dots.length - 1]!;
+    expect(first).toBeLessThanOrEqual(g.read!.top + 0.15 * readH); // first dot near read-start
+    expect(last).toBeGreaterThanOrEqual(g.read!.bottom - 0.15 * readH); // last dot near read-end (pre-fix fails)
+    expect(last - first).toBeGreaterThanOrEqual(0.6 * readH); // span ≈696 ≥ 432 (pre-fix ≈140 → fails)
+
+    // (c) The distribution is EVEN (a minimap, not a random scatter): adjacent pitches are within a tight
+    // band of their mean, so no two dots overlap and none is clustered.
+    const pitches = g.dots.slice(1).map((cy, i) => cy - g.dots[i]!);
+    const meanPitch = pitches.reduce((s, p) => s + p, 0) / pitches.length;
+    for (const p of pitches) {
+      expect(Math.abs(p - meanPitch)).toBeLessThanOrEqual(2); // evenly spaced (space-between)
+      expect(p).toBeGreaterThanOrEqual(24); // ≥ the 24px hit-box height → adjacent boxes never overlap
+    }
+  });
+
+  test('the active dot tracks scrollProgress DOWN the column — its y rises with progress', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openBuiltLesson(page, context, baseURL);
+
+    const readH = await page.evaluate(() => document.querySelector('.ws-read')!.getBoundingClientRect().height);
+
+    const activeCy = async (): Promise<number> => {
+      return page.evaluate(() => {
+        const el = document.querySelector('.ws-scrub__dot[data-active]');
+        if (!el) return Number.NaN;
+        const b = el.getBoundingClientRect();
+        return b.top + b.height / 2;
+      });
+    };
+
+    // Near the start: the active dot sits near the TOP of the reading column.
+    await driveProgress(page, 0.02);
+    const lowCy = await activeCy();
+    expect(Number.isNaN(lowCy)).toBe(false);
+
+    // Near the end: the active dot has MOVED to near the BOTTOM of the reading column.
+    await driveProgress(page, 0.98);
+    const highCy = await activeCy();
+    expect(Number.isNaN(highCy)).toBe(false);
+
+    // The active dot moved DOWN by most of the reading column's height as progress went 0.02 → 0.98 —
+    // the minimap tracks scrollProgress vertically. Pre-fix the whole rail spanned ≈140px, so the active
+    // dot could move at most ≈140px (< 0.5×720) — this assertion fails on the bunched-cluster CSS.
+    expect(highCy - lowCy).toBeGreaterThanOrEqual(0.5 * readH);
+  });
+});
+
 // ── Clicking dot i posts the coordinate-only { type:'lesson:scrollTo', id:<section i> } across the boundary ─
 // The exact-payload + targetOrigin-'null'-never-'*' guarantee is pinned at the UNIT level
 // (lesson-scroll-sender.test.ts). Here the BUILT-APP proof is that activating a dot posts a coordinate-only

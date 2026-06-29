@@ -292,7 +292,10 @@ h1 {
 .artifact-frame {
   display: block;
   width: 100%;
-  height: 80vh;
+  /* The reading column's height (the lesson scrolls INSIDE this fixed viewport). Tokenized so the
+     [scrub] minimap rail can span the SAME height (--ws-read-h, defined on .reader--ws); the fallback
+     keeps it 80vh anywhere .artifact-frame is used outside the workspace. */
+  height: var(--ws-read-h, 80vh);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-surface);
@@ -328,6 +331,10 @@ h1 {
   --ws-panel-w: var(--panel-w);
   --ws-col-gap: var(--col-gap);
   --ws-scrub-w: var(--scrub-w);
+  /* The reading-column height — the SINGLE source of truth for both the .artifact-frame iframe AND the
+     [scrub] minimap rail, so the rail is always exactly as tall as the reading area it maps onto (change
+     this one value and both follow). Component-local --ws-* — NO §0 retoken. */
+  --ws-read-h: 80vh;
   --ws-collapse: 60rem; /* ≤900px → single-column collapse (DESIGN.md §Lesson layout invariant) */
 
   margin: 0;
@@ -384,28 +391,46 @@ h1 {
    `panel-end / scrub` span (the 1.1rem --ws-scrub-w track) — NOT the `scrub / screen-end` OUTER 1fr
    gutter (placing the rail there would orphan it ~140px to the right against the viewport edge, the
    exact "scrubber not against the screen edge" anti-pattern of DESIGN.md §Lesson layout decisions 3/4
-   + the named-grid-set note "[scrub] reserved … parked inside the capped frame"). PR-C fills the track
-   with the section dot-rail of KEYBOARD-OPERABLE jump <button>s (one per posted section, active dot
-   tracks scrollProgress). The rail is sticky so it tracks the reader. */
+   + the named-grid-set note "[scrub] reserved … parked inside the capped frame").
+
+   The rail is a MINIMAP of the reading column, NOT a page-scroll-sticky strip. The lesson scrolls INSIDE
+   the opaque iframe (.artifact-frame is a fixed --ws-read-h viewport), so the OUTER chrome is (near-)
+   static — a `position: sticky` rail had nothing to stick to and, because the section's align-items:start
+   makes this cell its CONTENT height, it bunched as a ~180px cluster at the TOP of the 720px reading
+   column (it read as absolutely-positioned, not anchored). The fix STRETCHES this cell to the grid row
+   (align-self:stretch — overriding align-items:start for THIS cell ONLY; the [read]/[panel] start-
+   alignment + the prose spine subgrid are untouched) and the rail SPANS the reading column's height,
+   distributing one dot per posted section evenly from read-start → read-end. Each dot's vertical position
+   therefore maps to its section's place in the reading flow, and because the active dot is
+   floor(scrollProgress × count) its position tracks scrollProgress DOWN the column — a true scrub/minimap.
+   The dots are KEYBOARD-OPERABLE jump <button>s (one per posted section, active/done by style + label). */
 .ws-scrub {
   grid-column: panel-end / scrub;
   min-inline-size: 0;
   justify-self: center;
+  /* span the grid row so the rail can fill the reading column's height — overrides the section's
+     align-items:start for THIS cell only (the read/panel start-alignment + spine subgrid are untouched). */
+  align-self: stretch;
 }
 .ws-scrub__rail {
-  position: sticky;
-  top: var(--sp-5);
+  /* SPAN the reading column: pinned to the SAME --ws-read-h the .artifact-frame uses (NOT the panel-
+     driven row height), top-anchored at read-start, so the minimap is always exactly the reading area's
+     height regardless of how tall the apparatus panel grows. NO `position: sticky` — the page barely
+     scrolls (the lesson scrolls inside the iframe), so a sticky rail is a no-op; the minimap is a fixed-
+     height column beside the fixed-height reading frame and the ACTIVE dot (driven by scrollProgress) is
+     what moves. */
+  block-size: var(--ws-read-h);
   list-style: none;
   margin: 0;
-  padding: var(--sp-2) 0;
-  display: grid;
-  grid-auto-flow: row;
-  /* a11y (WCAG 2.2 AA, SC 2.5.8 Target Size Minimum): the HIT TARGET is the 24px button BOX, not the
-     8px visible dot. Each button is laid out at --ws-scrub-target (24px) tall, so the row pitch is
-     24px + gap ≥ 24px and adjacent 24px hit boxes never overlap — the spacing-exception failure of the
-     old 20px pitch is gone. A small gap keeps a visible breath between the 8px dots without dropping
-     pitch below 24px (24 + 4 = 28px pitch). */
-  gap: var(--sp-1); /* 4px → 28px center-to-center pitch (≥ the 24px target diameter, no overlap) */
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Distribute the dots evenly down the reading column: dot 1 at read-start, dot N at read-end, the rest
+     equally between — so each dot's y maps to its section's position (a minimap). a11y (WCAG 2.2 AA, SC
+     2.5.8 Target Size Minimum): the HIT TARGET is the 24px button BOX (not the 8px visible dot); over a
+     full-column rail the inter-dot pitch is far above 24px, so adjacent 24px hit boxes never overlap. */
+  justify-content: space-between;
 }
 .ws-scrub__rail li {
   display: block;
