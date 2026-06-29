@@ -1,7 +1,7 @@
-import { MockLanguageModelV3 } from 'ai/test';
+import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { complete, completeObject, searchWeb } from './client';
+import { complete, completeObject, searchWeb, streamComplete } from './client';
 import type { StageModel } from './models';
 
 const OPUS: StageModel = { provider: 'anthropic', model: 'claude-opus-4-8' };
@@ -99,5 +99,64 @@ describe('searchWeb', () => {
       { url: 'https://b.example', title: 'https://b.example' }, // title fell back to the url
     ]);
     expect(res.record.costUsd).toBeGreaterThan(0);
+  });
+});
+
+/** A mock STREAMING model (the doStream sibling of mockModel) — emits the text in deltas, then a finish
+ *  part carrying the usage + finish reason, exactly as a real provider stream does. */
+function mockStream(
+  chunks: string[],
+  opts: { finishReason?: 'stop' | 'length' | 'content-filter' | 'error' | 'tool-calls'; input?: number; output?: number } = {},
+) {
+  const reason = opts.finishReason ?? 'stop';
+  return new MockLanguageModelV3({
+    doStream: {
+      stream: convertArrayToReadableStream([
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 't1' },
+        ...chunks.map((delta) => ({ type: 'text-delta' as const, id: 't1', delta })),
+        { type: 'text-end', id: 't1' },
+        {
+          type: 'finish',
+          finishReason: { unified: reason, raw: reason },
+          usage: {
+            inputTokens: { total: opts.input ?? 0, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+            outputTokens: { total: opts.output ?? 0, text: undefined, reasoning: undefined },
+          },
+        },
+      ]),
+    },
+  });
+}
+
+describe('streamComplete', () => {
+  it('streams the text and records per-call timing (ttftMs / genMs / maxTokens / outputBytes)', async () => {
+    const res = await streamComplete(
+      { model: OPUS, prompt: 'hi', maxTokens: 32000 },
+      undefined,
+      mockStream(['<!doctype html>', '<body>', '...</body>'], { output: 120 }),
+    );
+    expect(res.text).toBe('<!doctype html><body>...</body>');
+    expect(res.record.outputTokens).toBe(120);
+    expect(typeof res.record.ttftMs).toBe('number');
+    expect(typeof res.record.genMs).toBe('number');
+    expect(res.record.ttftMs).toBeGreaterThanOrEqual(0);
+    expect(res.record.genMs).toBeGreaterThanOrEqual(0);
+    expect(res.record.maxTokens).toBe(32000);
+    expect(res.record.outputBytes).toBe('<!doctype html><body>...</body>'.length);
+  });
+
+  it('throws on a truncated (length) finish reason — the guard is preserved on the streaming path', async () => {
+    await expect(
+      streamComplete({ model: OPUS, prompt: 'x', maxTokens: 8000 }, undefined, mockStream(['partial'], { finishReason: 'length' })),
+    ).rejects.toThrow(/truncated|cap/);
+  });
+
+  it('reports progress as chunks arrive (the PR-4 live-UI hook)', async () => {
+    const seen: { outputTokens: number; elapsedMs: number; phase: string }[] = [];
+    await streamComplete({ model: OPUS, prompt: 'hi' }, (p) => seen.push(p), mockStream(['a', 'b', 'c'], { output: 9 }));
+    expect(seen.length).toBeGreaterThanOrEqual(1);
+    expect(seen[seen.length - 1]?.phase).toBe('generating');
+    expect(seen[seen.length - 1]?.elapsedMs).toBeGreaterThanOrEqual(0);
   });
 });

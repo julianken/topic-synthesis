@@ -65,7 +65,9 @@ function fakeDeps(questions: string[] = ['q1', 'q2'], coverages: number[] = [0.9
     record: mkRec(),
   }));
   const complete = vi.fn(async () => ({ text: '<!doctype html><html></html>', record: mkRec() }));
-  return { complete, completeObject, searchWeb } as unknown as StageDeps;
+  // `code` streams (PR-1) — stub streamComplete too (same canned page); a test can reject it to fail code.
+  const streamComplete = vi.fn(async () => ({ text: '<!doctype html><html></html>', record: mkRec() }));
+  return { complete, streamComplete, completeObject, searchWeb } as unknown as StageDeps;
 }
 
 const req: TopicRequest = { topic: 'T', settings: { level: 'intro', depth: 2, audience: 'a' } };
@@ -127,7 +129,7 @@ describe('runPipeline', () => {
   it('degrades a node to soon when its synthesis throws — does NOT crash the whole run', async () => {
     const deps = fakeDeps(['q1'], [0.9, 0.9]); // 2 built-routed nodes
     // The code stage hits the model output cap → the client guard throws (the real failure mode).
-    (deps.complete as ReturnType<typeof vi.fn>).mockRejectedValue(
+    (deps.streamComplete as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('"anthropic:x" hit the output cap (16000); output is truncated. Raise maxTokens.'),
     );
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -265,7 +267,9 @@ function lessonFakeDeps(questions: string[] = ['q1', 'q2'], criticPassed = true)
     record: mkRec(),
   }));
   const complete = vi.fn(async () => ({ text: '<!doctype html><html></html>', record: mkRec() }));
-  return { complete, completeObject, searchWeb } as unknown as StageDeps;
+  // `code` streams (PR-1) — stub streamComplete too (same canned page); a test can reject it to fail code.
+  const streamComplete = vi.fn(async () => ({ text: '<!doctype html><html></html>', record: mkRec() }));
+  return { complete, streamComplete, completeObject, searchWeb } as unknown as StageDeps;
 }
 
 describe('runLesson (single-lesson path)', () => {
@@ -322,7 +326,7 @@ describe('runLesson (single-lesson path)', () => {
 
   it('does NOT crash when synthesis throws — degrades to a zero-page soon lesson', async () => {
     const deps = lessonFakeDeps(['q1']);
-    (deps.complete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('output cap hit'));
+    (deps.streamComplete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('output cap hit'));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const out = await runLesson(req, new InlineEngine(), deps);
     const hubPages = out.result.hub.tiers.flatMap((t) => t.categories.flatMap((c) => c.pages));
@@ -343,7 +347,7 @@ describe('runLesson (single-lesson path)', () => {
     expect(calls.filter(([o]) => o.schema === PageSpecSchema)).toHaveLength(1);
     expect(calls.filter(([o]) => o.schema === LessonBriefSchema)).toHaveLength(1);
     expect(calls.filter(([o]) => o.schema === CriticVerdictSchema)).toHaveLength(1);
-    expect((deps.complete as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    expect((deps.streamComplete as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 
   // ── the dense card's presentation metadata (category eyebrow + summary description) ──────────────

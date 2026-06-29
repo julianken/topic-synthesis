@@ -12,7 +12,7 @@
 import type { Stage } from '../llm/models';
 
 /** Bumped when the emitted envelope/field shape changes, so #167's metric extractors can evolve. */
-export const EVENT_SCHEMA_VERSION = 1;
+export const EVENT_SCHEMA_VERSION = 2;
 
 /**
  * The canonical `stage` label — the engine step-name vocabulary, which is ALSO the `step_event` /
@@ -49,6 +49,13 @@ export type WorkflowEvent =
       inputTokens: number;
       outputTokens: number;
       costUsd: number;
+      // PR-1: per-call wall-clock + size, present ONLY for a STREAMED call (the `code` stage). The
+      // dashboard (PR-2) + eleatic (PR-3) read these; absent for the blocking analysis-stage calls.
+      ttftMs?: number;
+      genMs?: number;
+      tokensPerSec?: number;
+      maxTokens?: number;
+      outputBytes?: number;
     }
   | {
       eventType: 'run.complete';

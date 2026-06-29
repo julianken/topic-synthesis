@@ -14,13 +14,35 @@ export class SpanToEventSink implements TraceSink {
   constructor(private readonly sink: EventSink) {}
 
   onSpan(span: TraceSpan): void {
-    void this.sink.onEvent({
-      eventType: 'llm.call',
+    const r = span.record;
+    const base = {
+      eventType: 'llm.call' as const,
       stage: stageLabel(span.stage),
-      model: span.record.providerModel,
-      inputTokens: span.record.inputTokens,
-      outputTokens: span.record.outputTokens,
-      costUsd: span.record.costUsd,
-    });
+      model: r.providerModel,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      costUsd: r.costUsd,
+    };
+    // The streaming `code` call (PR-1) sets ALL the per-call timing fields together; a blocking call
+    // sets none. Narrow on the whole group so the streamed branch assigns numbers (no explicit
+    // `undefined` under exactOptionalPropertyTypes) and the blocking branch omits them entirely.
+    // tokensPerSec is DERIVED here (the record stores genMs + outputTokens, not the throughput).
+    if (
+      r.ttftMs !== undefined &&
+      r.genMs !== undefined &&
+      r.maxTokens !== undefined &&
+      r.outputBytes !== undefined
+    ) {
+      void this.sink.onEvent({
+        ...base,
+        ttftMs: r.ttftMs,
+        genMs: r.genMs,
+        tokensPerSec: r.genMs > 0 ? Math.round(r.outputTokens / (r.genMs / 1000)) : 0,
+        maxTokens: r.maxTokens,
+        outputBytes: r.outputBytes,
+      });
+    } else {
+      void this.sink.onEvent(base);
+    }
   }
 }

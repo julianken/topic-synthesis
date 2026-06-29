@@ -36,6 +36,9 @@ function fakeDeps(verdict: Record<string, number>, record: LlmCallRecord): Stage
     searchWeb: () => {
       throw new Error('searchWeb should not be called by the judge');
     },
+    streamComplete: () => {
+      throw new Error('streamComplete should not be called by the judge');
+    },
   };
 }
 
@@ -61,6 +64,9 @@ describe('judgeBrief', () => {
       searchWeb: () => {
         throw new Error('unused');
       },
+      streamComplete: () => {
+        throw new Error('unused');
+      },
     };
     await judgeBrief(brief, deps);
     expect(captured?.system).toBe(JUDGE_SYSTEM);
@@ -79,6 +85,9 @@ describe('judgeBrief', () => {
         return Promise.resolve({ object: { groundedness: 1, goalClarity: 1, audienceFit: 1 } as T, record: rec(0.01) });
       },
       searchWeb: () => {
+        throw new Error('unused');
+      },
+      streamComplete: () => {
         throw new Error('unused');
       },
     };

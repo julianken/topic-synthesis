@@ -80,8 +80,10 @@ function cannedObject(schema: unknown): unknown {
 }
 
 export const e2eStubDeps: StageDeps = {
-  // The stages call `complete` only for `code` (free-text HTML). Return the canned page.
+  // The `code` stage now STREAMS (`streamComplete`); no stage calls the blocking `complete`. Both
+  // return the canned page so the harness stays model-free.
   complete: async () => ({ text: STUB_HTML, record: ZERO_RECORD }),
+  streamComplete: async () => ({ text: STUB_HTML, record: ZERO_RECORD }),
   // Validate the canned object against the real schema so a contract change that the stub no longer
   // satisfies fails loudly here rather than producing a malformed run.
   completeObject: async ({ schema }: { schema: { parse: (v: unknown) => unknown } }) => ({
