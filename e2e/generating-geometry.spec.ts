@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
 import { SEED_GENERATING_RUN_ID } from './seed';
-import { GENERATING_STATUS_PAYLOAD, GENERATING_STATUS_PAYLOAD_STRESS } from './generating-fixture';
+import {
+  GENERATING_STATUS_PAYLOAD,
+  GENERATING_STATUS_PAYLOAD_STRESS,
+  GENERATING_STATUS_PAYLOAD_TITLES,
+} from './generating-fixture';
 
 // generating-geometry.spec — the BUILT-APP MEASUREMENT proof for the full-width column-table generating
 // view (SPEC §10 item 4 in .superpowers/generating-layout/SPEC.md). The visual.spec captures the SHIPPED
@@ -277,5 +281,109 @@ test.describe('generating geometry — the four SPEC §10.4 guarantees (BUILT ap
     expect(geom.visibleResearch, 'N=8 caps the visible research column at 3').toBe(3);
     expect(geom.overflowChip, 'N=8 shows the "+5 below" overflow chip').toMatch(/\+5 below/);
     assertGuarantees(geom);
+  });
+});
+
+// ── TITLE-CLAMP INTEGRITY — the fifth guarantee: NO node title is sliced ─────────────────────────────────
+// The `.gen-node` is a fixed-height grid (`grid-template-rows: auto 1fr auto`); its `.gen-node__title`
+// (`-webkit-line-clamp:2; overflow:hidden`) sits in the `1fr` middle track. Before the fix, the grid
+// default `align-items: stretch` stretched the clamp box to the track height (~2.4×line-height), so
+// `overflow:hidden` clipped MID-line-3 — a sliced partial line bleeding above the meta (owner-reported).
+// The fix pins the title to its own ≤2-line content height (`align-self: start` + `max-height: 2×1.3em`),
+// so the clip ALWAYS lands on a clean line boundary. This guarantee MEASURES that over the BUILT app: for
+// SHORT (1-line), MEDIUM (2-line), and LONG (3+-line, clamped) titles, every node title's clientHeight is
+// an exact integer multiple of its computed line-height (∈ {1,2}×lh, never fractional) AND ≤ 2 lines, and
+// the long title is genuinely clamped (scrollHeight > clientHeight) so the test exercises the slice path it
+// guards. Runs at BOTH viewports (the clamp must hold on the mobile block-flow plane too, where the node's
+// min-height can still expand the `1fr` track). A fractional clientHeight === the regression returning.
+
+interface TitleMetric {
+  id: string;
+  clientH: number;
+  scrollH: number;
+  lineHeight: number;
+  lines: number; // clientH / lineHeight
+  metaWithinNode: boolean; // the "N findings" meta stays fully inside the node box
+}
+
+async function measureTitles(page: import('@playwright/test').Page): Promise<TitleMetric[]> {
+  return page.evaluate(() => {
+    const nodes = Array.from(document.querySelectorAll('.gen-node'));
+    return nodes.map((n) => {
+      const title = n.querySelector('.gen-node__title') as HTMLElement;
+      const meta = n.querySelector('.gen-node__meta') as HTMLElement;
+      const lh = parseFloat(getComputedStyle(title).lineHeight);
+      const nodeRect = n.getBoundingClientRect();
+      const metaRect = meta.getBoundingClientRect();
+      return {
+        id: n.getAttribute('data-node') ?? '',
+        clientH: title.clientHeight,
+        scrollH: title.scrollHeight,
+        lineHeight: +lh.toFixed(3),
+        lines: +(title.clientHeight / lh).toFixed(3),
+        // meta bottom must sit within the node box (a sub-px tolerance for rounding).
+        metaWithinNode: metaRect.bottom <= nodeRect.bottom + 1,
+      };
+    });
+  });
+}
+
+test.describe('generating title-clamp integrity — no node title is sliced (BUILT app)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
+
+  test('SHORT / MEDIUM / LONG titles each clamp to an integer line count (≤2), never a sliced partial line', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.route(`**/api/curriculum/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD_TITLES }),
+      });
+    });
+    await page.goto(`/curriculum/${SEED_GENERATING_RUN_ID}`);
+    // The LONG research question must render as a node — proves the mixed-length payload landed.
+    await expect(
+      page.locator('.gen-node__title', { hasText: 'commercial bottom trawling' }),
+    ).toBeVisible();
+    // Settle the layout effect (which sets --node-h); poll until the titles measure.
+    await expect.poll(async () => (await measureTitles(page)).length).toBeGreaterThanOrEqual(6);
+
+    const titles = await measureTitles(page);
+    // Every node title (the five spine descriptors + the three research questions) must be present.
+    expect(titles.length, 'all phase + research node titles measured').toBeGreaterThanOrEqual(8);
+
+    let sawTwoLine = false;
+    let sawClampedOverflow = false;
+    for (const t of titles) {
+      const rounded = Math.round(t.lines);
+      const frac = Math.abs(t.lines - rounded);
+      // (1) INTEGER LINES — clientHeight is an exact multiple of line-height (the slice is a FRACTIONAL
+      //     multiple). 0.12 absorbs sub-px line-box vs box rounding; a real slice is ~0.3–0.45 off.
+      expect(
+        frac,
+        `title ${t.id} clientHeight ${String(t.clientH)}px = ${t.lines.toFixed(3)}×line-height ` +
+          `(${String(t.lineHeight)}px) — must be an INTEGER line count, not a sliced fraction`,
+      ).toBeLessThanOrEqual(0.12);
+      // (2) AT MOST 2 LINES (and at least 1) — the clamp ceiling.
+      expect(rounded, `title ${t.id} renders 1 or 2 whole lines`).toBeGreaterThanOrEqual(1);
+      expect(rounded, `title ${t.id} never exceeds the 2-line clamp`).toBeLessThanOrEqual(2);
+      // (3) META stays fully inside the node box (no overlap / clip).
+      expect(t.metaWithinNode, `title ${t.id} meta sits within the node box`).toBe(true);
+      if (rounded === 2) sawTwoLine = true;
+      if (t.scrollH > t.clientH + 1) sawClampedOverflow = true;
+    }
+    // The payload guarantees a 2-line title and a 3+-line (clamped) title, so the test actually exercises
+    // the clamp boundary it guards — not a trivially-all-1-line pass.
+    expect(sawTwoLine, 'the medium/long titles render a full 2 lines (clamp boundary exercised)').toBe(true);
+    expect(
+      sawClampedOverflow,
+      'the long title overflows its 2-line box (scrollHeight > clientHeight) — the slice path is exercised',
+    ).toBe(true);
   });
 });

@@ -1824,6 +1824,16 @@ body.has-ws-topbar > .appbar {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  /* The title sits in the grid's `1fr` middle track, whose height is NOT an integer multiple of this
+     line-height. The grid default `align-items: stretch` would stretch the clamp box to fill that track
+     (~2.4 line-heights), so `overflow: hidden` clips MID-line-3 — a sliced partial line bleeding above
+     the meta. `align-self: start` lets the box size to its own content (the -webkit-box's natural ≤2-line
+     height) instead of the track, and `max-height` (exactly 2 × the 1.3 line-height = 2.6em, tracking the
+     `-webkit-line-clamp: 2` above across the clamp() font-size + both viewports) pins it so the clip ALWAYS
+     lands on a clean line boundary — never a fractional slice. The node height + meta position are unchanged
+     (the freed slack stays in the `1fr` track), so the column-lock + spine-uniformity geometry is preserved. */
+  align-self: start;
+  max-height: calc(2 * 1.3em);
 }
 .gen-node__meta {
   margin: 0;
