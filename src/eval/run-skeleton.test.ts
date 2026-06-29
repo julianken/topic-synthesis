@@ -249,6 +249,28 @@ describe('reduceRunTrace (CLI trace wiring — issue #51)', () => {
     expect('baseline' in without.run).toBe(false);
   });
 
+  it('flows --trace-timing into meta.includeTiming → the code span carries wall-clock; omits it by default', async () => {
+    // A streamed `code` record carrying PR-1's per-call timing (issue #176/#179).
+    const codeRec = { ...mkRec(), outputTokens: 80, ttftMs: 500, genMs: 2000, maxTokens: 8000, outputBytes: 4096 };
+    const noBrief: PipelineRunResult = { result: { hub: { tiers: [] }, pages: [page('sine', true)] }, records: [], costUsd: 0 };
+    const codeMetrics = async (opts: { includeTiming?: boolean }) => {
+      const collector = new SpanCollector();
+      collector.onSpan({ stage: 'code', nodeSlug: 'sine', record: codeRec });
+      const { rows } = await reduceRunTrace(collector, noBrief, base, opts);
+      const spans = (rows.find((r) => r.rowKey === 'sine')?.trace as {
+        spans: { name: string; metrics?: Record<string, number> }[];
+      }).spans;
+      return spans.find((s) => s.name === 'code')?.metrics;
+    };
+    // includeTiming: true → the code span carries durationMs (= ttft+gen) + derived tokensPerSec.
+    const withTiming = await codeMetrics({ includeTiming: true });
+    expect(withTiming?.durationMs).toBe(2500);
+    expect(withTiming?.tokensPerSec).toBe(40);
+    // default → wall-clock-free even though the record carries timing.
+    const without = await codeMetrics({});
+    expect(without && 'durationMs' in without).toBe(false);
+  });
+
   it('runs the judge on the threaded judgeModel (a --cheap run judges on the cheap model, not opus)', async () => {
     // #57 SUGGESTION #2: the judge must follow the run's tier. A spy judge captures the model arg it
     // is called with; passing the cheap Haiku as judgeModel must reach the judge (not STAGE_MODELS.critic).
