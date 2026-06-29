@@ -153,10 +153,29 @@ describe('streamComplete', () => {
   });
 
   it('reports progress as chunks arrive (the PR-4 live-UI hook)', async () => {
-    const seen: { outputTokens: number; elapsedMs: number; phase: string }[] = [];
+    const seen: { outputTokens: number; elapsedMs: number; phase: string; maxTokens: number }[] = [];
     await streamComplete({ model: OPUS, prompt: 'hi' }, (p) => seen.push(p), mockStream(['a', 'b', 'c'], { output: 9 }));
     expect(seen.length).toBeGreaterThanOrEqual(1);
     expect(seen[seen.length - 1]?.phase).toBe('generating');
     expect(seen[seen.length - 1]?.elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('carries the request cap (maxTokens) in EVERY onProgress sample — the PR-4 fraction input', async () => {
+    // PR-4 (#180): the live code-phase sink divides outputTokens / maxTokens to a bounded fraction, so the
+    // cap must ride the per-delta payload (computed in the sink, never re-hardcoded). The cap defaults to
+    // 8000 when unset and is the explicit value when the caller (code.ts) passes 32000.
+    const def: number[] = [];
+    await streamComplete({ model: OPUS, prompt: 'hi' }, (p) => def.push(p.maxTokens), mockStream(['a', 'b'], { output: 4 }));
+    expect(def.length).toBeGreaterThanOrEqual(1);
+    expect(def.every((m) => m === 8000)).toBe(true); // the default cap rides every sample
+
+    const capped: number[] = [];
+    await streamComplete(
+      { model: OPUS, prompt: 'hi', maxTokens: 32000 },
+      (p) => capped.push(p.maxTokens),
+      mockStream(['a', 'b', 'c'], { output: 6 }),
+    );
+    expect(capped.length).toBeGreaterThanOrEqual(1);
+    expect(capped.every((m) => m === 32000)).toBe(true); // the explicit request cap rides every sample
   });
 });

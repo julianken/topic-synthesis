@@ -21,8 +21,10 @@ import { defaultDeps, type StageDeps } from './deps';
 import { assembleHub } from './hub';
 import {
   defaultStages,
+  noopCodeProgressSink,
   noopResearchSink,
   noopSink,
+  type CodeProgressSink,
   type ResearchSink,
   type StageBundle,
   type TraceSink,
@@ -44,6 +46,33 @@ function fireResearch(call: () => Promise<void>): void {
   } catch {
     /* a synchronous throw from a non-conforming sink — swallowed, never reaches the run */
   }
+}
+
+/**
+ * Wrap a `CodeProgressSink` into the synchronous `onProgress` hook the streaming `code` stage fires per
+ * delta, swallowing a SYNCHRONOUS throw from a non-conforming sink so it can never reach the paid `code`
+ * stream (the same belt-and-suspenders `fireResearch` gives the research sink; `PgCodeProgressSink` also
+ * self-wraps its async write and never awaits it). The bar degrades to the running-code elapsed timer if
+ * the sink faults.
+ *
+ * RESUME SEMANTICS (accepted tradeoff, mirroring `step_event`'s "cache HIT emits nothing" — issue #61):
+ * this hook is threaded into the INNER lambda of the MEMOIZED `engine.step('code', key, …)`. On a
+ * crash-resume the `code` step is a cache HIT, so `stages.code` never re-runs, `onProgress` never fires,
+ * and the bar does not advance; a pre-crash `code_progress` row may read a stale fraction. That is inert
+ * at completion — the bar is rendered ONLY while the `code` rail stage is `running`, so it disappears the
+ * instant `code` flips to `done` (the resumed `critic` step then runs), and `code_progress` is pruned at
+ * persist regardless.
+ */
+function codeProgressHook(
+  sink: CodeProgressSink,
+): (p: { outputTokens: number; elapsedMs: number; maxTokens: number; phase: 'prefill' | 'generating' }) => void {
+  return (p) => {
+    try {
+      sink.onProgress(p);
+    } catch {
+      /* a non-conforming sink throwing synchronously — swallowed, never reaches the code stream */
+    }
+  };
 }
 
 export interface PipelineRunResult {
@@ -115,6 +144,10 @@ export async function runPipeline(
   // The LIVE-RESEARCH sink — 7th positional, AFTER sink. Default no-op (DORMANT curriculum path; no
   // entrypoint drives it). Threaded for parity with runLesson so the shared prelude can't drift.
   researchSink: ResearchSink = noopResearchSink,
+  // The CODE-PROGRESS sink — 8th positional, AFTER researchSink. Default no-op. Threaded for PARITY with
+  // runLesson (DORMANT curriculum path; inert here) so the two synthesis paths can't drift in how the
+  // `code` stage's onProgress hook is wired.
+  codeProgressSink: CodeProgressSink = noopCodeProgressSink,
 ): Promise<PipelineRunResult> {
   const records: LlmCallRecord[] = [];
   const bucket = bucketize(req.settings);
@@ -158,7 +191,9 @@ export async function runPipeline(
     .sort((a, b) => gated.topoOrder.indexOf(a.slug) - gated.topoOrder.indexOf(b.slug));
   const toBuild = options.maxNodes !== undefined ? buildable.slice(0, options.maxNodes) : buildable;
   const built = await Promise.all(
-    toBuild.map((node) => synthesizeNode(node, req, allSources, bucket, engine, deps, models, stages, sink)),
+    toBuild.map((node) =>
+      synthesizeNode(node, req, allSources, bucket, engine, deps, models, stages, sink, codeProgressSink),
+    ),
   );
   const pages: CritiquedArtifact[] = [];
   const passedSlugs = new Set<string>();
@@ -190,6 +225,7 @@ async function synthesizeNode(
   models: Record<Stage, StageModel>,
   stages: StageBundle,
   sink: TraceSink,
+  codeProgressSink: CodeProgressSink,
 ): Promise<{ artifact: CritiquedArtifact | null; records: LlmCallRecord[]; degraded?: string }> {
   const records: LlmCallRecord[] = [];
   const emitNode = (stage: Stage, recs: LlmCallRecord[]): void => {
@@ -218,7 +254,9 @@ async function synthesizeNode(
     // lesson IS a gated node, so pin the artifact to node.slug here. (The single-lesson path pins
     // to the topic-derived slug instead — see synthesizeLesson.)
     const nodeSpec = { ...specced.spec, nodeSlug: node.slug };
-    const coded = await engine.step('code', key, () => stages.code(nodeSpec, lessonBrief.learningGoal, deps, models.code));
+    const coded = await engine.step('code', key, () =>
+      stages.code(nodeSpec, lessonBrief.learningGoal, deps, models.code, codeProgressHook(codeProgressSink)),
+    );
     records.push(...coded.records);
     emitNode('code', coded.records);
     const critiqued = await engine.step('critic', key, () => stages.critic(coded.artifact, deps, models.critic));
@@ -330,6 +368,9 @@ export async function runLesson(
   // The LIVE-RESEARCH sink — 7th positional, AFTER sink. Default no-op, so the CLI, tests, and the
   // local-dev fallback emit NO live rows; only the deployed Job injects a Postgres-backed PgResearchSink.
   researchSink: ResearchSink = noopResearchSink,
+  // The CODE-PROGRESS sink — 8th positional, AFTER researchSink. Default no-op, so the CLI, tests, and the
+  // local-dev fallback emit NO live code-progress rows; only the deployed Job injects a PgCodeProgressSink.
+  codeProgressSink: CodeProgressSink = noopCodeProgressSink,
 ): Promise<PipelineRunResult> {
   const records: LlmCallRecord[] = [];
   const bucket = bucketize(req.settings);
@@ -368,7 +409,18 @@ export async function runLesson(
 
   // 4. synthesize the ONE lesson (spec → code → critic), keyed by the topic-derived slug.
   const slug = slugify(req.topic);
-  const synth = await synthesizeLesson(slug, briefed.brief, req, bucket, engine, deps, models, stages, sink);
+  const synth = await synthesizeLesson(
+    slug,
+    briefed.brief,
+    req,
+    bucket,
+    engine,
+    deps,
+    models,
+    stages,
+    sink,
+    codeProgressSink,
+  );
   records.push(...synth.records);
 
   // 5. assemble a one-tier/one-category/one-page hub (NO assembleHub — that's the curriculum path).
@@ -441,6 +493,7 @@ async function synthesizeLesson(
   models: Record<Stage, StageModel>,
   stages: StageBundle,
   sink: TraceSink,
+  codeProgressSink: CodeProgressSink,
 ): Promise<{ artifact: CritiquedArtifact | null; records: LlmCallRecord[]; degraded?: string }> {
   const records: LlmCallRecord[] = [];
   const emitNode = (stage: Stage, recs: LlmCallRecord[]): void => {
@@ -453,7 +506,11 @@ async function synthesizeLesson(
     emitNode('spec', specced.records);
     // The brief carries no slug; pin the artifact to the topic-derived slug here.
     const nodeSpec = { ...specced.spec, nodeSlug: slug };
-    const coded = await engine.step('code', key, () => stages.code(nodeSpec, brief.learningGoal, deps, models.code));
+    // Thread the code-progress hook into the INNER lambda of the memoized step (see codeProgressHook's
+    // RESUME SEMANTICS note: a cache-HIT resume fires nothing — accepted, mirrors step_event #61).
+    const coded = await engine.step('code', key, () =>
+      stages.code(nodeSpec, brief.learningGoal, deps, models.code, codeProgressHook(codeProgressSink)),
+    );
     records.push(...coded.records);
     emitNode('code', coded.records);
     const critiqued = await engine.step('critic', key, () => stages.critic(coded.artifact, deps, models.critic));

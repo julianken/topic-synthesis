@@ -8,7 +8,7 @@ import { defaultStages } from '../pipeline/ports';
 import { runLesson, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
 import { PgStepEventSink } from '../store/pg-step-event-sink';
 import { closePool, getPool } from '../store/db';
-import { PgResearchSink, persistRun } from '../store/repo';
+import { PgCodeProgressSink, PgResearchSink, persistRun } from '../store/repo';
 import { multiSink, type WorkflowEvent } from '../telemetry/events';
 import { SpanToEventSink } from '../telemetry/span-event-bridge';
 import { StdoutEventSink } from '../telemetry/stdout-sink';
@@ -101,6 +101,8 @@ async function main(): Promise<void> {
     // persisted as a one-page curriculum (no graph/gate/hub). GcpEngine (durable, Postgres-backed).
     // PgResearchSink (live-research generating Stage 1): fire-and-forget research feed → research_event.
     const researchSink = new PgResearchSink(runId, { pool });
+    // PgCodeProgressSink (PR-4 / #180): fire-and-forget, throttled code-phase progress → code_progress.
+    const codeProgressSink = new PgCodeProgressSink(runId, { pool });
     // The engine emits step lifecycle to BOTH Cloud Logging (stdout) and the live-UI step_event table.
     const engine = new GcpEngine(runId, { pool }, multiSink([stdout, new PgStepEventSink(runId, { pool })]));
     // SpanToEventSink turns the existing per-LLM-call trace hook into `llm.call` events (cost/model/phase),
@@ -113,6 +115,7 @@ async function main(): Promise<void> {
       defaultStages,
       new SpanToEventSink(stdout),
       researchSink,
+      codeProgressSink,
     );
     // The owning user's sub — set by the Service as the RUN_OWNER override at gated dispatch (the Job
     // has no session to re-verify; it trusts the override, which is set only AFTER the spend gate). §5.

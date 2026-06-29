@@ -12,7 +12,7 @@ import { fitColumn, type FitResult } from './fit-column';
 import { buildLedger, buildResearchGraph, type LedgerFinding } from './research-graph';
 import { deriveRail, DISPATCH_LABEL, formatDuration, isStarting, type RailStage, type StepEvent } from './stage-rail';
 import { SPECIMEN_TOPIC_NAME } from '../../library-morph';
-import type { ResearchEvent } from '../../../store/repo';
+import type { CodeProgress, ResearchEvent } from '../../../store/repo';
 
 const TICK_MS = 250; // how often the live in-progress timer re-renders
 
@@ -60,6 +60,7 @@ export function GeneratingView({
   category,
   steps,
   research,
+  codeProgress,
   stalled,
 }: {
   topic?: string;
@@ -72,6 +73,9 @@ export function GeneratingView({
   category?: string;
   steps: StepEvent[];
   research: ResearchEvent[];
+  /** The live code-phase progress (PR-4 / #180): a learner-safe `{ fraction, elapsedMs }` (or null when
+   *  code hasn't streamed / once pruned). The bar is rendered ONLY when the `code` rail stage is running. */
+  codeProgress?: CodeProgress | null;
   stalled: boolean;
 }) {
   const rail = deriveRail(steps);
@@ -136,7 +140,7 @@ export function GeneratingView({
       </header>
 
       {/* THE TABLE — the stepper (column headers) over the column-locked plane, then the full-width band. */}
-      <PhaseTable rail={rail} graph={graph} ledger={ledger} />
+      <PhaseTable rail={rail} graph={graph} ledger={ledger} codeProgress={codeProgress ?? null} />
 
       <ProgressBar rail={rail} starting={starting} stalled={stalled} />
 
@@ -238,10 +242,13 @@ function PhaseTable({
   rail,
   graph,
   ledger,
+  codeProgress,
 }: {
   rail: RailStage[];
   graph: ReturnType<typeof buildResearchGraph>;
   ledger: ReturnType<typeof buildLedger>;
+  /** The live code-phase progress (PR-4 / #180) — surfaced ONLY on the Code column node while it runs. */
+  codeProgress: CodeProgress | null;
 }) {
   const planeRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -514,6 +521,10 @@ function PhaseTable({
             const stage = rail.find((s) => s.name === phase);
             const st = cellStateOf(stage ? stage.state : 'pending');
             const descriptor = PHASE_DESCRIPTOR[phase];
+            // The live code-phase bar (PR-4 / #180): ONLY on the Code node, ONLY while code is running, and
+            // ONLY when a real progress sample is present — so it appears mid-code and disappears the instant
+            // code flips to done/error (a stale row is then inert).
+            const progress = phase === 'code' && st === 'running' ? codeProgress : null;
             return (
               <div className="gen-cell" data-phase={phase} style={{ gridColumn: ci + 1 }} key={phase}>
                 <PhaseNode
@@ -523,6 +534,7 @@ function PhaseTable({
                   title={descriptor.title}
                   meta={descriptor.meta}
                   height={singleH}
+                  progress={progress}
                 />
               </div>
             );
@@ -579,6 +591,7 @@ function PhaseNode({
   title,
   meta,
   height,
+  progress,
 }: {
   nodeId: string;
   rIndex?: number;
@@ -587,6 +600,9 @@ function PhaseNode({
   title: string;
   meta: string;
   height: number;
+  /** The live code-phase progress (PR-4 / #180), present ONLY for the Code node while it runs — renders the
+   *  bounded "Writing the lesson…" bar. Null/absent everywhere else (the node renders without a bar). */
+  progress?: CodeProgress | null;
 }) {
   const { glyph, word } = CELL_AFFORDANCE[state];
   const label = phase === 'research' && typeof rIndex === 'number' ? `R${String(rIndex + 1)}` : PHASE_LABEL[phase];
@@ -607,8 +623,42 @@ function PhaseNode({
         <span className="gen-sr"> · {word}</span>
       </p>
       <p className="gen-node__title">{title}</p>
-      <p className="gen-node__meta">{meta}</p>
+      {/* While code streams, the live bar REPLACES the static "standalone · sandboxed" descriptor in the
+          node's last grid row — keeping the 3-row [label][title][meta|bar] grid uncrammed (no 4th row that
+          would squeeze a 2-line title into the meta) and reading better (live state over static copy). */}
+      {progress ? <CodeProgressBar fraction={progress.fraction} /> : <p className="gen-node__meta">{meta}</p>}
     </article>
+  );
+}
+
+/**
+ * The live CODE-PHASE progress bar (PR-4 / issue #180), rendered inside the Code column node while `code`
+ * streams. A learner-safe BAR ONLY — the bounded `fraction` (0..~0.95, already clamped IN THE SINK) as the
+ * fill width — with a text label ("Writing the lesson…") so state is conveyed by LABEL + bar, never color
+ * alone (§Accessibility). It is a `role="progressbar"` with `aria-valuenow` = a rounded "how far along"
+ * percent for AT — a coordinate about the artifact's growth, NEVER a token/cost magnitude (no numeric
+ * readout is shown). The fill transition rides the §0 catalog `--tr-progress` primitive (reduced-motion-gated
+ * by the global rule); no JS animation. The bar lives entirely within the node's FIXED height
+ * (`overflow:hidden`), so the column-lock + spine-uniformity geometry is unchanged.
+ */
+function CodeProgressBar({ fraction }: { fraction: number }) {
+  const clamped = Math.max(0, Math.min(1, fraction));
+  const pct = Math.round(clamped * 100);
+  return (
+    <div
+      className="gen-codebar"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+      aria-label="Writing the lesson…"
+      data-testid="gen-codebar"
+    >
+      <span className="gen-codebar__label">Writing the lesson…</span>
+      <span className="gen-codebar__track" aria-hidden="true">
+        <span className="gen-codebar__fill" style={{ width: `${String(pct)}%` }} />
+      </span>
+    </div>
   );
 }
 

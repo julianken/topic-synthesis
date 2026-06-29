@@ -103,7 +103,10 @@ export async function complete(opts: CompleteOptions, modelOverride?: LanguageMo
  */
 export async function streamComplete(
   opts: CompleteOptions,
-  onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating' }) => void,
+  // PR-4 (#180): `maxTokens` (the resolved request cap) rides the per-delta payload so a consumer can
+  // compute a bounded fraction WITHOUT re-hardcoding the cap — the live code-phase progress sink divides
+  // `outputTokens / maxTokens` server-side. The cap stays the caller's single source (code.ts sets 32000).
+  onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating'; maxTokens: number }) => void,
   modelOverride?: LanguageModel,
 ): Promise<TextResult> {
   const providerModel = registryId(opts.model);
@@ -121,7 +124,7 @@ export async function streamComplete(
     if (ttftMs === undefined) ttftMs = Date.now() - startMs; // first delta = end of prefill
     text += delta;
     // ~4 chars/token estimate for the live budget-burn bar; the EXACT outputTokens lands at finish.
-    onProgress?.({ outputTokens: Math.round(text.length / 4), elapsedMs: Date.now() - startMs, phase: 'generating' });
+    onProgress?.({ outputTokens: Math.round(text.length / 4), elapsedMs: Date.now() - startMs, phase: 'generating', maxTokens });
   }
   const totalMs = Date.now() - startMs;
   const finishReason = await result.finishReason;

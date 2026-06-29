@@ -162,3 +162,27 @@ CREATE TABLE IF NOT EXISTS research_event (
   PRIMARY KEY (run_id, question)
 );
 CREATE INDEX IF NOT EXISTS idx_research_event_run ON research_event (run_id);
+
+-- Live CODE-PHASE PROGRESS (PR-4 / issue #180). The streaming `code` stage (PR-1, #174) fires an
+-- `onProgress` hook per delta; the FAIL-SAFE PgCodeProgressSink coalesces those samples (throttled,
+-- fire-and-forget, NEVER awaited on the run's critical path) into ONE row per run so the generating UI can
+-- show a learner-safe "Writing the lesson…" progress bar while the longest phase (~83% of run wall-clock)
+-- is otherwise opaque. Like step_result + run_owner + research_event, this is a TRANSIENT per-run table
+-- read ONLY by the in-flight generating UI; `persistRun` PRUNES this run's row in its transaction once the
+-- curriculum lands — it is NOT durable like step_event (#175) and NOT kept for cross-run analysis.
+-- STRUCTURALLY LEAK-PROOF (the no-project-internals rule): the fraction is computed IN THE SINK
+-- (outputTokens / maxTokens, clamped ≤0.95) and ONLY the bounded `fraction` is stored — there is NO raw
+-- token count, cap, cost, or model column, so no internal magnitude can ever reach the wire or the learner
+-- surface (the same denormalize-in-sink discipline research_event uses for sourceIndex). `phase` is the
+-- pipeline-internal stream phase kept for DEBUGGING ONLY — it is NOT selected by the client getter, so it
+-- never reaches the status payload or the UI. One row per run (PK run_id): the single-lesson path has
+-- exactly one `code` step; the dormant curriculum path's N code steps would overwrite the one row, which is
+-- acceptable for observability. A write fault (un-migrated table mid-deploy, a transient DB error) is
+-- swallowed by the sink and never aborts the paid `code` stream.
+CREATE TABLE IF NOT EXISTS code_progress (
+  run_id     TEXT PRIMARY KEY,            -- one row per run (the single-lesson path has one code step)
+  fraction   REAL NOT NULL,               -- bounded 0..~0.95, computed IN THE SINK; never a raw token count
+  elapsed_ms INTEGER NOT NULL,            -- wall-clock since the code stream started (learner-safe timing)
+  phase      TEXT,                         -- stream phase ('prefill'|'generating') — DEBUG ONLY, never served
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

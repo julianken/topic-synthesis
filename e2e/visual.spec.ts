@@ -7,7 +7,7 @@ import {
   clearDegradedLesson,
   seedDegradedLesson,
 } from './seed';
-import { GENERATING_STATUS_PAYLOAD } from './generating-fixture';
+import { GENERATING_STATUS_PAYLOAD, GENERATING_STATUS_PAYLOAD_CODE } from './generating-fixture';
 
 // visual.spec — per-screen full-page VISUAL snapshots at the two DESIGN.md viewports (390×844 mobile +
 // 1440×900 desktop, set per-project in playwright.config.ts), under FORCED reduced motion (config
@@ -232,6 +232,36 @@ test.describe('visual — generating (live-research, mid-run)', () => {
 
     const liveTimer = page.locator('.gen-pstep--running .gen-pstep__time, .gen-progress__caption');
     await expect(page).toHaveScreenshot('generating-create.png', {
+      fullPage: true,
+      mask: [liveTimer],
+    });
+  });
+
+  // The CODE-PHASE capture (PR-4 / #180): the live "Writing the lesson…" bar on the Code column node while
+  // `code` streams. Pin the status poll to the code-running payload (plan/research/brief/spec done, code
+  // running at ~60%, research 3/3) so the bar renders deterministically; the running-code live timer +
+  // caption are masked (they tick off the wall clock). The bar fill itself is fixed (the fraction is
+  // pinned, the width transition zeroed under reduced motion).
+  test('the live code-phase progress bar matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD_CODE }),
+      });
+    });
+
+    await page.goto(`/lesson/${SEED_GENERATING_RUN_ID}`);
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/generating/i);
+    // The Code column node carries the live bar (code running). Assert it before capturing.
+    const bar = page.getByTestId('gen-codebar');
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute('aria-valuenow', '60');
+    await expect(bar).toContainText(/writing the lesson/i);
+
+    const liveTimer = page.locator('.gen-pstep--running .gen-pstep__time, .gen-progress__caption');
+    await expect(page).toHaveScreenshot('generating-code.png', {
       fullPage: true,
       mask: [liveTimer],
     });

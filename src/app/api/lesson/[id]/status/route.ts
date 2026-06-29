@@ -1,9 +1,11 @@
 import { getSessionIdentity } from '../../../../auth/require-session';
 import {
+  getCodeProgress,
   getLesson,
   getResearchEvents,
   getStepEvents,
   ownsRun,
+  type CodeProgress,
   type ResearchEvent,
   type StepEvent,
 } from '../../../../../store/repo';
@@ -22,8 +24,12 @@ export const dynamic = 'force-dynamic';
  *    returns `[]`, indistinguishable from a just-started owned run → still no existence oracle.
  *  - `research` ⇐ the SAME `ownsRun` gate + getResearchEvents(id): the live-research feed (the planned
  *    questions + each question's grounded findings/sources). `ownsRun` is computed ONCE and reused for
- *    both reads. A non-owner/unauthenticated/absent id yields `[]` — identical to a just-started owned
- *    run, so the research feed carries no existence oracle either. Pruned at persist (transient per-run).
+ *    all owner-gated reads. A non-owner/unauthenticated/absent id yields `[]` — identical to a just-started
+ *    owned run, so the research feed carries no existence oracle either. Pruned at persist (transient per-run).
+ *  - `code` ⇐ the SAME `ownsRun` gate + getCodeProgress(id): the live code-phase progress (PR-4 / #180) —
+ *    a learner-safe `{ fraction, elapsedMs }` (or null while code hasn't streamed). Rides the one `owns`
+ *    gate too; null for a non-owner/absent id is identical to a just-started owned run (no existence
+ *    oracle), and carries NO raw token/cost/model (the fraction is computed in the sink). Pruned at persist.
  */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await ctx.params;
@@ -32,5 +38,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const owns = identity ? await ownsRun(id, identity.sub) : false;
   const steps: StepEvent[] = owns ? await getStepEvents(id) : [];
   const research: ResearchEvent[] = owns ? await getResearchEvents(id) : [];
-  return Response.json({ id, ready: view !== null, steps, research });
+  const code: CodeProgress | null = owns ? await getCodeProgress(id) : null;
+  return Response.json({ id, ready: view !== null, steps, research, code });
 }
