@@ -73,6 +73,19 @@ import { morphName } from './reader-morph';
  * side. The chrome NEVER reaches into the iframe DOM to scroll it — the post is the only legal channel
  * across the opaque boundary. PR-C ships the SENDER (best-effort): the post is harmless + inert until PR-F
  * teaches the generated lesson to RECEIVE this verb and scroll itself; lesson-message.ts is UNCHANGED.
+ *
+ * Responsive + a11y + mobile TOC (PR-E — the FINAL chrome piece): on the ≤900 single-column collapse the
+ * in-frame [scrub] dot-rail (which has no room in one column) folds away and is REPLACED by a labeled phone
+ * TOC DISCLOSURE (`.ws-toc`) — a "Sections" toggle (aria-expanded + aria-controls) over a collapsible list
+ * of jump controls; tapping one posts the SAME coordinate-only `lesson:scrollTo` the desktop dots use, so
+ * the section jump survives the collapse. All controls meet the WCAG 2.2 SC 2.5.8 ≥24×24 target floor. The
+ * a11y pass is holistic: a logical topbar→prose→panel→scrub tab order (DOM order, no positive tabindex),
+ * SR landmarks/labels on every region (the topbar, the apparatus aside, both section navs), and state by
+ * aria (aria-current/aria-pressed/aria-expanded/aria-valuenow), never color alone. Every workspace motion
+ * (hairline, focus-widen, card reveal, scrub/dot state, the TOC chevron) is zeroed under reduced motion and
+ * the card→reader morph's View-Transition transport runs ONLY under no-preference (the rule lives in
+ * globals.css, not here). NO postMessage contract change, NO §0 retoken, the trust boundary + morph
+ * BYTE-UNCHANGED (lesson-message.ts edits are COMMENT-ONLY).
  */
 export function ReaderShell({
   id,
@@ -97,6 +110,14 @@ export function ReaderShell({
   // tracks and re-centers/widens the reading spine (globals.css `.reader--ws[data-focus] .ws-grid`). It is
   // a chrome-local toggle — NO postMessage into the iframe, the morph + lesson-message.ts untouched.
   const [focus, setFocus] = useState(false);
+  // Mobile section-jump TOC (PR-E): on the ≤900 single-column collapse the in-frame [scrub] dot-rail folds
+  // away (it has no room) and is REPLACED by a labeled phone TOC DISCLOSURE — a collapsed "Sections" list
+  // shown only ≤900 (globals.css `.ws-toc`). `tocOpen` drives the disclosure's expand/collapse + the
+  // toggle's aria-expanded; collapsed, the list carries the `hidden` attr so it leaves BOTH the a11y tree
+  // and the tab order. Tapping an item posts the SAME coordinate-only parent→child `lesson:scrollTo` the
+  // desktop scrub dots use (via `jumpToSection`/`postScrollTo`) so the section jump survives the collapse —
+  // chrome-only state, the trust boundary + lesson-message.ts UNCHANGED.
+  const [tocOpen, setTocOpen] = useState(false);
 
   // The coordinate-only parent→child section-jump SENDER (PR-C). Reads the iframe's contentWindow IDENTITY
   // only (the post target) — never the framed DOM. Guarded for a not-yet-loaded iframe (postScrollTo no-ops
@@ -226,6 +247,66 @@ export function ReaderShell({
           {head.level} · depth {head.depth}
         </p>
       </div>
+
+      {/*
+        Mobile section-jump TOC (PR-E) — shown ONLY on the ≤900 single-column collapse (globals.css hides
+        it on desktop, where the in-frame [scrub] dot-rail is the section nav instead). A labeled DISCLOSURE:
+        a "Sections" toggle (aria-expanded + aria-controls) over a collapsible list of jump controls. The
+        list carries `hidden` while collapsed, so it leaves the a11y tree AND the tab order until opened.
+        Tapping an item posts the SAME coordinate-only parent→child `lesson:scrollTo` the desktop dots use
+        (`jumpToSection` → `postScrollTo`, target 'null' → '*' fallback), then collapses the disclosure — the
+        chrome NEVER reaches into the iframe DOM. Rendered only when sections have been posted (best-effort).
+      */}
+      {apparatus.hasSections && (
+        <nav className="ws-toc" aria-label="Sections">
+          <button
+            type="button"
+            className="ws-toc__toggle"
+            aria-expanded={tocOpen}
+            aria-controls="ws-toc-list"
+            onClick={() => setTocOpen((open) => !open)}
+          >
+            <span className="ws-toc__toggle-label">Sections</span>
+            <span className="ws-toc__count" aria-hidden="true">
+              {apparatus.total}
+            </span>
+            {/* The chevron is decorative — aria-expanded on the button conveys the state to AT. It rotates
+                via a §0-tier transform transition, zeroed under reduced motion by the global guard. */}
+            <span className="ws-toc__chevron" aria-hidden="true" data-open={tocOpen || undefined} />
+          </button>
+          <ol id="ws-toc-list" className="ws-toc__list" hidden={!tocOpen}>
+            {apparatus.marks.map((mark) => (
+              <li key={mark.id}>
+                <button
+                  type="button"
+                  className="ws-toc__item"
+                  data-done={mark.done || undefined}
+                  data-active={mark.active || undefined}
+                  aria-current={mark.active ? 'true' : undefined}
+                  // The jump: post the coordinate-only `lesson:scrollTo` INTO the iframe (never a DOM
+                  // reach), then collapse the disclosure so the reader is back on the prose. Best-effort —
+                  // inert until PR-F's in-lesson receiver lands (the seed stub acks it in the e2e).
+                  onClick={() => {
+                    jumpToSection(mark.id);
+                    setTocOpen(false);
+                  }}
+                  // Status by LABEL, not color alone (§Accessibility) — mirrors the desktop dot's label:
+                  // the ordinal + posted title + the explicit-approximate read state. "approx." because the
+                  // active position is estimated from overall scroll, not a posted active-section signal.
+                  aria-label={`Jump to section ${String(mark.ordinal)}: ${mark.title}${
+                    mark.active ? ' (approx. here)' : mark.done ? ' (read)' : ''
+                  }`}
+                >
+                  <span className="ws-toc__ord" aria-hidden="true">
+                    {String(mark.ordinal).padStart(2, '0')}
+                  </span>
+                  <span className="ws-toc__item-title">{mark.title}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )}
 
       {/*
         The LOCKED named-line workspace grid (PR-A). `.ws-grid` carries the exact line set
