@@ -7,13 +7,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const getSessionIdentity = vi.hoisted(() => vi.fn());
 const dispatchJob = vi.hoisted(() => vi.fn());
 const recordRunOwner = vi.hoisted(() => vi.fn());
+const recordDispatch = vi.hoisted(() => vi.fn());
 const persistRun = vi.hoisted(() => vi.fn());
 const runLesson = vi.hoisted(() => vi.fn());
 
 vi.mock('../../auth/require-session', () => ({ getSessionIdentity }));
 // Dispatch DISABLED — the in-process startRun path runs.
 vi.mock('./dispatch', () => ({ dispatchJob, isJobDispatchEnabled: () => false }));
-vi.mock('../../../store/repo', () => ({ recordRunOwner, persistRun }));
+vi.mock('../../../store/repo', () => ({ recordRunOwner, recordDispatch, persistRun }));
 vi.mock('../../../pipeline/run-pipeline', () => ({ runLesson }));
 
 import { POST } from './route';
@@ -31,6 +32,8 @@ beforeEach(() => {
   dispatchJob.mockReset();
   recordRunOwner.mockReset();
   recordRunOwner.mockResolvedValue(undefined);
+  recordDispatch.mockReset();
+  recordDispatch.mockResolvedValue(undefined);
   persistRun.mockReset();
   persistRun.mockResolvedValue({ curriculumId: 'c1' });
   runLesson.mockReset();

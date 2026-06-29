@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { fitColumn, type FitResult } from './fit-column';
 import { buildLedger, buildResearchGraph, type LedgerFinding } from './research-graph';
-import { deriveRail, formatDuration, type RailStage, type StepEvent } from './stage-rail';
+import { deriveRail, DISPATCH_LABEL, formatDuration, isStarting, type RailStage, type StepEvent } from './stage-rail';
 import { SPECIMEN_TOPIC_NAME } from '../../library-morph';
 import type { ResearchEvent } from '../../../store/repo'; // concept-drift-ok: code identifier, deferred rename (ADR-0003)
 
@@ -88,10 +88,16 @@ export function GeneratingView({
       ? `${level} · depth ${String(depth)} · building one lesson`
       : null;
 
+  // The DISPATCH WINDOW (issue #162): the dispatch marker has landed but no real pipeline step has yet —
+  // the cold-starting Job hasn't reached `plan`. Surfaces the single leading "Starting…" indicator; flips
+  // false the instant a real step appears (so it yields to the rail — never two concurrent live timers).
+  const starting = isStarting(steps);
+
   // The live phase label (the alive-copy affordance, SPEC §6): the running stage's label, derived from the
-  // same rail state — NOT a second source of truth. Falls back to a neutral "Working" when idle.
+  // same rail state — NOT a second source of truth. During the dispatch window it reads "Starting…"; once
+  // a real stage runs it reads that stage's label; otherwise it falls back to a neutral "Working".
   const running = rail.find((s) => s.state === 'running');
-  const livePhase = running ? running.label : 'Working';
+  const livePhase = running ? running.label : starting ? DISPATCH_LABEL : 'Working';
 
   return (
     <section className="gen" role="status" aria-live="polite">
@@ -102,7 +108,7 @@ export function GeneratingView({
           <small>this lesson&rsquo;s generation pipeline · plan → critic</small>
         </div>
         <div className="gen-top__live">
-          <b className="gen-shimmer" data-text={livePhase}>
+          <b className="gen-shimmer" data-text={livePhase} data-testid="gen-live-phase">
             {livePhase}
           </b>
           <small>web-grounded · extracting claims</small>
@@ -133,7 +139,7 @@ export function GeneratingView({
       {/* THE TABLE — the stepper (column headers) over the column-locked plane, then the full-width band. */}
       <PhaseTable rail={rail} graph={graph} ledger={ledger} />
 
-      <ProgressBar rail={rail} stalled={stalled} />
+      <ProgressBar rail={rail} starting={starting} stalled={stalled} />
 
       <StateLegend />
     </section>
@@ -702,7 +708,7 @@ const SEG_AFFORDANCE: Record<RailStage['state'], { glyph: string; word: string }
  * durations + the running step's LIVE ticking timer, then a single caption line. The SAME real per-step
  * data the shipped #61 timeline carries — names, durations, the current-stage glyph, and the live timer.
  */
-function ProgressBar({ rail, stalled }: { rail: RailStage[]; stalled: boolean }) {
+function ProgressBar({ rail, starting, stalled }: { rail: RailStage[]; starting: boolean; stalled: boolean }) {
   const running = rail.find((s) => s.state === 'running');
   return (
     <div className="gen-progress">
@@ -712,7 +718,7 @@ function ProgressBar({ rail, stalled }: { rail: RailStage[]; stalled: boolean })
           <ProgressSegment key={stage.name} stage={stage} last={i === rail.length - 1} />
         ))}
       </ol>
-      <ProgressCaption running={running ?? null} stalled={stalled} />
+      <ProgressCaption running={running ?? null} starting={starting} stalled={stalled} />
     </div>
   );
 }
@@ -751,25 +757,47 @@ function ProgressSegment({ stage, last }: { stage: RailStage; last: boolean }) {
   );
 }
 
-/** The single caption line under the bar: names the in-progress stage with its live elapsed timer; when
- *  nothing is in flight it falls back to "Working…" (or the stalled hint). */
-function ProgressCaption({ running, stalled }: { running: RailStage | null; stalled: boolean }) {
+/** The single caption line under the bar: names the in-progress stage with its live elapsed timer; in the
+ *  dispatch window (issue #162) it reads "Starting…"; when nothing is in flight it falls back to "Working…"
+ *  (or the stalled hint). */
+function ProgressCaption({
+  running,
+  starting,
+  stalled,
+}: {
+  running: RailStage | null;
+  starting: boolean;
+  stalled: boolean;
+}) {
   if (stalled) {
     return (
-      <p className="gen-progress__caption">
+      <p className="gen-progress__caption" data-testid="gen-progress-caption">
         Still working — this is taking longer than usual. Leave this open, or check back soon.
       </p>
     );
   }
   if (running && running.event) {
     return (
-      <p className="gen-progress__caption">
+      <p className="gen-progress__caption" data-testid="gen-progress-caption">
         {running.name} · <LiveTimer startedAt={running.event.startedAt} /> and counting — live timer
         ticks until the step lands
       </p>
     );
   }
-  return <p className="gen-progress__caption">Working…</p>;
+  // Pre-`plan` dispatch window: the run is starting up (the Job is cold-booting); no stage runs yet, so
+  // there is NO live timer here — just the honest "Starting…" copy, never a second ticking timer.
+  if (starting) {
+    return (
+      <p className="gen-progress__caption" data-testid="gen-progress-caption">
+        Starting…
+      </p>
+    );
+  }
+  return (
+    <p className="gen-progress__caption" data-testid="gen-progress-caption">
+      Working…
+    </p>
+  );
 }
 
 // ── The bottom state legend ──────────────────────────────────────────────────────────────────────────────

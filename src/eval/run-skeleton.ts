@@ -5,15 +5,20 @@ import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
 import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
-import { cheapModels, STAGE_MODELS, type Stage, type StageModel } from '../llm/models';
+import { cheapModels, STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
 import { defaultStages, noopSink, type TraceSink } from '../pipeline/ports';
 import { runLesson, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
-import { persistRun, type PersistRunInput } from '../store/repo';
+import { persistRun } from '../store/repo';
 import { writeTrace } from '../trace/eleatic-adapter';
 import { judgeBrief } from '../trace/judge';
 import { reduceTrace, type TraceMeta } from '../trace/reduce';
 import { SpanCollector } from '../trace/span';
+// persistInput lives in its OWN trace-free module (issue #162) so the headless Job entry can reach it
+// without dragging the @eleatic/eval trace adapter into the job bundle; re-exported here so this
+// module's own callers (+ run-skeleton.test.ts) import it unchanged.
+import { persistInput } from './persist-input';
+export { persistInput };
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
 
@@ -116,30 +121,6 @@ export function dumpPages(pages: CritiquedArtifact[], dir: string): string[] {
     writeFileSync(path, page.html, 'utf8');
     return path;
   });
-}
-
-/** Assemble the persistRun input for a completed skeleton run (`--persist`). The
- *  workflow_version snapshot is STAGE_MODELS with the run's per-stage overrides merged in. Threads the
- *  run's library-card presentation metadata (`category` eyebrow from the fail-safe classifier + the
- *  `summary` = the brief's learningGoal) when the path produced them (the single-lesson path always
- *  does; both may be absent on a degraded run), conditionally spread so an absent one is OMITTED, not
- *  `undefined` (exactOptionalPropertyTypes). */
-export function persistInput(
-  runId: string,
-  request: TopicRequest,
-  run: PipelineRunResult,
-  options: RunOptions,
-): PersistRunInput {
-  const modelSnapshots: Record<Stage, StageModel> = { ...STAGE_MODELS, ...(options.models ?? {}) };
-  return {
-    runId,
-    request,
-    result: run.result,
-    costUsd: run.costUsd,
-    modelSnapshots,
-    ...(run.category !== undefined ? { category: run.category } : {}),
-    ...(run.summary !== undefined ? { summary: run.summary } : {}),
-  };
 }
 
 /**
