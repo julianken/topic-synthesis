@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { WorkflowEvent } from '../telemetry/events';
 import { GcpEngine } from './gcp-engine';
 
 /** In-memory fake pool: SELECT reads the step_result store; INSERT writes it (ON CONFLICT DO NOTHING).
@@ -155,6 +156,58 @@ describe('GcpEngine', () => {
         { op: 'start', key: 'run1:code:k', status: 'running' },
         { op: 'finish', key: 'run1:code:k', status: 'done' },
       ]);
+    });
+  });
+
+  // ── event emission (issue #166): the engine emits step lifecycle to an injected EventSink ──
+  describe('event emission', () => {
+    const capture = () => {
+      const events: WorkflowEvent[] = [];
+      return { events, sink: { onEvent: (e: WorkflowEvent) => void events.push(e) } };
+    };
+
+    it('emits step.start then step.finish{ms,done} to the injected sink on a real run', async () => {
+      const { pool } = fakePool();
+      const { events, sink } = capture();
+      await new GcpEngine('run1', { pool }, sink).step('code', 'k', async () => ({ v: 1 }));
+      expect(events.map((e) => e.eventType)).toEqual(['step.start', 'step.finish']);
+      const finish = events[1];
+      expect(finish).toMatchObject({ eventType: 'step.finish', stage: 'code', stepKey: 'k', status: 'done' });
+      expect(finish?.eventType === 'step.finish' && typeof finish.ms === 'number').toBe(true);
+      expect(finish?.eventType === 'step.finish' && finish.ms >= 0).toBe(true);
+    });
+
+    it('emits step.finish{error} when the step throws', async () => {
+      const { pool } = fakePool();
+      const { events, sink } = capture();
+      await expect(
+        new GcpEngine('run1', { pool }, sink).step('code', 'k', async () => {
+          throw new Error('boom');
+        }),
+      ).rejects.toThrow('boom');
+      expect(events.map((e) => e.eventType)).toEqual(['step.start', 'step.finish']);
+      expect(events[1]).toMatchObject({ eventType: 'step.finish', status: 'error' });
+    });
+
+    it('a cache-hit resume emits NO events (timeline stays non-duplicated)', async () => {
+      const { pool } = fakePool();
+      const { events, sink } = capture();
+      await new GcpEngine('run1', { pool }, sink).step('plan', 'k', async () => ({ v: 1 }));
+      events.length = 0;
+      await new GcpEngine('run1', { pool }, sink).step('plan', 'k', async () => ({ v: 1 }));
+      expect(events).toEqual([]);
+    });
+
+    it('a telemetry sink that throws never breaks the paid step', async () => {
+      const { pool } = fakePool();
+      const sink = {
+        onEvent: () => {
+          throw new Error('sink boom');
+        },
+      };
+      await expect(new GcpEngine('run1', { pool }, sink).step('plan', 'k', async () => ({ v: 7 }))).resolves.toEqual({
+        v: 7,
+      });
     });
   });
 

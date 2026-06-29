@@ -27,6 +27,9 @@ import { spec } from './spec';
  *   Per-stage model   StageModel      the A/B arm (RunOptions.models)
  *   Store             StoreDeps       Postgres ↔ in-memory (lives in src/store/repo.ts)
  *   Observability     TraceSink       noopSink (default) ↔ SpanCollector→eleatic ↔ an OTel sink
+ *   Workflow events   EventSink       noopEventSink (default) ↔ StdoutEventSink (Cloud Logging) ↔
+ *                                     PgStepEventSink (step_event) ↔ multiSink([…]) — src/telemetry
+ *                                     (issue #166); the SpanToEventSink adapter bridges TraceSink→llm.call
  *
  * Known residual limits, so this doesn't over-claim full swappability:
  *  (i)   StageModel.params (effort/thinking/cacheSystem) are carried on an arm but not yet

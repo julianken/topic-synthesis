@@ -4,13 +4,14 @@ import type { TopicRequest } from '../domain/stages';
 import { GcpEngine } from '../engine/gcp-engine';
 import { cheapModels } from '../llm/models';
 import { defaultDeps } from '../pipeline/deps';
-import { defaultStages, noopSink } from '../pipeline/ports';
-import { runLesson, type RunOptions } from '../pipeline/run-pipeline';
+import { defaultStages } from '../pipeline/ports';
+import { runLesson, type PipelineRunResult, type RunOptions } from '../pipeline/run-pipeline';
+import { PgStepEventSink } from '../store/pg-step-event-sink';
 import { closePool, getPool } from '../store/db';
 import { PgResearchSink, persistRun } from '../store/repo';
-// persistInput from its OWN trace-free module (issue #162) — NOT run-skeleton, which top-level-imports
-// the @eleatic/eval trace adapter. This keeps run-job's static graph free of @eleatic/eval (its
-// better-sqlite3/express deps) so the compiled job bundle stays lean + fence-clean.
+import { multiSink, type WorkflowEvent } from '../telemetry/events';
+import { SpanToEventSink } from '../telemetry/span-event-bridge';
+import { StdoutEventSink } from '../telemetry/stdout-sink';
 import { persistInput } from './persist-input';
 
 /**
@@ -19,6 +20,12 @@ import { persistInput } from './persist-input';
  * `GcpEngine`, and `persistRun`s the result. The Service dispatches it; a non-zero exit marks the
  * execution failed so Cloud Run retries it with the SAME `RUN_ID`, where the engine reads completed
  * `step_result` rows back and skips the already-paid work.
+ *
+ * TELEMETRY (issue #166): one shared `StdoutEventSink` per run is the structured-log stream Cloud
+ * Logging captures (→ #167's log-based metrics + dashboard). The engine emits step lifecycle to
+ * `multiSink([stdout, pgStepEvent])` (Cloud Logging + the live-UI `step_event` table); the
+ * `SpanToEventSink` turns the existing per-call trace hook into `llm.call` events; and run-job emits
+ * the run-level `run.complete` / `run.failed`. Sharing the one stdout instance keeps `seq` monotonic.
  */
 
 const LEVELS: Level[] = ['intro', 'intermediate', 'advanced'];
@@ -58,43 +65,70 @@ export function buildJobInput(): { runId: string; request: TopicRequest; options
   return { runId, request: { topic, settings: { level: level as Level, depth, audience } }, options };
 }
 
+/**
+ * The run-level completion event. `outcome`/`criticPassed` are derived from the run's HUB page
+ * `built`/`status` (always present even on a degrade), NOT from `run.result.pages.length` — that list
+ * is `[]` when synthesis degraded to 'soon', which would mislabel a degraded run as complete.
+ */
+export function runCompleteEvent(
+  run: PipelineRunResult,
+  totalMs: number,
+): Extract<WorkflowEvent, { eventType: 'run.complete' }> {
+  const built = run.result.hub.tiers[0]?.categories[0]?.pages[0]?.built ?? false;
+  return {
+    eventType: 'run.complete',
+    costUsd: run.costUsd,
+    totalMs,
+    pages: run.result.pages.length,
+    outcome: built ? 'complete' : 'degraded',
+    criticPassed: built,
+  };
+}
+
+/** The run-level failure event (a thrown run that never reached `run.complete`). */
+export function runFailedEvent(err: unknown): Extract<WorkflowEvent, { eventType: 'run.failed' }> {
+  return { eventType: 'run.failed', outcome: 'failed', errorKind: err instanceof Error ? err.name : 'unknown' };
+}
+
 async function main(): Promise<void> {
   const { runId, request, options } = buildJobInput();
+  const pool = getPool();
+  // ONE shared stdout sink per run → a monotonic `seq` across engine lifecycle + llm.call + run.*.
+  const stdout = new StdoutEventSink(runId);
+  const startedAtMs = Date.now();
   try {
     // SINGLE-LESSON path (runLesson): plan → research → brief → spec → code → critic → ONE lesson,
-    // persisted as a one-page curriculum (no graph/gate/hub). GcpEngine (durable, Postgres-backed) —
-    // NOT InlineEngine. persist is unconditional: the curriculum IS the deliverable + the app's
-    // status-poll target. noopSink: no trace in the Job. `MAX_NODES` is inert here (the path builds
-    // exactly one page) but stays in the env contract (dispatch.ts) so no Terraform change is needed.
-    // PgResearchSink (live-research generating Stage 1): emits the REAL planned questions + each
-    // question's grounded findings/sources to research_event as they land, so the generating UI shows
-    // a live research feed. FAIL-SAFE + FIRE-AND-FORGET (every write self-wrapped; never awaited on the
-    // critical path), so a DB-write fault yields no live rows and the run completes identically. The
-    // rows are pruned at persist (transient per-run, like step_event). Shares the run's pool.
-    const researchSink = new PgResearchSink(runId, { pool: getPool() });
+    // persisted as a one-page curriculum (no graph/gate/hub). GcpEngine (durable, Postgres-backed).
+    // PgResearchSink (live-research generating Stage 1): fire-and-forget research feed → research_event.
+    const researchSink = new PgResearchSink(runId, { pool });
+    // The engine emits step lifecycle to BOTH Cloud Logging (stdout) and the live-UI step_event table.
+    const engine = new GcpEngine(runId, { pool }, multiSink([stdout, new PgStepEventSink(runId, { pool })]));
+    // SpanToEventSink turns the existing per-LLM-call trace hook into `llm.call` events (cost/model/phase),
+    // replacing the old `noopSink` arg — zero signature churn in run-pipeline.
     const run = await runLesson(
       request,
-      new GcpEngine(runId),
+      engine,
       defaultDeps,
       options,
       defaultStages,
-      noopSink,
+      new SpanToEventSink(stdout),
       researchSink,
     );
     // The owning user's sub — set by the Service as the RUN_OWNER override at gated dispatch (the Job
     // has no session to re-verify; it trusts the override, which is set only AFTER the spend gate). §5.
     const base = persistInput(runId, request, run, options);
     const ownerSub = process.env.RUN_OWNER?.trim();
-    const { curriculumId } = await persistRun(ownerSub ? { ...base, ownerSub } : base);
-    console.log(
-      JSON.stringify({ event: 'run-complete', curriculumId, costUsd: run.costUsd, pages: run.result.pages.length }),
-    );
+    await persistRun(ownerSub ? { ...base, ownerSub } : base);
+    stdout.onEvent(runCompleteEvent(run, Date.now() - startedAtMs));
+  } catch (err) {
+    stdout.onEvent(runFailedEvent(err));
+    throw err;
   } finally {
     await closePool();
   }
 }
 
-// Run only when invoked directly (the Job's `tsx src/eval/run-job.ts`), never when imported by a test.
+// Run only when invoked directly (the Job's `node dist/job/run-job.js`), never when imported by a test.
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
     console.error(error instanceof Error ? (error.stack ?? error.message) : error);
