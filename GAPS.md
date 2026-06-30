@@ -63,3 +63,9 @@ Deferral from the repo-description consistency mechanism:
 | Item | Trigger that should wake it | Why deferred |
 | --- | --- | --- |
 | Nightly/scheduled GitHub-description drift gate (compare the live `gh` description to the `INSTANCE.md` canonical; open a `drift:docs` issue on mismatch) | The reviewer `--check` + orchestrator post-merge sync stops sufficing — i.e. the live description drifts **out-of-band** (edited directly on GitHub) more than once | Introduction-time drift is already covered: the reviewer runs `scripts/sync-repo-description.sh --check` on identity-touching PRs and the orchestrator syncs post-merge. A scheduled gate would catch only out-of-band edits, and the repo has **no nightly CI** to extend yet — not worth standing one up for a single string until out-of-band drift actually recurs. |
+
+Deferral from the lesson-deletion epic ([#207](https://github.com/julianken/topic-synthesis/issues/207) — the dedicated docs-reconcile slice of the recoverable soft-delete epic; sibling issues #198–#206):
+
+| Item | Trigger that should wake it | Why deferred |
+| --- | --- | --- |
+| Time-based **auto-purge** of soft-deleted lessons — a retention policy / scheduled job that ages out `deleted_at`-stamped lessons after a fixed window | Retention/storage pressure to reclaim space from long-deleted lessons, OR a product decision to age out lessons left in the Recently-deleted shelf past a fixed window | **Manual permanent-delete ships in v1** — the Recently-deleted shelf's "Delete permanently" affordance ([#205](https://github.com/julianken/topic-synthesis/issues/205)) lets an owner purge a soft-deleted lesson on demand, so **only the *time-based automatic* purge is parked**: there is no retention window or scheduled purge job yet, and on-demand permanent-delete covers reclamation until deleted lessons accumulate enough to need automatic aging. |
