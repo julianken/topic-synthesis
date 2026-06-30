@@ -1,7 +1,23 @@
 import type { PageArtifact, PageSpec } from '../domain/stages';
-import type { LlmCallRecord } from '../llm/client';
+import { DEFAULT_CODE_DEADLINE_MS, type LlmCallRecord, withResilientRetry } from '../llm/client';
 import { STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from './deps';
+
+/** The `code` output budget. A full standalone interactive page can be sizable; the cheap profile builds
+ *  `code` on Sonnet (not Haiku) precisely so this budget is available. */
+const CODE_MAX_TOKENS = 32_000;
+
+/**
+ * The raised cap for the LENGTH-retry (issue #187): one more attempt when a generation truncates at
+ * `CODE_MAX_TOKENS`. Bounded WELL under both models' 64K output cap, so the retry has real headroom.
+ *
+ * Deliberately NO Sonnet→Haiku failover here (research re-scope, issue #187): both `claude-sonnet-4-6`
+ * and `claude-haiku-4-5` cap at 64K output and `code` already budgets 32K, so a Haiku attempt adds NO
+ * headroom — it would re-trip `finishReason==='length'` (verbosity/instruction-following, not a ceiling)
+ * or ship a worse page, while wasting ~$0.16 of Haiku spend on top of the Sonnet attempt. A model
+ * failover is reserved for the small structured ANALYSIS stages only — never for `code`.
+ */
+const CODE_RETRY_MAX_TOKENS = 48_000;
 
 /**
  * CODE_SYSTEM (Sonnet) — the blob-arm synthesis prompt. Beyond generating the standalone interactive
@@ -88,18 +104,27 @@ export async function code(
   // without re-hardcoding it.
   onProgress?: (p: { outputTokens: number; elapsedMs: number; phase: 'prefill' | 'generating'; maxTokens: number }) => void,
 ): Promise<CodeOutput> {
-  const { text, record } = await deps.streamComplete(
-    {
-      model,
-      system: CODE_SYSTEM,
-      prompt: codePrompt(spec, learningGoal),
-      // A full standalone interactive page can exceed a smaller cap; the cheap profile builds `code`
-      // on Sonnet (not Haiku) precisely so this budget is available. Truncation degrades a single
-      // lesson to 'soon', so give the page room to finish. We STREAM it (PR-1) to capture per-call
-      // timing (ttftMs/genMs) + drive the live progress hook.
-      maxTokens: 32000,
-    },
-    onProgress,
+  // ONE deadline shared across EVERY attempt (transient retries + the length-retry) + their backoffs, so
+  // total elapsed is bounded by a single #186 deadline rather than resetting per attempt (issue #187).
+  const signal = AbortSignal.timeout(DEFAULT_CODE_DEADLINE_MS);
+  const { text, record } = await withResilientRetry(
+    () =>
+      deps.streamComplete(
+        {
+          model,
+          system: CODE_SYSTEM,
+          prompt: codePrompt(spec, learningGoal),
+          // Truncation degrades a single lesson to 'soon', so give the page room to finish. We STREAM it
+          // (PR-1) to capture per-call timing (ttftMs/genMs) + drive the live progress hook.
+          maxTokens: CODE_MAX_TOKENS,
+          // Salvage a NEAR-MISS truncation: one raised-cap retry on finishReason==='length' (#187).
+          retryAtMaxTokens: CODE_RETRY_MAX_TOKENS,
+          signal,
+        },
+        onProgress,
+      ),
+    // Smart transient retry (429/529/5xx) with full-jitter backoff, all inside the one shared deadline.
+    { signal },
   );
   const artifact: PageArtifact = {
     nodeSlug: spec.nodeSlug,
