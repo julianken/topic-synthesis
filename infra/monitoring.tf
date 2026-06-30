@@ -186,13 +186,17 @@ resource "google_logging_metric" "critic_pass" {
 # outcome) but had no channel for the REASON; this gives the reject rate + reason distribution a queryable
 # label so "is the critic over-rejecting, and why?" is answerable. STANDALONE — NOT a relabel of
 # run_outcome / critic_pass (recreating an existing metric trips the scoped-apply / no-backfill rule).
-# Only run.complete carries `degradeCode`, and ONLY on a degraded run (a built run omits it → it yields no
-# point), so no stage/eventType conditional is needed. `degradeDetail` (the operator-only critique/error
-# string) is DELIBERATELY NOT a label — it is unbounded-cardinality free text, read in the log entry, never
-# a metric dimension. Log-based metrics don't backfill: this evaluates from the first post-apply run.
+# The filter REQUIRES `jsonPayload.degradeCode:*` (the field-EXISTS test), not just eventType="run.complete":
+# a COUNTER metric counts EVERY entry matching the filter, and a missing label-extraction field is NOT
+# dropped — GCP assigns the string label its empty-string default. So without `:*`, every BUILT run (which
+# emits run.complete with NO degradeCode) would be counted under code="" and swamp the STACKED_BAR. The
+# `:*` existence filter is what EXCLUDES built runs, so only degraded runs that actually carry a code are
+# counted. `degradeDetail` (the operator-only critique/error string) is DELIBERATELY NOT a label — it is
+# unbounded-cardinality free text, read in the log entry, never a metric dimension. Log-based metrics don't
+# backfill: this evaluates from the first post-apply run.
 resource "google_logging_metric" "degrade_reason" {
   name   = "topic_synthesis/degrade_reason"
-  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"run.complete\""
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"run.complete\" AND jsonPayload.degradeCode:*"
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "INT64"
