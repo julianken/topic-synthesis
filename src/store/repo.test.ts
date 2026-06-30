@@ -9,12 +9,15 @@ import { STAGE_MODELS } from '../llm/models';
 import type { Research } from '../domain/stages';
 import {
   CODE_PROGRESS_THROTTLE_MS,
+  type DeletedLessonCard,
   DISPATCH_STEP_NAME,
   getCodeProgress,
   getLesson,
+  getOwnedDeletedLesson,
   getOwnedPage,
   getResearchEvents,
   getStepEvents,
+  listDeletedLessons,
   listLessons,
   ownsRun,
   persistRun,
@@ -23,6 +26,8 @@ import {
   rebuildHub,
   recordDispatch,
   recordRunOwner,
+  restore,
+  softDelete,
   type StoreDeps,
 } from './repo';
 
@@ -845,6 +850,139 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
   });
 });
 
+// ── soft-delete data layer (#198) — fakePool arm: SQL shape + bound params only ───────────────────
+// The fake matches canned rows by SQL substring and CANNOT execute a WHERE — so it proves statement
+// shape + bound params here, never owner-scope or idempotency behavior. Those guards are proven by the
+// real-Postgres round-trips in the integration block below (#198 plan-review requirement).
+describe('soft-delete reads hide deleted rows (#198 — fakePool predicate shape)', () => {
+  it('getLesson curriculum SELECT carries deleted_at IS NULL', async () => {
+    const { deps, client } = fakePool();
+    await getLesson('c1', 'owner-1', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('FROM curriculum WHERE')) ?? '';
+    expect(sql).toContain('deleted_at IS NULL');
+  });
+
+  it('getOwnedPage JOIN WHERE carries c.deleted_at IS NULL', async () => {
+    const { deps, client } = fakePool();
+    await getOwnedPage('c1', 'sine', 'owner-1', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('JOIN concept_page')) ?? '';
+    expect(sql).toContain('c.deleted_at IS NULL');
+  });
+
+  it('listLessons inner DISTINCT-ON subquery WHERE carries c.deleted_at IS NULL', async () => {
+    const { deps, client } = fakePool();
+    await listLessons('owner-1', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('FROM curriculum c')) ?? '';
+    expect(sql).toContain('c.deleted_at IS NULL');
+  });
+});
+
+describe('softDelete (#198 — fakePool SQL shape + the canned zero-row no-op)', () => {
+  const MATCH = 'UPDATE curriculum SET deleted_at = now()';
+
+  it('emits a single owner+not-deleted-guarded UPDATE … RETURNING id and returns the affected ids', async () => {
+    const { deps, client } = fakePool([{ match: MATCH, rows: [{ id: 'a' }, { id: 'b' }] }]);
+    expect(await softDelete(['a', 'b'], 'owner-1', deps)).toEqual(['a', 'b']);
+    const sql = sqlsOf(client.query).find((s) => s.includes(MATCH)) ?? '';
+    expect(sql).toContain('WHERE id = ANY($1)');
+    expect(sql).toContain('owner_sub = $2'); // owner-scoping is unconditional (AC #13)
+    expect(sql).toContain('deleted_at IS NULL'); // only-not-yet-deleted guard → idempotent re-delete
+    expect(sql).toContain('RETURNING id'); // the reconcile seam #199/#201/#203 read
+    expect(paramsOf(client.query, MATCH)).toEqual([['a', 'b'], 'owner-1']);
+  });
+
+  it('returns [] when no row is affected — a canned zero-row RETURNING (foreign-owner / re-delete)', async () => {
+    // The fake can't run a WHERE; a zero-row RETURNING result proves the no-op contract returns [].
+    const { deps } = fakePool(); // default: every query → { rows: [] }
+    expect(await softDelete(['a'], 'foreign-owner', deps)).toEqual([]);
+  });
+});
+
+describe('restore (#198 — fakePool SQL shape + the canned zero-row no-op)', () => {
+  const MATCH = 'UPDATE curriculum SET deleted_at = NULL';
+
+  it('emits a single owner+is-deleted-guarded UPDATE … RETURNING id and returns the affected ids', async () => {
+    const { deps, client } = fakePool([{ match: MATCH, rows: [{ id: 'a' }] }]);
+    expect(await restore(['a'], 'owner-1', deps)).toEqual(['a']);
+    const sql = sqlsOf(client.query).find((s) => s.includes(MATCH)) ?? '';
+    expect(sql).toContain('WHERE id = ANY($1)');
+    expect(sql).toContain('owner_sub = $2'); // owner-scoping is unconditional (AC #13)
+    expect(sql).toContain('deleted_at IS NOT NULL'); // only-currently-deleted guard → idempotent re-restore
+    expect(sql).toContain('RETURNING id');
+    expect(paramsOf(client.query, MATCH)).toEqual([['a'], 'owner-1']);
+  });
+
+  it('returns [] when no row is affected — a canned zero-row RETURNING (foreign-owner / re-restore)', async () => {
+    const { deps } = fakePool();
+    expect(await restore(['a'], 'foreign-owner', deps)).toEqual([]);
+  });
+});
+
+describe('listDeletedLessons (#198 — fakePool scope/filter/order + deletedAt mapping)', () => {
+  const deletedRow = (over: Partial<Record<string, unknown>> = {}) => ({
+    id: 'cur-del',
+    created_at: new Date('2026-06-21T00:00:00.000Z'),
+    deleted_at: new Date('2026-06-25T00:00:00.000Z'),
+    concept_slug: 'fourier',
+    title: 'Fourier',
+    status: 'built',
+    settings_json: { level: 'intro', depth: 2, audience: 'curious' },
+    category: 'MATHEMATICS',
+    summary: 'How the Fourier transform decomposes a signal into frequencies.',
+    ...over,
+  });
+
+  it('is owner-scoped, filters deleted_at IS NOT NULL, orders by deleted_at DESC, reuses DISTINCT ON (c.id)', async () => {
+    const { deps, client } = fakePool([{ match: 'FROM curriculum c', rows: [deletedRow()] }]);
+    const cards = await listDeletedLessons('owner-1', deps);
+    expect(cards).toHaveLength(1);
+    const sql = sqlsOf(client.query).find((s) => s.includes('FROM curriculum c')) ?? '';
+    expect(sql).toContain('c.owner_sub = $1');
+    expect(sql).toContain('c.deleted_at IS NOT NULL');
+    expect(sql).toContain('ORDER BY deleted_at DESC');
+    expect(sql).toContain('DISTINCT ON (c.id)'); // reuses the one-card-per-curriculum projection
+    expect(paramsOf(client.query, 'FROM curriculum c')).toEqual(['owner-1']);
+  });
+
+  it('maps a canned row to a card with a deletedAt ISO string plus the LessonCard fields', async () => {
+    const { deps } = fakePool([{ match: 'FROM curriculum c', rows: [deletedRow()] }]);
+    const [card] = await listDeletedLessons('owner-1', deps);
+    // DeletedLessonCard = LessonCard & { deletedAt: string } — the existing card fields…
+    expect(card?.id).toBe('cur-del');
+    expect(card?.slug).toBe('fourier');
+    expect(card?.title).toBe('Fourier');
+    expect(card?.status).toBe('built');
+    expect(card?.level).toBe('intro');
+    expect(card?.depth).toBe(2);
+    expect(card?.category).toBe('MATHEMATICS');
+    expect(card?.createdAt).toBe('2026-06-21T00:00:00.000Z');
+    // …plus the new deletedAt ISO string (Date → ISO, same normalization as createdAt)
+    expect(card?.deletedAt).toBe('2026-06-25T00:00:00.000Z');
+  });
+
+  it('a foreign/unknown owner gets [] (no existence oracle)', async () => {
+    expect(await listDeletedLessons('someone-else', fakePool().deps)).toEqual([]);
+  });
+});
+
+describe('getOwnedDeletedLesson (#198 — fakePool null vs {id, topic})', () => {
+  const MATCH = 'SELECT id, topic FROM curriculum';
+
+  it('SELECTs scoped to id + owner_sub + deleted_at IS NOT NULL and returns {id, topic} on a hit', async () => {
+    const { deps, client } = fakePool([{ match: MATCH, rows: [{ id: 'c1', topic: 'Fourier' }] }]);
+    expect(await getOwnedDeletedLesson('c1', 'owner-1', deps)).toEqual({ id: 'c1', topic: 'Fourier' });
+    const sql = sqlsOf(client.query).find((s) => s.includes(MATCH)) ?? '';
+    expect(sql).toContain('id = $1');
+    expect(sql).toContain('owner_sub = $2');
+    expect(sql).toContain('deleted_at IS NOT NULL'); // the friendly-stale existence read #202 branches on
+    expect(paramsOf(client.query, MATCH)).toEqual(['c1', 'owner-1']);
+  });
+
+  it('returns null for an absent / not-owned / not-deleted id (a uniform read, no 403/404 oracle)', async () => {
+    expect(await getOwnedDeletedLesson('c1', 'owner-1', fakePool().deps)).toBeNull();
+  });
+});
+
 // Real Postgres round-trip — runs only when DATABASE_URL points at a migrated DB
 // (`docker compose up -d && npm run db:migrate`); skipped in CI / the bot's clone.
 describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', () => {
@@ -867,5 +1005,100 @@ describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', 
     const page = await getOwnedPage(runId, built?.slug ?? '', ownerSub, deps);
     expect(page?.html).toContain('Sine');
     expect(await getLesson(runId, 'someone-else', deps)).toBeNull();
+  });
+
+  // ── soft-delete data layer (#198) — the owner-scope + idempotency guards the fakePool can't prove ──
+  const builtSlugOf = async (runId: string, ownerSub: string): Promise<string> =>
+    (await getLesson(runId, ownerSub, deps))?.hub.tiers
+      .flatMap((t) => t.categories.flatMap((c) => c.pages))
+      .find((p) => p.built)?.slug ?? '';
+
+  it('softDelete hides the lesson from getLesson AND listLessons AND getOwnedPage for its own owner', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await persistRun({ runId, request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    const slug = await builtSlugOf(runId, ownerSub);
+    // visible across all three reads before delete
+    expect(await getLesson(runId, ownerSub, deps)).not.toBeNull();
+    expect((await getOwnedPage(runId, slug, ownerSub, deps))?.html).toContain('Sine');
+    expect((await listLessons(ownerSub, deps)).some((c) => c.id === runId)).toBe(true);
+
+    expect(await softDelete([runId], ownerSub, deps)).toEqual([runId]); // RETURNs the affected id
+
+    // …and now hidden from every owner-scoped read
+    expect(await getLesson(runId, ownerSub, deps)).toBeNull();
+    expect(await getOwnedPage(runId, slug, ownerSub, deps)).toBeNull();
+    expect((await listLessons(ownerSub, deps)).some((c) => c.id === runId)).toBe(false);
+  });
+
+  it('a foreign-owner softDelete is a no-op: it RETURNs [] and the row stays visible to its real owner', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    const otherSub = `owner-${randomUUID()}`;
+    await persistRun({ runId, request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    expect(await softDelete([runId], otherSub, deps)).toEqual([]); // not owned → zero rows
+    expect(await getLesson(runId, ownerSub, deps)).not.toBeNull(); // still visible to its owner
+  });
+
+  it('restore returns the soft-deleted lesson to getLesson AND listLessons for its owner', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await persistRun({ runId, request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    await softDelete([runId], ownerSub, deps);
+    expect(await getLesson(runId, ownerSub, deps)).toBeNull(); // gone after delete
+    expect(await restore([runId], ownerSub, deps)).toEqual([runId]); // RETURNs the affected id
+    expect(await getLesson(runId, ownerSub, deps)).not.toBeNull(); // back
+    expect((await listLessons(ownerSub, deps)).some((c) => c.id === runId)).toBe(true);
+  });
+
+  it('idempotent by round-trip: a re-delete and a re-restore each RETURN empty ([])', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await persistRun({ runId, request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    expect(await softDelete([runId], ownerSub, deps)).toEqual([runId]);
+    expect(await softDelete([runId], ownerSub, deps)).toEqual([]); // re-delete → zero rows (already deleted)
+    expect(await restore([runId], ownerSub, deps)).toEqual([runId]);
+    expect(await restore([runId], ownerSub, deps)).toEqual([]); // re-restore → zero rows (already live)
+  });
+
+  it('listDeletedLessons returns only the caller-owned deleted rows, newest-deleted-first, excluding another owner', async () => {
+    const ownerSub = `owner-${randomUUID()}`;
+    const otherSub = `owner-${randomUUID()}`;
+    const a = `itest-${randomUUID()}`;
+    const b = `itest-${randomUUID()}`;
+    const foreign = `itest-${randomUUID()}`;
+    await persistRun({ runId: a, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    await persistRun({ runId: b, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    await persistRun({ runId: foreign, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub: otherSub }, deps);
+    // delete a first, then b → b is the newer-deleted of the two
+    await softDelete([a], ownerSub, deps);
+    await softDelete([b], ownerSub, deps);
+    await softDelete([foreign], otherSub, deps);
+
+    const deleted = await listDeletedLessons(ownerSub, deps);
+    const ids = deleted.map((c) => c.id);
+    expect(ids).toContain(a);
+    expect(ids).toContain(b);
+    expect(ids).not.toContain(foreign); // another owner's deleted lesson is excluded (owner-scoped)
+    expect(ids.indexOf(b)).toBeLessThan(ids.indexOf(a)); // newest-deleted-first (ORDER BY deleted_at DESC)
+    const cardB = deleted.find((c) => c.id === b);
+    expect(typeof cardB?.deletedAt).toBe('string'); // each card carries a deletedAt ISO string
+    expect(cardB?.deletedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // the OTHER owner's deleted list is symmetric: it has its own deleted row and none of the caller's
+    const otherIds = (await listDeletedLessons(otherSub, deps)).map((c) => c.id);
+    expect(otherIds).toContain(foreign);
+    expect(otherIds).not.toContain(a);
+    expect(otherIds).not.toContain(b);
+  });
+
+  it('getOwnedDeletedLesson returns the owned deleted row ({id, topic}); null for a foreign owner or a live row', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    const otherSub = `owner-${randomUUID()}`;
+    await persistRun({ runId, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    expect(await getOwnedDeletedLesson(runId, ownerSub, deps)).toBeNull(); // not deleted yet → null
+    await softDelete([runId], ownerSub, deps);
+    expect(await getOwnedDeletedLesson(runId, ownerSub, deps)).toEqual({ id: runId, topic: 'Fourier' });
+    expect(await getOwnedDeletedLesson(runId, otherSub, deps)).toBeNull(); // foreign owner → null (no oracle)
   });
 });
