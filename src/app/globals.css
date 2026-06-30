@@ -3486,3 +3486,247 @@ body.has-ws-topbar > .appbar {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
 }
+
+/* ── Recently deleted shelf (#204) ──────────────────────────────────────────────────────────────────
+   The DURABLE recovery surface (/recently-deleted). REUSES the shipped poster visual (the
+   `.library-poster__*` wash/eyebrow/title/description) on a NON-LINK, NO-`view-transition-name` card —
+   deleted lessons 404 at the read layer, and a shelf card must NEVER pair into the card→reader FLIP morph
+   (which stays byte-untouched). The footer is a "Deleted …" stamp + the POSITIVE Restore control (arrow +
+   word in --accent, affordance by label + icon, never color alone). All motion is the §0 catalog only:
+   entrance via the EXISTING `rail-reveal` keyframe, plus an additive restore-exit collapse, empty-state
+   reveal, and failure shake — every value resolves to a §0 `--dur-*`/`--ease` or a catalog `--tr-*`
+   primitive. NO new §0 token, NO `:root` edit, NO manifest-copy / serve.ts change. Reduced motion: the
+   global `prefers-reduced-motion` guard zeroes every duration AND delay (instant, no stagger), while the
+   Restore affordance + the live regions stay present. Contrast (measured, OKLCH→sRGB→WCAG): Restore
+   text/icon `--accent` on `--bg-surface` = 10.70:1 (10.46:1 on the `--bg-raised` hover), the hover border
+   `--accent-dim` = 6.95:1, the `:focus-visible` ring `--accent` = 10.70:1, the "Deleted …" stamp
+   `--text-faint` = 5.54:1 — all clear AA (text ≥4.5:1, non-text ≥3:1).
+   ──────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* The quiet "Recently deleted" link in the library home's section-title row (page.tsx `.library__head`):
+   the hint + link grouped right of "Lessons", mono fine-print in `--text-faint` brightening to
+   `--text-muted` on hover (status by text + the standard `:focus-visible` ring; never color alone). */
+.library__head-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-1);
+  text-align: right;
+}
+.library__recently-deleted {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+  text-decoration: none;
+  transition: var(--tr-color);
+}
+.library__recently-deleted:hover {
+  color: var(--text-muted);
+}
+
+/* The shelf page wrap — mirrors the library frame's full-bleed container + gutter rhythm. */
+.shelf {
+  padding: 0;
+  max-width: var(--frame-max);
+  margin: 0;
+}
+
+/* Section title row: the serif "Recently deleted" heading + a quiet back-to-lessons link. */
+.shelf__head {
+  padding: 20px 26px 14px;
+}
+.shelf__head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.shelf__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-title);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+}
+.shelf__back {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+  text-decoration: none;
+  transition: var(--tr-color);
+}
+.shelf__back:hover {
+  color: var(--text-muted);
+}
+
+/* The shelf card grid — reuses the library frame's FIXED 291px columns, left-clustered, mobile reflow. */
+.shelf-grid {
+  list-style: none;
+  margin: 0;
+  padding: 14px 26px 60px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 291px);
+  justify-content: start;
+  gap: 18px;
+}
+
+/* Each shelf poster is a bounded box — NOT a morph origin (NO view-transition-name) and NOT a link. It
+   enters via the EXISTING `rail-reveal` keyframe with a per-card stagger (delay = index × --dur-fast); the
+   global reduced-motion guard zeroes both duration AND delay (instant, no stagger). The card surface
+   matches the library poster (`--bg-surface` over a 0.8px `--border`, `--r-card-lg`) but carries NO
+   clickable hover — it is a passive container; the only interactive target is the Restore button. */
+.shelf-poster {
+  display: flex;
+}
+.shelf-poster__card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 262px;
+  background: var(--bg-surface);
+  border: 0.8px solid var(--border);
+  border-radius: var(--r-card-lg);
+  color: var(--text);
+  overflow: hidden;
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+  animation-delay: calc(var(--rail-i, 0) * var(--dur-fast));
+}
+
+/* Restore-exit collapse: on a successful restore the card fades + settles up, then the island unmounts it
+   (onAnimationEnd). §0 tiers only; reduced motion zeroes it → instant removal (the announcement still fires). */
+.shelf-poster--restoring {
+  animation: shelf-restore-collapse var(--dur-base) var(--ease) both;
+}
+@keyframes shelf-restore-collapse {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--sp-1))) scale(0.98);
+  }
+}
+
+/* Failure shake — a restore that didn't go through (the card STAYS in place). The `role="alert"` text is
+   the primary signal; the shake is decorative reinforcement, zeroed under reduced motion (affordance kept). */
+.shelf-poster--error {
+  animation: shelf-shake var(--dur-base) var(--ease) both;
+}
+@keyframes shelf-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(calc(-1 * var(--sp-1)));
+  }
+  75% {
+    transform: translateX(var(--sp-1));
+  }
+}
+
+/* The shelf footer: the "Deleted …" stamp LEFT, the Restore control RIGHT — bottom-pinned by the reused
+   `.library-poster__body` space-between. */
+.shelf-poster__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding-top: 4px;
+}
+.shelf-poster__stamp {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The Restore control — POSITIVE / interactive, never destructive: an arrow glyph + the word "Restore",
+   BOTH in --accent (affordance by label + icon, never color alone — §Accessibility). The hit target is
+   ≥24px tall (SC 2.5.8), widening to ≥44px on touch (SC 2.5.5). */
+.shelf-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 24px;
+  padding: var(--sp-1) var(--sp-2);
+  border: 0.8px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-meta);
+  cursor: pointer;
+  transition: var(--tr-hover);
+}
+.shelf-restore:hover {
+  border-color: var(--accent-dim);
+  background: var(--bg-raised);
+}
+.shelf-restore:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.shelf-restore__icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.shelf-restore__label {
+  white-space: nowrap;
+}
+@media (hover: none) {
+  /* Touch pointers: a comfortable ≥44px target (SC 2.5.5). */
+  .shelf-restore {
+    min-height: 44px;
+    padding-inline: var(--sp-3);
+  }
+}
+
+/* The honest, labeled empty state — a card-shaped panel matching the library's first-run look. Enters via
+   the catalog `rail-reveal` (zeroed under reduced motion). */
+.shelf-empty {
+  margin: 14px 26px 0;
+  padding: var(--sp-6);
+  border: 0.8px dashed var(--border);
+  border-radius: var(--r-card-lg);
+  background: var(--bg-surface);
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+}
+.shelf-empty__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-card-title);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+}
+.shelf-empty__hint {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+
+/* The two standing visually-hidden live regions (mirrors `.library-live` / `.gen-sr`): no layout space, so
+   they can never shift the shelf grid. */
+.shelf-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

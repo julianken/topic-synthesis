@@ -78,7 +78,16 @@ export default async function Library() {
           head={
             <div className="library__head">
               <h1 className="library__title">Lessons</h1>
-              <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
+              {/* The section hint + a QUIET link to the Recently-deleted recovery shelf (#204). The link is
+                  the durable recovery entry the delete flows ("find it in Recently deleted") point at; added
+                  directly here (not via #200's restructure) so it stands alone. Keyboard-reachable plain
+                  anchor. */}
+              <div className="library__head-meta">
+                <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
+                <a className="library__recently-deleted" href="/recently-deleted">
+                  Recently deleted
+                </a>
+              </div>
             </div>
           }
           // The IN-FLIGHT tiles (#231) render BETWEEN the `+ New lesson` cell and the persisted posters,

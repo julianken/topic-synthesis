@@ -57,6 +57,20 @@ export function relativeTime(createdAtIso: string, now: Date = new Date()): stri
   return `${Math.round(days / 365)}y ago`;
 }
 
+/**
+ * The Recently-deleted shelf card's footer stamp (#204): the literal word `Deleted` joined to the existing
+ * coarse `relativeTime` output. Because `relativeTime` ALREADY emits the trailing "ago"/"yesterday"/"just
+ * now", this does NOT append a second "ago" — it yields `Deleted 3 days ago`, `Deleted yesterday`, `Deleted
+ * just now`. Pure (caller passes `now`), matching `relativeTime`'s deterministic-testability contract. A
+ * `deletedAt` is always a real DB timestamp (Date → ISO), so `relativeTime` is non-empty in practice; if it
+ * ever isn't (an unparseable value), the stamp degrades to the bare word `Deleted` — never an empty stamp,
+ * never a dangling trailing space.
+ */
+export function deletedAgo(deletedAtIso: string, now: Date = new Date()): string {
+  const when = relativeTime(deletedAtIso, now);
+  return when ? `Deleted ${when}` : 'Deleted';
+}
+
 /** The learner-facing level word for the card meta line. The Figma `6:2` footer reads "beginner · d2 · …",
  *  so the `intro` level surfaces as "beginner" (a user-appropriate word, not the internal `intro` enum);
  *  `intermediate`/`advanced` already read naturally. Never the raw enum on a user surface. */
