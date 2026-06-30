@@ -81,9 +81,10 @@ images:
   - ${_AR}/app:${_GIT_SHA}
   - ${_AR}/app:latest
 
-options:
-  machineType: 'E2_STANDARD_2'
-
+# No top-level `options.machineType`: Cloud Build REJECTS the default machine (E2_STANDARD_2) as an explicit
+# value (errors `.options.machineType: unused`) — only premium types (E2_HIGHCPU_8/32, …) are selectable; the
+# default is expressed by OMITTING the field. BuildKit is enabled per docker step via `env: DOCKER_BUILDKIT=1`.
+# A clean two-image build stays within the 2,500 free build-minutes/month on the default machine (issue #184).
 timeout: '1800s'
 
 substitutions:
