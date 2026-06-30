@@ -1,7 +1,8 @@
+import { APICallError } from 'ai';
 import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { complete, completeObject, searchWeb, streamComplete } from './client';
+import { complete, completeObject, DEFAULT_CODE_DEADLINE_MS, searchWeb, streamComplete } from './client';
 import type { StageModel } from './models';
 
 const OPUS: StageModel = { provider: 'anthropic', model: 'claude-opus-4-8' };
@@ -177,5 +178,60 @@ describe('streamComplete', () => {
     );
     expect(capped.length).toBeGreaterThanOrEqual(1);
     expect(capped.every((m) => m === 32000)).toBe(true); // the explicit request cap rides every sample
+  });
+
+  // ---- issue #186: fail fast + cheap on a stall, never re-bill (maxRetries:0 + a total-elapsed deadline) ----
+
+  it('caps SDK retries at 0 — a retryable establishment failure is tried ONCE, never 3× re-billed (#186)', async () => {
+    // A retryable APICallError (e.g. a 529 overloaded) is EXACTLY the class the AI SDK would otherwise
+    // re-run on (default maxRetries:2 → 3 attempts). With maxRetries:0 the stalled/failing establishment
+    // is attempted once and the cost (~$0.228) is never amplified. Asserting the invocation count proves
+    // the cap directly: doStreamCalls records every attempt the SDK made.
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new APICallError({
+          message: 'overloaded',
+          url: 'https://api.anthropic.test',
+          requestBodyValues: {},
+          statusCode: 529,
+          isRetryable: true,
+        });
+      },
+    });
+    await expect(
+      streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000 }, undefined, model),
+    ).rejects.toThrow();
+    expect(model.doStreamCalls.length).toBe(1); // maxRetries:0 → one attempt; the uncapped default would be 3
+  });
+
+  it('aborts a stalled stream at the deadline and propagates the timeout UN-retried → degrade-to-soon (#186)', async () => {
+    // Model the establishment stall the issue exists to kill: the call never returns a first chunk. The
+    // AbortSignal.timeout(deadlineMs) is the single binding total-elapsed cap; when it fires the call
+    // aborts. The abort propagates as a THROW (so synthesizeLesson's catch degrades the run to 'soon'
+    // rather than crashing) and is NOT retried (an abort is non-retryable). A tiny deadline keeps the
+    // test deterministic and fast — it must fire ~at the deadline, not wait out a real 15-min stall.
+    const model = new MockLanguageModelV3({
+      doStream: async ({ abortSignal }) => {
+        // Never yield a first chunk; reject only when the deadline AbortSignal fires.
+        await new Promise<never>((_, reject) => {
+          if (abortSignal?.aborted) reject(abortSignal.reason);
+          abortSignal?.addEventListener('abort', () => reject(abortSignal.reason));
+        });
+        throw new Error('unreachable — the abort rejects first');
+      },
+    });
+    const startedAt = Date.now();
+    await expect(
+      streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000, deadlineMs: 40 }, undefined, model),
+    ).rejects.toThrow(/abort|timeout/i);
+    expect(model.doStreamCalls.length).toBe(1); // the timed-out establishment is never retried
+    expect(Date.now() - startedAt).toBeLessThan(2000); // fired at the ~40ms deadline, not a long stall
+  });
+
+  it('defaults the deadline to DEFAULT_CODE_DEADLINE_MS, anchored under the 3600s Job task timeout (#186)', () => {
+    // The default must leave a healthy slow generation room (anchored on the observed ~210–270s band)
+    // yet sit well under the Cloud Run Job's 3600s task timeout so THIS deadline is what bounds a stall.
+    expect(DEFAULT_CODE_DEADLINE_MS).toBeGreaterThan(270_000); // > the observed healthy code-phase max
+    expect(DEFAULT_CODE_DEADLINE_MS).toBeLessThan(3_600_000); // < the 3600s Job task timeout (cloud-run.tf:95)
   });
 });
