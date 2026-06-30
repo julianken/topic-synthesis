@@ -111,6 +111,91 @@ describe('searchWeb', () => {
   });
 });
 
+// ---- issue #189: searchWeb wraps the shared withResilientRetry at ONE layer (maxRetries:0 inner) ----
+
+/** A canned successful web-search doGenerate result — grounded text + one url source. */
+function searchOk(text = 'A grounded answer.') {
+  return {
+    content: [
+      { type: 'text' as const, text },
+      { type: 'source' as const, sourceType: 'url' as const, id: 's1', url: 'https://a.example', title: 'A' },
+    ],
+    finishReason: { unified: 'stop' as const, raw: 'stop' as const },
+    usage: {
+      inputTokens: { total: 100, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: 50, text: undefined, reasoning: undefined },
+    },
+    warnings: [],
+  };
+}
+
+describe('searchWeb — resilient retry (#189)', () => {
+  it('(b1) retries a 429 ONCE honoring Retry-After exactly, then returns the grounded result', async () => {
+    const delays: number[] = [];
+    const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        calls += 1;
+        if (calls === 1) throw apiError(429, { retryAfter: '2' }); // server asked for 2s
+        return searchOk();
+      },
+    });
+
+    const res = await searchWeb({ model: OPUS, prompt: 'what is x?' }, model, { sleep, random: () => 0.5 });
+
+    expect(res.text).toBe('A grounded answer.');
+    expect(res.sources).toEqual([{ url: 'https://a.example', title: 'A' }]);
+    expect(model.doGenerateCalls).toHaveLength(2); // one transient retry, then success
+    expect(delays).toEqual([2000]); // honored the 2s Retry-After exactly (not a jittered value)
+  });
+
+  it('(b2) retries a 529 with FULL-JITTER backoff within bounds, never trusting its Retry-After', async () => {
+    const delays: number[] = [];
+    const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        calls += 1;
+        // A 529 may carry a Retry-After too; the policy IGNORES it (overloaded servers' values are
+        // unreliable) and jitters instead — so the delay is the jittered window, not 300_000.
+        if (calls === 1) throw apiError(529, { retryAfter: '300' });
+        return searchOk();
+      },
+    });
+
+    const base = 500;
+    const cap = 8000;
+    const res = await searchWeb({ model: OPUS, prompt: 'x' }, model, {
+      sleep,
+      random: () => 0.5,
+      baseDelayMs: base,
+      capDelayMs: cap,
+    });
+
+    expect(res.text).toBe('A grounded answer.');
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(delays).toHaveLength(1);
+    const window = Math.min(cap, base * 2 ** 1); // attempt 1's full-jitter window
+    expect(delays[0]).toBeGreaterThanOrEqual(0);
+    expect(delays[0]).toBeLessThanOrEqual(window);
+    expect(delays[0]).not.toBe(300_000); // did NOT honor the 529's Retry-After
+  });
+
+  it('(b3) rethrows a non-retryable 400 immediately — no retry, no sleep, called once', async () => {
+    const sleep = vi.fn(async () => {});
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        throw apiError(400, { isRetryable: false });
+      },
+    });
+
+    await expect(searchWeb({ model: OPUS, prompt: 'x' }, model, { sleep })).rejects.toThrow(/status 400/);
+    expect(model.doGenerateCalls).toHaveLength(1); // no retry on a client error
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+
 /** A mock STREAMING model (the doStream sibling of mockModel) — emits the text in deltas, then a finish
  *  part carrying the usage + finish reason, exactly as a real provider stream does. */
 function mockStream(

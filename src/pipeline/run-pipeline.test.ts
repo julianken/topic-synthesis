@@ -548,3 +548,80 @@ describe('runLesson (single-lesson path)', () => {
     }
   });
 });
+
+// ── issue #189: the researcher fan-out is concurrency-BOUNDED (inline semaphore, no new dep) ─────────
+// The shared ANALYSIS prelude fans the web searches out under a cap so a wide question count can't
+// stampede the provider on a 529 overload. These prove the bound holds AND that the per-question
+// engine.step memoization + the fire-and-forget ResearchSink emissions survive the bounded fan-out.
+describe('bounded researcher fan-out (#189)', () => {
+  it('(a) caps concurrent researcher web-search calls at researchConcurrency (max in-flight ≤ cap)', async () => {
+    const N = 10; // N > cap, so the bound actually engages
+    const cap = 3;
+    const questions = Array.from({ length: N }, (_, i) => `q${i + 1}`); // 10 DISTINCT questions (no dedup)
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let started = 0;
+    const gates: Array<() => void> = [];
+    const deps = lessonFakeDeps(questions);
+    // The fake searchWeb PARKS on a gate so concurrency is observable, then is released in waves — fully
+    // deterministic (no real timer drives an assertion); maxInFlight can structurally never exceed `cap`.
+    (deps.searchWeb as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      inFlight += 1;
+      started += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise<void>((resolve) => gates.push(resolve));
+      inFlight -= 1;
+      return { text: 'synthesis', sources: [{ url: 'https://s.example', title: 'S' }], record: mkRec() };
+    });
+
+    const runP = runLesson(req, new InlineEngine(), deps, { researchConcurrency: cap });
+
+    // Drive the fan-out: flush the macrotask queue (admitting parked workers), then release ONE parked
+    // worker so its freed semaphore slot can admit the next queued question. Loop until every question
+    // has started AND no worker is left parked.
+    while (started < N || gates.length > 0) {
+      await new Promise((r) => setTimeout(r, 0)); // let freed slots admit + park the next worker(s)
+      gates.shift()?.();
+    }
+    await runP;
+
+    expect(started).toBe(N); // every question was researched
+    expect(maxInFlight).toBeLessThanOrEqual(cap); // never exceeded the cap — the core guarantee
+    expect(maxInFlight).toBe(cap); // and actually reached it: proves real bounded concurrency (N > cap)
+  });
+
+  it('(b) preserves per-question engine.step memoization + ResearchSink emissions under the bound', async () => {
+    const seen: { questions?: string[]; researched: string[] } = { researched: [] };
+    const recording: ResearchSink = {
+      async onQuestions(qs) {
+        seen.questions = [...qs];
+      },
+      async onResearch(question) {
+        seen.researched.push(question);
+      },
+    };
+    const deps = lessonFakeDeps(['q1', 'q2', 'q3']); // 3 distinct questions, cap 2 → the bound engages
+    const engine = new InlineEngine();
+    const searches = deps.searchWeb as ReturnType<typeof vi.fn>;
+
+    await runLesson(req, engine, deps, { researchConcurrency: 2 }, defaultStages, noopSink, recording);
+
+    // onQuestions fired ONCE with the real planner questions; onResearch fired once per question.
+    expect(seen.questions).toEqual(['q1', 'q2', 'q3']);
+    expect(seen.researched.slice().sort()).toEqual(['q1', 'q2', 'q3']);
+    expect(searches.mock.calls).toHaveLength(3); // one web search per question under the bound
+
+    // Re-run on the SAME engine + req: every per-question step key (contentHash(question, bucket))
+    // repeats → all memoized, so the paid search `fn` never re-runs despite the bounded fan-out.
+    await runLesson(req, engine, deps, { researchConcurrency: 2 }, defaultStages, noopSink, recording);
+    expect(searches.mock.calls).toHaveLength(3); // still 3 total — memoized through the bound
+  });
+
+  it('(c) is INERT at the default cap for a small fan-out (every existing caller unchanged)', async () => {
+    // The default (DEFAULT_RESEARCH_CONCURRENCY = 4) ≥ today's live fan-out width, so a 2-question run
+    // never queues — it behaves exactly as the old unbounded Promise.all. Proven by an unchanged run.
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1', 'q2']));
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.pages[0]?.passed).toBe(true);
+  });
+});

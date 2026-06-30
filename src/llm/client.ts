@@ -424,16 +424,29 @@ export interface SearchResult {
 export async function searchWeb(
   opts: CompleteOptions & { maxSearches?: number },
   modelOverride?: LanguageModel,
+  // Resilient-retry knobs (issue #189) — INJECTABLE so a test is deterministic (pass `sleep`/`random`);
+  // defaults give the production policy (≤3 attempts, full-jitter on 529/5xx, honor Retry-After on 429).
+  retryOpts: ResilientRetryOptions = {},
 ): Promise<SearchResult> {
   const providerModel = registryId(opts.model);
   const maxTokens = opts.maxTokens ?? 8000;
-  const result = await generateText({
-    model: modelOverride ?? resolveModel(opts.model),
-    prompt: opts.prompt,
-    maxOutputTokens: maxTokens,
-    tools: { web_search: anthropic.tools.webSearch_20250305({ maxUses: opts.maxSearches ?? 5 }) },
-    ...(opts.system !== undefined ? { system: opts.system } : {}),
-  });
+  // ONE retry layer (issue #189): the jittered, Retry-After-aware `withResilientRetry` is the single
+  // place a transient 429/529/5xx is retried — so the inner `generateText` runs with `maxRetries: 0`
+  // (the SDK's own retry ignores Retry-After + uses no jitter, and stacking the two would double-retry
+  // every researcher in lockstep — a self-inflicted thundering herd on an overload). A non-retryable
+  // 4xx / abort rethrows immediately. `searchWeb` is the research fan-out's main cost/RPM driver.
+  const result = await withResilientRetry(
+    () =>
+      generateText({
+        model: modelOverride ?? resolveModel(opts.model),
+        prompt: opts.prompt,
+        maxOutputTokens: maxTokens,
+        maxRetries: 0,
+        tools: { web_search: anthropic.tools.webSearch_20250305({ maxUses: opts.maxSearches ?? 5 }) },
+        ...(opts.system !== undefined ? { system: opts.system } : {}),
+      }),
+    retryOpts,
+  );
   guard(result.finishReason, providerModel, maxTokens);
   const sources: WebSource[] = result.sources
     .filter((s) => s.sourceType === 'url')
