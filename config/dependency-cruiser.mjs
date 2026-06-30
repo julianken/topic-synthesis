@@ -52,6 +52,19 @@ export default {
       // dependency-cruiser as the bare string `firebase-admin/auth` — the `^` branch catches it.
       to: { path: '(^|node_modules/)firebase-admin(/|$)' },
     },
+    {
+      name: 'anthropic-batch-only-in-batch-client',
+      comment:
+        'Only src/llm/batch-client.ts may import the native @anthropic-ai/sdk (the Message Batches SDK) — ' +
+        'an OFFLINE-only eval/judge adapter (issue #188), confined to the one module so the heavy native SDK ' +
+        'stays OUT of the Next app bundle, mirroring eleatic-only-in-trace / firebase-admin-only-in-auth-adapter. ' +
+        'The LIVE pipeline uses @ai-sdk/anthropic (the Vercel AI SDK provider, unconfined) — never this.',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '^src/llm/batch-client\\.ts$' },
+      // Match BOTH forms: a bare `@anthropic-ai/sdk` resolves under node_modules/, and a modular subpath
+      // is left by dependency-cruiser as the bare string — the `^` branch catches it.
+      to: { path: '(^|node_modules/)@anthropic-ai/sdk(/|$)' },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },

@@ -38,6 +38,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.107.0",
     "@axe-core/playwright": "^4.12.1",
     "@eleatic/eval": "^0.1.0",
     "@playwright/test": "^1.61.1",

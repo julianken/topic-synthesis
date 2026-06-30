@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Level } from '../domain/settings';
-import type { CritiquedArtifact, TopicRequest } from '../domain/stages';
+import { LessonBriefSchema, type CritiquedArtifact, type TopicRequest } from '../domain/stages';
 import { InlineEngine } from '../engine/inline-engine';
+import { anthropicBatchTransport, BatchClient } from '../llm/batch-client';
 import { cheapModels, STAGE_MODELS, type StageModel } from '../llm/models';
 import { defaultDeps, type StageDeps } from '../pipeline/deps';
 import { defaultStages, noopSink, type TraceSink } from '../pipeline/ports';
@@ -14,6 +15,12 @@ import { writeTrace } from '../trace/eleatic-adapter';
 import { judgeBrief } from '../trace/judge';
 import { reduceTrace, type TraceMeta } from '../trace/reduce';
 import { SpanCollector } from '../trace/span';
+import {
+  judgeBriefsBatched,
+  sweepCostUsd,
+  type BatchedJudgeInput,
+  type BatchedJudgeResult,
+} from './judge-sweep';
 // persistInput lives in its OWN trace-free module (issue #162) so the headless Job entry can reach it
 // without dragging the @eleatic/eval trace adapter into the job bundle; re-exported here so this
 // module's own callers (+ run-skeleton.test.ts) import it unchanged.
@@ -46,7 +53,8 @@ export function buildRequest(args: string[]): TopicRequest {
   const topic = readFlag(args, '--topic');
   if (!topic) {
     throw new Error(
-      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--trace-timing] [--baseline <runId>]',
+      'Usage: npm run skeleton -- --topic "<topic>" [--level intro|intermediate|advanced] [--depth 1-5] [--audience "<who>"] [--cheap] [--max-questions N] [--dump-html <dir>] [--persist] [--trace [path]] [--trace-timing] [--baseline <runId>]\n' +
+        '   or: npm run skeleton -- --judge-sweep <file.json> [--cheap]   (offline batched judge sweep — a JSON array of {customId, brief})',
     );
   }
   const level = readFlag(args, '--level') ?? 'intermediate';
@@ -198,8 +206,70 @@ export async function buildAndReduceTrace(
   return writeTrace(reduced, opts.tracePath !== undefined ? { path: opts.tracePath } : {});
 }
 
+/**
+ * Parse a `--judge-sweep <file>` JSON document — an array of `{customId, brief}` — into sweep inputs,
+ * validating each brief against `LessonBriefSchema` so a malformed file fails loud BEFORE any batch spend.
+ * The OFFLINE multi-brief sweep is the only thing that materializes the Batch API's 50% discount, since
+ * `judgeBrief` judges one brief per process (issue #188).
+ */
+export function loadSweepInputs(json: string): BatchedJudgeInput[] {
+  const raw: unknown = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error('--judge-sweep file must be a JSON array of {customId, brief}');
+  return raw.map((entry, i) => {
+    if (typeof entry !== 'object' || entry === null) throw new Error(`sweep entry ${i} is not an object`);
+    const e = entry as Record<string, unknown>;
+    if (typeof e.customId !== 'string' || e.customId.length === 0) {
+      throw new Error(`sweep entry ${i} needs a non-empty string customId`);
+    }
+    return { customId: e.customId, brief: LessonBriefSchema.parse(e.brief) };
+  });
+}
+
+/** Human-readable sweep summary: each brief's verdict (or error) + the total BATCH-rate cost (the saving
+ *  made visible — the records already carry the discounted bill). */
+export function formatSweep(results: Map<string, BatchedJudgeResult>): string {
+  const lines: string[] = [`Judge sweep — ${results.size} brief(s):`];
+  for (const [customId, r] of results) {
+    if (r.ok) {
+      const scoreStr = Object.entries(r.result.scores)
+        .map(([k, v]) => `${k} ${v.toFixed(2)}`)
+        .join(', ');
+      lines.push(`  [ok]   ${customId}: ${scoreStr} ($${r.result.record.costUsd.toFixed(6)})`);
+    } else {
+      lines.push(`  [fail] ${customId}: ${r.error}`);
+    }
+  }
+  lines.push(`Total (Batch API, 50% off): $${sweepCostUsd(results).toFixed(6)}`);
+  return lines.join('\n');
+}
+
+/**
+ * The `--judge-sweep <file>` CLI mode (issue #188) — judge a SET of briefs in one Anthropic batch over the
+ * real transport (50% off, 1-hour-cached `JUDGE_SYSTEM` prefix), then print verdicts + total batch cost.
+ * OFFLINE-only: it never runs a pipeline and is independent of the live `api/generate → runLesson` path;
+ * it needs `ANTHROPIC_API_KEY`. `--cheap` threads the cheap critic model, matching `judgeBrief`.
+ */
+async function runJudgeSweepCli(args: string[]): Promise<void> {
+  const file = readFlag(args, '--judge-sweep');
+  if (file === undefined) throw new Error('--judge-sweep requires a <file> (a JSON array of {customId, brief})');
+  const inputs = loadSweepInputs(readFileSync(file, 'utf8'));
+  const model: StageModel = { ...STAGE_MODELS, ...(buildOptions(args).models ?? {}) }.critic;
+  console.log(
+    `Judging ${inputs.length} brief(s) on ${model.provider}:${model.model} via the Anthropic Batch API ` +
+      `(offline, 50% off; needs ANTHROPIC_API_KEY)…\n`,
+  );
+  const batch = new BatchClient(anthropicBatchTransport());
+  console.log(formatSweep(await judgeBriefsBatched(inputs, batch, model)));
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  // The OFFLINE batched judge sweep is its own mode — it judges a set of briefs from a file, NOT a topic
+  // run — so it short-circuits before buildRequest (issue #188).
+  if (args.includes('--judge-sweep')) {
+    await runJudgeSweepCli(args);
+    return;
+  }
   const request = buildRequest(args);
   const options = buildOptions(args);
   // `--max-nodes` is deliberately absent from the mode line: the CLI drives `runLesson`, which builds
