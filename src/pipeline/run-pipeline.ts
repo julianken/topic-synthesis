@@ -113,6 +113,49 @@ export interface RunOptions {
   models?: Partial<Record<Stage, StageModel>>;
   /** Cap on research questions fanned out — each drives a web search, the run's main cost driver. */
   maxQuestions?: number;
+  /**
+   * Max researcher web-search calls in flight at once (issue #189). The fan-out is bounded by an inline
+   * semaphore so a growing question count can't stampede the provider on a `529` overload (jittered
+   * `withResilientRetry` then spreads the retries). Defaults to {@link DEFAULT_RESEARCH_CONCURRENCY}.
+   * FORWARD-ONLY today: every live entrypoint already caps the fan-out at 4 questions
+   * (`dispatch.ts` `MAX_QUESTIONS=4`, `route.ts` `maxQuestions:4`), so a default ≥4 never engages at
+   * current settings — the bound bites only when the question count later rises past the cap.
+   */
+  researchConcurrency?: number;
+}
+
+/**
+ * Default cap on concurrent researcher web-search calls (issue #189). 4 matches today's live fan-out
+ * width (`MAX_QUESTIONS=4`), so the bound is INERT at current settings and adds no latency; it engages
+ * only when the question count later grows past it. Kept small so a wide future fan-out degrades
+ * gracefully under rate-limit/overload instead of stampeding.
+ */
+export const DEFAULT_RESEARCH_CONCURRENCY = 4;
+
+/**
+ * Map `items` through `worker` with at most `limit` calls in flight at once, PRESERVING INPUT ORDER in
+ * the returned array — so the caller's record threading + span-emission order is identical to the old
+ * unbounded `Promise.all` (issue #189). A ~15-line inline async semaphore: `limit` worker loops each
+ * pull the next index until the list is exhausted, so no more than `limit` `worker` promises are ever
+ * pending. NO new runtime dependency (anti-slopsquatting). `limit` is clamped ≥1 so a zero/negative cap
+ * can never deadlock the fan-out. A worker rejection propagates (the engine evicts a failed step), exactly
+ * as `Promise.all` did.
+ */
+async function mapWithConcurrency<I, O>(
+  items: readonly I[],
+  limit: number,
+  worker: (item: I, index: number) => Promise<O>,
+): Promise<O[]> {
+  const results = new Array<O>(items.length);
+  const cap = Math.max(1, Math.floor(limit));
+  let next = 0;
+  const runner = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) {
+      results[i] = await worker(items[i] as I, i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(cap, items.length) }, runner));
+  return results;
 }
 
 /**
@@ -324,21 +367,20 @@ async function runAnalysisPrelude(
     question,
     settings: req.settings,
   }));
-  const researched = await Promise.all(
-    researchInputs.map((input) =>
-      engine
-        .step('research', contentHash(input.question, bucket), () => stages.research(input, deps, models.researcher))
-        // As THIS question's research resolves, fire its grounded findings/sources at the live-research
-        // sink — but WITHOUT awaiting the write before the map's promise resolves: the `.then` returns
-        // `r` synchronously after firing the emission, so the Promise.all the run awaits sees the
-        // already-resolved value and the sink write adds ZERO latency. A slow/failed write can never
-        // delay or fail the fan-out (the run never awaits it; `fireResearch` also swallows a sync throw
-        // OR async rejection from a non-conforming sink; the sink also self-wraps each write).
-        .then((r) => {
-          fireResearch(() => researchSink.onResearch(input.question, r.research));
-          return r;
-        }),
-    ),
+  // Fan out the researcher web searches with a BOUNDED concurrency (issue #189) instead of an unbounded
+  // `Promise.all`, so a wide question count can't stampede the provider on a `529` overload. The inline
+  // semaphore preserves INPUT ORDER, so records/spans thread exactly as before; the per-question
+  // `engine.step` memoization key (`contentHash(question, bucket)`) and the fire-and-forget `onResearch`
+  // emission (fired as THIS question resolves, never awaited — the `.then` returns `r` synchronously) are
+  // unchanged from the old fan-out.
+  const concurrency = options.researchConcurrency ?? DEFAULT_RESEARCH_CONCURRENCY;
+  const researched = await mapWithConcurrency(researchInputs, concurrency, (input) =>
+    engine
+      .step('research', contentHash(input.question, bucket), () => stages.research(input, deps, models.researcher))
+      .then((r) => {
+        fireResearch(() => researchSink.onResearch(input.question, r.research));
+        return r;
+      }),
   );
   for (const r of researched) {
     records.push(...r.records);
