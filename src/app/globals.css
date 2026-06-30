@@ -2771,6 +2771,23 @@ body.has-ws-topbar > .appbar {
    View-Transition simply never starts (the vtOff guard in library-morph.ts), so the swaps are instant.
    ════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/* The library home's ONE standing polite live region (issue #200) — the deletion epic's sole announcement
+   channel, pre-mounted at the LibraryProvider root so assistive tech announces reliably. Visually hidden
+   via the shipped clip-rect technique (mirrors `.gen-sr` / `.build-summary__sr`): it occupies no layout
+   space, so it can NEVER shift the card grid. Non-visual structural scaffolding only — no new token, no
+   visible pixels (the visual baselines stay byte-identical). */
+.library-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* The card grid (reuses the library frame's FIXED 291px Figma-6:2 columns, left-clustered). This is the
    FLIP-origin grid: the first cell is the `+New` card / the grown form, the rest are the poster cards. */
 .lessons-grid {
