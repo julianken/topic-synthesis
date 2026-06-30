@@ -3,6 +3,10 @@ import {
   badgeClass,
   cardDescription,
   categoryEyebrow,
+  INFLIGHT_BADGE_CLASS,
+  INFLIGHT_BADGE_ICON,
+  INFLIGHT_BADGE_LABEL,
+  inflightMetaLine,
   LEVEL_LABEL,
   metaLine,
   morphName,
@@ -85,6 +89,37 @@ describe('library-card — the Figma 6:2 card meta line (level · depth · time)
   it('drops a blank relative-time so the line never trails a dangling separator', () => {
     // an unparseable createdAt → relativeTime '' → the line ends at the depth, no trailing " · "
     expect(metaLine('intro', 1, 'not-a-date', now)).toBe('beginner · d1');
+  });
+});
+
+describe('library-card — the in-flight (generating) tile (run-lifecycle 2/4, #231, Figma 98:2)', () => {
+  it('labels the in-flight badge with a word + a glyph (label + icon, never color alone)', () => {
+    // The Generating badge is distinct from the built/soon/text PageStatus badges; it carries its own
+    // label + the ⟳ glyph (the icon half of "label + icon") so it reads without relying on color.
+    expect(INFLIGHT_BADGE_LABEL).toBe('Generating');
+    expect(INFLIGHT_BADGE_ICON.length).toBeGreaterThan(0);
+    expect(INFLIGHT_BADGE_CLASS).toBe('badge badge--inflight');
+  });
+
+  it('builds the TIME-FREE "level · d{depth}" meta line matching the Figma 98:2 footer', () => {
+    // The in-flight tile drops the timestamp (the wider Generating badge carries the "now" cue and a
+    // "· just now" overflows the fixed footer) — so the meta is exactly "level · d{depth}".
+    expect(inflightMetaLine('intermediate', 1)).toBe('intermediate · d1');
+    expect(inflightMetaLine('advanced', 5)).toBe('advanced · d5');
+  });
+
+  it('surfaces the learner-facing level word for a known enum (intro → beginner)', () => {
+    expect(inflightMetaLine('intro', 2)).toBe('beginner · d2');
+  });
+
+  it('tolerates a raw run_owner.level string outside the enum (falls back to the raw value, no undefined)', () => {
+    // run_owner.level is a TEXT column read back as a raw string — a value outside the Level enum must
+    // surface as itself, never the map's `undefined`.
+    expect(inflightMetaLine('expert', 3)).toBe('expert · d3');
+  });
+
+  it('drops a non-finite depth so the line never trails a dangling separator', () => {
+    expect(inflightMetaLine('advanced', Number.NaN)).toBe('advanced');
   });
 });
 

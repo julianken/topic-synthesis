@@ -1654,6 +1654,47 @@ body.has-ws-topbar > .appbar {
    classifier miss) OMITS that row in page.tsx — no empty band, the rhythm stays tight; nothing is ever
    fabricated (copy-appropriateness gate). The footer meta line (level · depth · time) is real data too. */
 
+/* ── In-flight (generating) library tile (run-lifecycle 2/4, #231 — Figma node `98:2`) ───────────────
+   A variant of the dense poster shown the moment a run is DISPATCHED (before its curriculum persists): the
+   topic as the serif title, a distinct Generating badge, the `level · d{depth}` meta — NO eyebrow / NO
+   description. It REUSES the built poster chrome (.library-poster__card / __wash / __body / __title /
+   __foot / __meta above); only the wash is quieted to a "forming" state and the badge is distinct. Every
+   paint maps to a §0 token (the pre-code Figma review confirmed this) — NO §0 retoken. */
+.library-poster--inflight .library-poster__wash {
+  /* Quieted "forming" wash: an accent-cyan tint (the --accent channels at low alpha, the same approach as
+     --brand-glow) — calmer than the built poster's purple wash, so an in-flight tile reads as forming. */
+  background:
+    radial-gradient(120% 90% at 80% -20%, oklch(0.82 0.145 215 / 0.10) 0%, transparent 55%),
+    var(--bg-surface);
+  /* A soft breathing pulse while the run forms; the §0 --dur-slow tier, reused from the live pulse dot.
+     The global prefers-reduced-motion reset (top of file) zeroes the loop — reduced-motion-safe (AC12). */
+  animation: inflight-forming var(--dur-slow) var(--ease) infinite alternate;
+}
+@keyframes inflight-forming {
+  to {
+    opacity: 0.78;
+  }
+}
+
+/* The Generating badge (label + icon, never color alone — §Accessibility): accent-cyan TEXT + the ⟳ glyph
+   over a NEUTRAL §0 border. The .badge base sets `border: 1px solid currentColor`, so override border-color
+   to the neutral chrome outline so ONLY the text/icon carry the cyan (the Figma 98:2 treatment). */
+.badge--inflight {
+  color: var(--accent);
+  border-color: var(--badge-border-neutral);
+}
+/* The ⟳ glyph rotates as a continuous loop — the §0 --dur-slow tier + `linear` (a continuous rotation
+   can't ease its loop seam, like the documented loop spinner). The global reduced-motion reset zeroes it. */
+.badge--inflight .badge__icon {
+  display: inline-block;
+  animation: inflight-spin var(--dur-slow) linear infinite;
+}
+@keyframes inflight-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* First-run prompt — never a bare blank grid (DESIGN.md — empty states are labeled, not void). A
    card-shaped panel matching the poster surface so the empty library still reads as the card wall. */
 .library-empty {
