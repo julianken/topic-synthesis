@@ -1,13 +1,13 @@
-# Optional module — Figma design system (read-only MCP)
+# Optional module — Figma design system (agent-synced source of truth)
 
-**Optional.** This module is enabled by setting `FIGMA_FILE_ID` (a blank value disables it). When enabled, the product's design system lives in a Figma file, read by agents over the Figma MCP. A template consumer whose design source of truth isn't Figma can skip this entirely — the design source of truth is [`DESIGN.md`](../../DESIGN.md), which **wins on any design conflict** regardless of whether Figma is in the picture.
+**Optional.** This module is enabled by setting `FIGMA_FILE_ID` (a blank value disables it). When enabled, the product's design system lives in a Figma file that agents both **read AND write** over the Figma MCP, keeping it in **lockstep** with the shipped UI. A template consumer whose design source of truth isn't Figma can skip this entirely — the design source of truth is then [`DESIGN.md`](../../DESIGN.md), which **wins on any design conflict** regardless of whether Figma is in the picture.
 
-This doc is the *adopt-or-skip* narrative. It is **not** the source of truth for *this product's* Figma file ID or node map: those are instance facts in [`INSTANCE.md`](../../INSTANCE.md) → "Design / Figma (read-only)". Don't restate the file key or node-ids here — point at `INSTANCE.md`, which is where they're maintained (and which the Update Triggers table keeps current when frames are renamed or reordered).
+This doc is the *adopt-or-skip* narrative. It is **not** the source of truth for *this product's* Figma file ID or node map: those are instance facts in [`INSTANCE.md`](../../INSTANCE.md) → "Design / Figma (source of truth, agent-synced)". Don't restate the file key or node-ids here — point at `INSTANCE.md`, which is where they're maintained (and which the Update Triggers table keeps current when frames are renamed or reordered).
 
 ## How Figma is used here
 
-- **Read-only.** Agents read the Figma file via the MCP **read tools only** (`get_metadata`, `get_design_context`, `get_screenshot`, `get_variable_defs`, `get_code_connect_map`, `get_libraries`, `search_design_system`, `whoami`). Agents **never** call a write tool (`use_figma`, `create_new_file`, `generate_figma_design`, `generate_diagram`, `upload_assets`, `add_code_connect_map`) — a human edits the design; agents only read it.
-- **Authority ranking: shipped build > `DESIGN.md` > Figma.** A live Figma value that disagrees with `DESIGN.md` does **not** bind the build — it's *drift to reconcile into `DESIGN.md` §0 in a PR*. Never build straight from a live Figma node, and never paste its raw hexes/Tailwind: translate to `DESIGN.md` tokens. The two do not auto-sync.
+- **Agent-synced (read AND write).** Agents read the Figma file via the MCP read tools (`get_metadata`, `get_design_context`, `get_screenshot`, `get_variable_defs`, `get_code_connect_map`, `get_libraries`, `search_design_system`, `whoami`) **and write it** via the write tools (`use_figma`, `create_new_file`, `generate_figma_design`, `upload_assets`, `add_code_connect_map`) to keep it in lockstep with the shipped build. **Any frontend change updates the matching frame(s) in the SAME PR, agent-authored** — the prior read-only / human-only-edits rule is RETIRED (it caused the file to silently drift out of sync with the build). See AGENTS.md → "Design source of truth" + the Update-Triggers Figma row.
+- **Authority on conflict: shipped build > `DESIGN.md` > Figma.** Figma is the *visual* source of truth and is kept in lockstep, but only `DESIGN.md` §0 is CI-guarded against the code, so on a genuine *value* disagreement the build then `DESIGN.md` still win: a Figma value that disagrees with `DESIGN.md` is drift to reconcile into `DESIGN.md` §0 (and back into Figma) in a PR. Never build straight from a live Figma node, and never paste its raw hexes/Tailwind — translate to `DESIGN.md` tokens. The ranking only breaks a momentary tie; the lockstep duty (above) is what keeps the two from drifting apart — an agent syncs them every frontend PR, so they no longer "do not auto-sync."
 - **Flow:** for a known node call `get_design_context` directly; for a large/unknown subtree call `get_metadata(<node>)` first to scope, then `get_design_context`; use `get_screenshot` for visual reference. A URL's `?node-id=<n-n>` is the tool's `nodeId: <n:n>` (hyphen → colon).
 
 The file ID, the page/screen node map, and the MCP quirks specific to *this* file are catalogued in [`INSTANCE.md`](../../INSTANCE.md).
@@ -18,9 +18,9 @@ Live **Variable reads do resolve** on this file (`get_variable_defs` returns the
 
 ## Adopt
 
-1. Record your Figma file ID and node map in `INSTANCE.md` → "Design / Figma (read-only)" (the instance source of truth — not in this doc).
+1. Record your Figma file ID and node map in `INSTANCE.md` → "Design / Figma (source of truth, agent-synced)" (the instance source of truth — not in this doc).
 2. Connect the Figma MCP and confirm the **read tools** resolve (`whoami`, then `get_metadata` against a known node-id).
-3. Keep the read-only / write-tool-forbidden rule and the `build > DESIGN.md > Figma` authority ranking — they're what keep Figma from silently overriding the shipped design.
+3. Keep the **agent-sync rule** (any frontend change updates Figma in the same PR via the MCP write tools) and the `build > DESIGN.md > Figma` *conflict* ranking — together they keep Figma in **lockstep** with the build while preventing a live Figma value from silently overriding the shipped design.
 4. Add the node-map-drift row to the Update Triggers table so node-ids stay current (this repo already has it).
 
 ## Skip

@@ -13,12 +13,12 @@ Add a row to the table below as you create each agent file.
 
 | Agent | Purpose | When to dispatch |
 |---|---|---|
-| [`design-reviewer`](design-reviewer.md) | Review a design-surface change against the `DESIGN.md` design system (§0 OKLCH tokens, color/contrast, type, spacing/radius, motion, the lesson-workspace layout, a11y); Playwright screenshot pass at the DESIGN.md viewports (390 mobile + 1440×900 desktop) once a UI exists, comparing the render to the read-only Figma reference frame screenshot (it reports findings — it does NOT approve PRs) | "review the design surface", "does this match the spec and the Figma frame", "design-system review pass" on any token/UI diff |
+| [`design-reviewer`](design-reviewer.md) | Review a design-surface change against the `DESIGN.md` design system (§0 OKLCH tokens, color/contrast, type, spacing/radius, motion, the lesson-workspace layout, a11y); Playwright screenshot pass at the DESIGN.md viewports (390 mobile + 1440×900 desktop) once a UI exists, comparing the render to the Figma source-of-truth frame screenshot (the design pass reads it; the implementer keeps it in lockstep via the MCP write tools) (it reports findings — it does NOT approve PRs) | "review the design surface", "does this match the spec and the Figma frame", "design-system review pass" on any token/UI diff |
 
 The design-reviewer runs **alongside** the correctness review, not instead of it; it reports
 findings by severity and does not approve PRs (the gating verdict is the review-bot's). It is
 the pre/post-build counterpart of the repo-local `reviewing-figma-designs` skill, which gates
-the read-only Figma reference frames *before* code is written.
+the Figma reference frames (the design SoT) *before* code is written.
 
 The most common agent to add next is an **optional review bot** that posts the
 gating PR verdict under a machine-user identity. That module — whether to adopt it,
