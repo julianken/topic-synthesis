@@ -118,6 +118,13 @@ export interface ResilientRetryOptions {
    * across every attempt + backoff). Typically the same `AbortSignal` passed into the wrapped call.
    */
   signal?: AbortSignal;
+  /**
+   * Absolute cap (ms) on an HONORED 429 `Retry-After`, so an arbitrarily large server value can never
+   * cause an unbounded sleep — important for a caller without a `signal` deadline (the streamed `code`
+   * caller always passes one, but this helper is reused by #189). Default 60_000 (60s). The jitter branch
+   * is already bounded by `capDelayMs`; this caps the otherwise-unbounded server-supplied wait.
+   */
+  retryAfterCapMs?: number;
   /** Injected RNG in [0,1). Default `Math.random`. */
   random?: () => number;
   /** Injected delay (abortable). Default a real `setTimeout` that resolves early when `signal` fires. */
@@ -200,6 +207,7 @@ export async function withResilientRetry<T>(fn: () => Promise<T>, opts: Resilien
   const maxAttempts = opts.maxAttempts ?? 3;
   const baseDelayMs = opts.baseDelayMs ?? 500;
   const capDelayMs = opts.capDelayMs ?? 8000;
+  const retryAfterCapMs = opts.retryAfterCapMs ?? 60_000;
   const random = opts.random ?? Math.random;
   const sleep = opts.sleep ?? defaultSleep;
   for (let attempt = 1; ; attempt += 1) {
@@ -209,7 +217,9 @@ export async function withResilientRetry<T>(fn: () => Promise<T>, opts: Resilien
       const decision = classifyRetry(err);
       if (decision.kind === 'rethrow' || attempt >= maxAttempts || opts.signal?.aborted) throw err;
       const delayMs =
-        decision.kind === 'retry-after' ? decision.retryAfterMs : fullJitterMs(baseDelayMs, capDelayMs, attempt, random);
+        decision.kind === 'retry-after'
+          ? Math.min(decision.retryAfterMs, retryAfterCapMs) // clamp a huge server value (no unbounded sleep)
+          : fullJitterMs(baseDelayMs, capDelayMs, attempt, random);
       await sleep(delayMs, opts.signal);
       if (opts.signal?.aborted) throw err; // the deadline elapsed during backoff → give up, degrade
     }
@@ -333,14 +343,33 @@ export async function streamComplete(
 ): Promise<TextResult> {
   const providerModel = registryId(opts.model);
   const raised = opts.retryAtMaxTokens;
-  let raw = await streamOnce(opts, onProgress, modelOverride);
-  if (raw.finishReason === 'length' && raised !== undefined && raised > raw.maxTokens) {
+  const first = await streamOnce(opts, onProgress, modelOverride);
+  if (first.finishReason === 'length' && raised !== undefined && raised > first.maxTokens) {
     // Exactly ONE raised-cap retry, sharing the same deadline (streamOnce ignores `retryAtMaxTokens`, so
-    // overriding only `maxTokens` here can never recurse). A still-truncated retry falls through to guard.
-    raw = await streamOnce({ ...opts, maxTokens: raised }, onProgress, modelOverride);
+    // overriding only `maxTokens` can't recurse). The first (truncated) attempt was a REAL, already-billed
+    // generation — its tokens + cost are FOLDED into the returned record (`billedPrior`) so a length-retry
+    // run never UNDER-reports its code-phase spend in the #166/#167 telemetry, the eleatic trace, or the
+    // per-lesson $ metric (#187 review). A still-truncated retry falls through to guard → degrade.
+    const second = await streamOnce({ ...opts, maxTokens: raised }, onProgress, modelOverride);
+    guard(second.finishReason, providerModel, second.maxTokens);
+    return streamResultRecord(providerModel, second, first);
   }
-  guard(raw.finishReason, providerModel, raw.maxTokens);
-  const record = recordFrom(providerModel, raw.usage, raw.finishReason);
+  guard(first.finishReason, providerModel, first.maxTokens);
+  return streamResultRecord(providerModel, first);
+}
+
+/**
+ * Build the `TextResult` for a streamed call. `billedPrior` (the truncated first attempt of a length-
+ * retry) is OPTIONAL: when present, its already-billed input/output tokens are SUMMED into the record so
+ * the returned cost represents the TOTAL code-stage spend, not just the final attempt — cost is linear in
+ * tokens at one model's rates, so summed usage yields exactly cost(attempt1)+cost(attempt2). The clean
+ * `finishReason` + the per-call timing/bytes come from `raw` (the successful attempt that produced the
+ * returned text).
+ */
+function streamResultRecord(providerModel: string, raw: RawStream, billedPrior?: RawStream): TextResult {
+  const inputTokens = (raw.usage.inputTokens ?? 0) + (billedPrior?.usage.inputTokens ?? 0);
+  const outputTokens = (raw.usage.outputTokens ?? 0) + (billedPrior?.usage.outputTokens ?? 0);
+  const record = recordFrom(providerModel, { inputTokens, outputTokens }, raw.finishReason);
   record.ttftMs = raw.ttftMs;
   record.genMs = raw.genMs;
   record.maxTokens = raw.maxTokens;

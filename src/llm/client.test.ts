@@ -11,6 +11,7 @@ import {
   withResilientRetry,
 } from './client';
 import type { StageModel } from './models';
+import { estimateCostUsd } from './pricing';
 
 const OPUS: StageModel = { provider: 'anthropic', model: 'claude-opus-4-8' };
 
@@ -318,6 +319,22 @@ describe('withResilientRetry (#187)', () => {
     }
   });
 
+  it('(a2) clamps a huge honored 429 Retry-After to retryAfterCapMs (no unbounded sleep)', async () => {
+    const delays: number[] = [];
+    const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+    let calls = 0;
+    const fn = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw apiError(429, { retryAfter: '3600' }); // server asks for a full HOUR
+      return 'ok';
+    });
+
+    const res = await withResilientRetry(fn, { sleep, retryAfterCapMs: 60_000 });
+
+    expect(res).toBe('ok');
+    expect(delays).toEqual([60_000]); // clamped to the 60s cap, NOT the 3_600_000ms the server asked for
+  });
+
   it('(c) rethrows a non-retryable 400 IMMEDIATELY without retrying or sleeping', async () => {
     const sleep = vi.fn(async () => {});
     const fn = vi.fn(async () => {
@@ -382,8 +399,12 @@ describe('withResilientRetry (#187)', () => {
 
 // ---- issue #187: the code-stage length-aware retry (opt-in via retryAtMaxTokens) ----
 
-/** A streaming result that finishes with a chosen reason — the doStream return shape. */
-function streamResult(reason: 'stop' | 'length' | 'content-filter' | 'error', text: string) {
+/** A streaming result that finishes with a chosen reason + usage — the doStream return shape. */
+function streamResult(
+  reason: 'stop' | 'length' | 'content-filter' | 'error',
+  text: string,
+  usage: { input?: number; output?: number } = {},
+) {
   return {
     stream: convertArrayToReadableStream([
       { type: 'stream-start' as const, warnings: [] },
@@ -394,8 +415,8 @@ function streamResult(reason: 'stop' | 'length' | 'content-filter' | 'error', te
         type: 'finish' as const,
         finishReason: { unified: reason, raw: reason },
         usage: {
-          inputTokens: { total: 1, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
-          outputTokens: { total: 1, text: undefined, reasoning: undefined },
+          inputTokens: { total: usage.input ?? 1, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: usage.output ?? 1, text: undefined, reasoning: undefined },
         },
       },
     ]),
@@ -449,6 +470,32 @@ describe('streamComplete — length-aware retry (code stage, #187)', () => {
       streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000 }, undefined, model),
     ).rejects.toThrow(/truncated|cap/);
     expect(model.doStreamCalls).toHaveLength(1); // no opt-in → guard throws on the first length
+  });
+
+  it('(d6) folds BOTH attempts cost + tokens into the record on a length-retry (no under-report)', async () => {
+    // The first (truncated 'length') attempt is a REAL, already-billed ~32K generation; the returned record
+    // must represent the TOTAL code-stage spend (attempt1 + attempt2), not just the successful attempt, or
+    // the #166/#167 telemetry + eleatic trace + per-lesson $ metric under-report it (#196 review).
+    const model = new MockLanguageModelV3({
+      doStream: async ({ maxOutputTokens }) =>
+        (maxOutputTokens ?? 0) <= 32000
+          ? streamResult('length', 'partial', { input: 1000, output: 32000 })
+          : streamResult('stop', 'full page', { input: 1000, output: 40000 }),
+    });
+
+    const res = await streamComplete(
+      { model: OPUS, prompt: 'x', maxTokens: 32000, retryAtMaxTokens: 48000 },
+      undefined,
+      model,
+    );
+
+    expect(res.record.inputTokens).toBe(2000); // 1000 (truncated) + 1000 (success)
+    expect(res.record.outputTokens).toBe(72000); // 32000 (truncated) + 40000 (success)
+    expect(res.record.finishReason).toBe('stop'); // the clean second-attempt reason, not 'length'
+    const c1 = estimateCostUsd('anthropic:claude-opus-4-8', { inputTokens: 1000, outputTokens: 32000 });
+    const c2 = estimateCostUsd('anthropic:claude-opus-4-8', { inputTokens: 1000, outputTokens: 40000 });
+    expect(res.record.costUsd).toBeCloseTo(c1 + c2, 9); // total spend, NOT just attempt2…
+    expect(res.record.costUsd).toBeGreaterThan(c2); // …which would silently drop the first attempt's bill
   });
 
   it('(d5) prefers an external signal over a self-created timeout (shared deadline across attempts)', async () => {
