@@ -94,7 +94,9 @@ failures=0
 while IFS="$(printf '\t')" read -r mmdfile srcfile fenceline; do
   [ -n "$mmdfile" ] || continue
   svg="${mmdfile%.mmd}.svg"
-  err="$(npx --yes -p @mermaid-js/mermaid-cli mmdc -i "$mmdfile" -o "$svg" -q 2>&1 || true)"
+  # mermaid-cli is PINNED (CI-load-bearing — an unpinned release could flip CI without a repo change).
+  # Keep this version in lockstep with the bot helper check-mermaid-render.sh (render-core lockstep, AGENTS.md).
+  err="$(npx --yes -p @mermaid-js/mermaid-cli@11.16.0 mmdc -i "$mmdfile" -o "$svg" -q 2>&1 || true)"
   if [ -s "$svg" ]; then
     continue
   fi
