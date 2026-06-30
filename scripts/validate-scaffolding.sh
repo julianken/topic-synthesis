@@ -63,6 +63,7 @@ required_paths=(
   ".seed/placeholders.json"
   "scripts/check-claude-shim.sh"
   "scripts/check-concept-drift.sh"
+  "scripts/check-mermaid.sh"
   "scripts/validate-scaffolding.sh"
   "scripts/fill-template.sh"
   "docs/optional/README.md"

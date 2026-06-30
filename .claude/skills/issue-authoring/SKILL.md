@@ -73,9 +73,10 @@ Numbered steps or Scope **In** / **Out** with **rationale per bucket**. Cite rea
 1. Read current tree + any committed plan doc
 2. (FRONTEND) Author/update the matching Figma frame(s) via the MCP write tools (design-first); dispatch reviewing-figma-designs (fresh context) for the pre-code Figma gate; iterate to APPROVE
 3. Draft issue using sections above — reference the frame node-id(s) + gate verdict in the §1a Figma design section
-4. gh issue create (or edit) — one issue at a time unless independent
-5. Dispatch issue-plan-review — never self-approve in author pass
-6. Fix from REQUEST_CHANGES; re-dispatch plan review
+4. If the issue body carries a ` ```mermaid ` diagram, validate it before posting: write the body to a file and run `bash scripts/check-mermaid.sh <file>` — fix any non-zero exit (a broken block renders as raw source on github.com). A body with no mermaid passes trivially (extract-before-render).
+5. gh issue create (or edit) — one issue at a time unless independent
+6. Dispatch issue-plan-review — never self-approve in author pass
+7. Fix from REQUEST_CHANGES; re-dispatch plan review
 ```
 
 ## Tripwires

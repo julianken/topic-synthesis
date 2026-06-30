@@ -59,6 +59,9 @@ then run whatever checks the change actually has (e.g.
 - [ ] New unit / integration tests added (if behavior changed)
 - [ ] New Playwright e2e spec added (if user-visible behavior changed)
 - [ ] `npm run build` (not configured — pre-code) — clean production build, or `N/A — pre-code`
+- [ ] `scripts/check-mermaid.sh` on the body — diagrams render (or `N/A — no mermaid`).
+      Run it on the filled PR body BEFORE posting (a broken ` ```mermaid ` block
+      renders as raw source on github.com); exit 0 = all blocks render (or none).
 - [ ] Updated every drift-prone doc this change affects — `AGENTS.md` /
       `CLAUDE.md` / `README.md` / `SECURITY.md` / `DESIGN.md` / the **Figma design
       SoT frame(s)** (UI changes — implemented to the issue's frame + reconciled any divergence) / this template / specs — or `N/A — <reason>`.

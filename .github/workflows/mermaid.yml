@@ -1,0 +1,93 @@
+name: mermaid
+
+# Render every column-0 ```mermaid block in the CHANGED .md files via mermaid-cli
+# (mmdc) — the SAME renderer scripts/check-mermaid.sh runs for authors (the
+# proactive validate-before-post step) and reviewers. A block that fails to parse
+# renders as raw source on github.com, so this CI gate keeps committed .md
+# diagrams (README.md, src/pipeline/README.md, .github/PULL_REQUEST_TEMPLATE.md,
+# and any future diagram-bearing .md) honest.
+#
+# Path-scoped to **/*.md so it only runs when markdown changes, and it renders
+# only the CHANGED .md files rather than a static list — extract-before-render
+# makes a zero-mermaid .md a cheap no-op (no Chromium spawn), so scoping to
+# changed files future-proofs new diagram-bearing .md without editing this file.
+#
+# (PR/issue BODIES are GitHub metadata, not repo files — no CI can gate them; the
+# proactive author-side scripts/check-mermaid.sh run + the reviewer's R15/parity
+# check are their floor. This workflow gates only COMMITTED .md.)
+
+on:
+  push:
+    paths: ['**/*.md']
+  pull_request:
+    paths: ['**/*.md']
+
+concurrency:
+  group: mermaid-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the changed-file diff below resolves
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # mmdc renders via puppeteer's BUNDLED Chromium (fetched by the on-demand
+      # npx install inside the script), which needs system libs on a bare
+      # ubuntu-latest runner. Install ONLY those apt libs via Playwright's
+      # maintained, ubuntu-version-correct deps installer (the same approach
+      # frontend-e2e.yml uses) so the render is green on first run, not a
+      # surprise red — this installs no browser, just the shared Chromium libs.
+      - name: Install Chromium system dependencies
+        run: npx --yes playwright install-deps chromium
+
+      - name: Determine changed Markdown files
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$BASE_SHA"
+          else
+            base="$BEFORE_SHA"
+          fi
+          # Fall back to the prior commit (or the empty tree, for a brand-new
+          # branch whose BEFORE_SHA is all-zeros) if base is missing/unresolvable.
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || git hash-object -t tree /dev/null)"
+          fi
+          # --diff-filter=ACMR: only Added/Copied/Modified/Renamed (skip Deleted,
+          # which no longer exist in HEAD and would be a spurious exit-2).
+          files="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.md' || true)"
+          files="$(printf '%s' "$files" | tr '\n' ' ')"
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Changed .md files: ${files:-<none>}"
+
+      # Pass the changed-file list via env (NOT inline ${{ }} in the run script):
+      # filenames are PR-author-influenced, so inlining them into the command line
+      # would be a command-injection vector. As an unquoted env-var expansion they
+      # word-split into file ARGS but the shell never re-evaluates their content
+      # (a `;`/`$(...)` in a filename stays a literal path arg → exit 2, not a
+      # command). Repo .md paths carry no spaces, so word-splitting is correct.
+      - name: Render mermaid in the changed Markdown
+        if: ${{ steps.changed.outputs.files != '' }}
+        env:
+          MD_FILES: ${{ steps.changed.outputs.files }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086  # intentional word-split into file args
+          bash scripts/check-mermaid.sh $MD_FILES

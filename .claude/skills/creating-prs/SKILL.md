@@ -17,7 +17,18 @@ The generic method here mirrors the user-level `creating-prs` skill (shared acro
 
 `.github/PULL_REQUEST_TEMPLATE.md` is the authority for the exact section bodies and checkboxes — paste it and fill it, don't reinvent it here. GitHub does **not** inject the template on API-created PRs, so with `gh pr create --body` you paste the template yourself and fill every section. Never let `gh` open a blank web-template PR; never drop a header to save tokens. Use `N/A — <reason>` where a section genuinely doesn't apply; never delete a header. The five sections, in order:
 
-1. **Diagrams** — a Mermaid diagram (or several) showing the shape of the change: data flow, sequence, state machine, component tree, token/theme graph, route map. It is the **primary comprehension surface** for the reviewer — when present, the reviewer grasps shape in one pass and spends its budget on the diff. For a change that genuinely can't be diagrammed (one-line typo, dep bump, comment-only doc edit) write `N/A — <reason>`. A ` ```mermaid ` block that fails to parse renders as raw source on github.com — keep blocks valid (wrap a label containing punctuation in `"…"`).
+1. **Diagrams** — a Mermaid diagram (or several) showing the shape of the change: data flow, sequence, state machine, component tree, token/theme graph, route map. It is the **primary comprehension surface** for the reviewer — when present, the reviewer grasps shape in one pass and spends its budget on the diff. For a change that genuinely can't be diagrammed (one-line typo, dep bump, comment-only doc edit) write `N/A — <reason>`. A ` ```mermaid ` block that fails to parse renders as raw source on github.com — so **validate before posting** (the mechanical step below), and if a block fails, fix it (wrap a label containing punctuation in `"…"` — the common fix) before re-running.
+
+   **Validate the body before posting (mechanical — do this every PR with a diagram).** Write the finished PR body to a file and render its mermaid with the shared renderer, then fix any non-zero exit *before* `gh pr create`:
+
+   ```bash
+   gh_body="$(mktemp)"; cat > "$gh_body" <<'EOF'
+   …your filled five-section PR body…
+   EOF
+   bash scripts/check-mermaid.sh "$gh_body"   # exit 0 = all blocks render (or none); 1 = a block failed (fix it); 2 = toolchain/usage
+   ```
+
+   The script extracts every column-0 ` ```mermaid ` block and renders it via `npx … mmdc`; a non-empty SVG is the success signal (`mmdc -q` exits 0 even on a parse error, so exit code alone lies). This is the **proactive** author-side gate — the bot's R15 render check is reactive (it fires on the already-posted body), so by the time it catches a broken block it is already a github.com syntax error. A `Diagrams: N/A — <reason>` body has zero blocks and exits 0 (extract-before-render — no mmdc spawn), so running it costs nothing.
 2. **Summary** — 1–3 bullets supporting the diagram. Lead with the **why**; the diagram already shows the *what*. Long prose makes the reviewer parse instead of review.
 3. **Screenshots** — **REQUIRED** when the diff adds or modifies visible UI; otherwise `N/A — not UI`. Never commit PNGs and never use `raw.githubusercontent.com/<repo>/<branch>/...` URLs (they 404 once the branch is deleted on merge); use the user-attachments paste flow (the screenshot procedure is owned by `pr-workflow` → "Screenshots — never committed" and the user-level `pr-screenshots-via-user-attachments` skill). Test-only, type-only, comment-only changes under a UI directory use `N/A — not UI` — the diff is what matters, not the path. Pre-code there is no running UI yet, so this is `N/A — not UI` until a UI exists.
 
@@ -41,6 +52,7 @@ Before opening the PR, update — **in the same PR** — every drift-prone file 
 
 ## Tripwires
 
+- **Never post a PR body with an unvalidated mermaid block.** Write the body to a file and run `bash scripts/check-mermaid.sh <file>` before `gh pr create`; a non-zero exit means a block is broken (or the toolchain is missing) — fix it first. A `Diagrams: N/A` body has no blocks and passes trivially. Don't rely on the bot's R15 to catch it — that's reactive, after the broken diagram is already live on github.com.
 - **Never delete or skip a template section.** Use `N/A — <reason>`; a deleted header forces a review round-trip.
 - **Never leave the Plan / issue reference blank.** Link the issue/plan or write `Out of plan — <reason>`; include `Closes #<issue>`.
 - **Never `Screenshots: N/A — not UI` on a PR that changes visible UI.** Real UI changes never use `N/A`, even on a small diff.
