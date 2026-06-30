@@ -1,3 +1,4 @@
+import { type DegradeReason, truncateDegradeDetail } from '../domain/degrade';
 import { contentHash, slugify } from '../domain/identity';
 import { bucketize } from '../domain/settings';
 import type { SitemapHub } from '../domain/sitemap';
@@ -103,6 +104,15 @@ export interface PipelineRunResult {
    * extra generation. Single-lesson path only (it's read off the run's one canonical brief).
    */
   summary?: string;
+  /**
+   * The operator-only DEGRADE REASON (issue #214) — WHY this run was routed away from `built`, set ONLY
+   * on a degraded single-lesson run. Undefined on a built run and on the dormant curriculum path
+   * (`runPipeline`, which degrades PER NODE, has no single run-level reason). It is TELEMETRY, not
+   * durable state: `runCompleteEvent` emits its low-cardinality `code` + bounded `detail` on the
+   * `run.complete` Cloud-Logging event; nothing persists it (no `concept_page` column — the leak-safe
+   * boundary holds). The `detail` is already truncated to `DEGRADE_DETAIL_MAX` at the degrade site.
+   */
+  degrade?: DegradeReason;
 }
 
 export interface RunOptions {
@@ -468,6 +478,19 @@ export async function runLesson(
   // 5. assemble a one-tier/one-category/one-page hub (NO assembleHub — that's the curriculum path).
   const built = synth.artifact?.passed ?? false;
   const status = built ? 'built' : 'soon';
+  // The DEGRADE REASON (issue #214) — the operator-only WHY, computed at the ONE degrade site. A built
+  // run has none. A NULL artifact = an exception ANYWHERE in the spec→code→critic trio (synthesizeLesson
+  // wraps the whole trio in one try, so a code truncation/timeout OR a thrown critic call land here) →
+  // `synthesis_error`, detail = the caught reason. A non-null artifact graded `passed:false` = the
+  // GRACEFUL critic reject → `critic_rejected`, detail = the critique. The split that matters is
+  // graceful-reject vs exception, which `criticPassed` alone cannot express (both read criticPassed:false).
+  // `detail` is BOUNDED here (`truncateDegradeDetail`) — never an unbounded model string on the log stream.
+  let degrade: DegradeReason | undefined;
+  if (!synth.artifact) {
+    degrade = { gate: 'synthesis', code: 'synthesis_error', detail: truncateDegradeDetail(synth.degraded ?? '') };
+  } else if (!synth.artifact.passed) {
+    degrade = { gate: 'critic', code: 'critic_rejected', detail: truncateDegradeDetail(synth.artifact.critique) };
+  }
   const hub: SitemapHub = {
     tiers: [
       {
@@ -510,6 +533,8 @@ export async function runLesson(
     brief: briefed.brief,
     category: classified.category,
     summary: briefed.brief.learningGoal,
+    // Omitted (not `degrade: undefined`) on a built run, mirroring the event-level codeRev spread.
+    ...(degrade ? { degrade } : {}),
   };
 }
 

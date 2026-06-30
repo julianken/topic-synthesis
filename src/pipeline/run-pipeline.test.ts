@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DEGRADE_DETAIL_MAX } from '../domain/degrade';
 import {
   CriticVerdictSchema,
   FindingsSchema,
@@ -224,7 +225,7 @@ describe('runPipeline', () => {
 // The lesson path runs plan → research → brief → spec → code → critic; it has NO graph stage,
 // so its fake DROPS the PrereqGraphSchema arm and asserts it is never reached. The brief arm
 // returns a grounded LessonBrief whose finding cites the researcher's real source.
-function lessonFakeDeps(questions: string[] = ['q1', 'q2'], criticPassed = true): StageDeps {
+function lessonFakeDeps(questions: string[] = ['q1', 'q2'], criticPassed = true, critique = 'ok'): StageDeps {
   const completeObject = vi.fn(async (opts: { schema: unknown; prompt: string; model: StageModel }) => {
     if (opts.schema === PlanSchema) {
       return { object: { scope: 'S', subtopics: ['a', 'b'], researchQuestions: questions }, record: mkRec() };
@@ -260,7 +261,7 @@ function lessonFakeDeps(questions: string[] = ['q1', 'q2'], criticPassed = true)
       };
     }
     if (opts.schema === CriticVerdictSchema) {
-      return { object: { passed: criticPassed, critique: 'ok' }, record: mkRec() };
+      return { object: { passed: criticPassed, critique }, record: mkRec() };
     }
     if (opts.schema === CATEGORY_SCHEMA) {
       // The isolated, fail-safe card-category classifier at the run TAIL (NOT a core stage). Return a
@@ -343,6 +344,48 @@ describe('runLesson (single-lesson path)', () => {
     expect(hubPages[0]?.status).toBe('soon');
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  // ── the degrade REASON (issue #214) — computed at the ONE runLesson degrade site ─────────────────
+  // The reason is operator-only telemetry threaded onto the result as `degrade`; runCompleteEvent emits
+  // it. These prove the taxonomy: a built run has none; a graceful critic reject vs a synthesis throw
+  // are distinguished (criticPassed:false alone cannot); the detail is BOUNDED at the named constant.
+  it('a BUILT run carries NO degrade reason', async () => {
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps());
+    expect(out.result.pages[0]?.passed).toBe(true);
+    expect(out.degrade).toBeUndefined();
+  });
+
+  it('a critic-rejected lesson (graceful fail) sets degrade {gate:critic, code:critic_rejected, detail:critique}', async () => {
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1'], false, 'rubric: weak interaction, no a11y path'));
+    expect(out.degrade).toEqual({
+      gate: 'critic',
+      code: 'critic_rejected',
+      detail: 'rubric: weak interaction, no a11y path',
+    });
+    // the GRACEFUL shape: a non-null (soon) page exists — that is what distinguishes it from a throw
+    expect(out.result.pages).toHaveLength(1);
+    expect(out.result.pages[0]?.passed).toBe(false);
+  });
+
+  it('truncates the critique detail to DEGRADE_DETAIL_MAX (never an unbounded model string on the log stream)', async () => {
+    const longCritique = 'z'.repeat(DEGRADE_DETAIL_MAX + 400);
+    const out = await runLesson(req, new InlineEngine(), lessonFakeDeps(['q1'], false, longCritique));
+    expect(out.degrade?.code).toBe('critic_rejected');
+    expect(out.degrade?.detail).toHaveLength(DEGRADE_DETAIL_MAX);
+    expect(out.degrade?.detail).toBe('z'.repeat(DEGRADE_DETAIL_MAX));
+  });
+
+  it('a synthesis THROW sets degrade {gate:synthesis, code:synthesis_error} — distinguishable from a critic reject', async () => {
+    const deps = lessonFakeDeps(['q1']);
+    (deps.streamComplete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('output cap hit'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const out = await runLesson(req, new InlineEngine(), deps);
+    warn.mockRestore();
+    expect(out.degrade?.gate).toBe('synthesis');
+    expect(out.degrade?.code).toBe('synthesis_error');
+    expect(out.degrade?.detail).toContain('output cap hit'); // the caught reason, bounded
+    expect(out.result.pages).toHaveLength(0); // the EXCEPTION shape: a null artifact, no fabricated page
   });
 
   it('memoizes the synthesis trio across two runs on one engine (keyed by the topic-derived slug)', async () => {

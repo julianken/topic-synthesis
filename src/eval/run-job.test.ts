@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { DegradeReason } from '../domain/degrade';
 import type { PipelineRunResult } from '../pipeline/run-pipeline';
 import type { SitemapHub } from '../domain/sitemap';
 import { buildJobInput, runCompleteEvent, runFailedEvent } from './run-job';
@@ -67,13 +68,14 @@ const hubWith = (built: boolean): SitemapHub => ({
   ],
 });
 
-const runResult = (built: boolean, pageCount: number): PipelineRunResult => ({
+const runResult = (built: boolean, pageCount: number, degrade?: DegradeReason): PipelineRunResult => ({
   result: {
     hub: hubWith(built),
     pages: Array.from({ length: pageCount }, () => ({})) as PipelineRunResult['result']['pages'],
   },
   records: [],
   costUsd: 0.42,
+  ...(degrade ? { degrade } : {}),
 });
 
 describe('runCompleteEvent', () => {
@@ -113,6 +115,40 @@ describe('runCompleteEvent', () => {
 
   it('omits codeRev when none is threaded (the field is optional)', () => {
     expect(runCompleteEvent(runResult(true, 1), 2000)).not.toHaveProperty('codeRev');
+  });
+
+  // #214: the operator-only gate-reason channel. A degraded run carries run.degrade; runCompleteEvent
+  // emits its low-cardinality code (the metric label) + the bounded operator-only detail.
+  it('emits degradeCode + degradeDetail for a critic-rejection run (the graceful fail)', () => {
+    const degrade: DegradeReason = { gate: 'critic', code: 'critic_rejected', detail: 'rubric: weak interaction' };
+    const ev = runCompleteEvent(runResult(false, 1, degrade), 1000);
+    expect(ev).toMatchObject({
+      outcome: 'degraded',
+      criticPassed: false,
+      degradeCode: 'critic_rejected',
+      degradeDetail: 'rubric: weak interaction',
+    });
+  });
+
+  it('emits synthesis_error — distinguishable from a critic reject (both read criticPassed:false today)', () => {
+    const degrade: DegradeReason = { gate: 'synthesis', code: 'synthesis_error', detail: 't: code stage hit the output cap' };
+    const ev = runCompleteEvent(runResult(false, 0, degrade), 1000);
+    expect(ev.degradeCode).toBe('synthesis_error');
+    expect(ev.degradeDetail).toContain('output cap');
+    expect(ev.criticPassed).toBe(false); // the bit alone can't tell the two causes apart — the code can
+  });
+
+  it('omits BOTH degradeCode and degradeDetail on a built run (fields absent, not null)', () => {
+    const ev = runCompleteEvent(runResult(true, 1), 2000);
+    expect(ev).not.toHaveProperty('degradeCode');
+    expect(ev).not.toHaveProperty('degradeDetail');
+  });
+
+  it('omits the degrade fields on a degraded run with no reason threaded (curriculum path / legacy caller)', () => {
+    const ev = runCompleteEvent(runResult(false, 0), 1000);
+    expect(ev.outcome).toBe('degraded');
+    expect(ev).not.toHaveProperty('degradeCode');
+    expect(ev).not.toHaveProperty('degradeDetail');
   });
 });
 
