@@ -656,21 +656,28 @@ resource "google_monitoring_dashboard" "workflow_runs" {
   })
 }
 
-# ── Degrade-rate alert (issue #185) ───────────────────────────────────────────────────────────
-# A degraded run ships a `'soon'` page and "succeeds" — so a sustained quality regression, or a bad
-# deploy that degrades EVERY run (the stale-image incident), is silent (BPD degraded in prod and
-# nobody knew until the owner asked). This alerts on the structured signal we already emit:
-# `run.complete{outcome}` (run-job.ts) projected to the `run_outcome` counter above — NOT a brittle
-# regex over the `console.warn` free text (no labels, breaks on a wording change).
+# ── Run-health alert: sustained NON-COMPLETE (degraded|failed) rate (issue #185) ──────────────
+# A run that does not produce a built lesson is a problem whether it `degraded` to a `'soon'` page OR
+# `failed` outright (a persist/pipeline crash) — both ship nothing useful, and both are silent: the
+# BPD lesson degraded in prod and nobody knew until the owner asked, and the 2026-06-30 post-deploy
+# storm was a run.FAILED burst (persist failures), NOT degrades. So this alerts on the COMPLEMENT of
+# success: fire when COMPLETE (built) runs become a MINORITY — i.e. `(degraded + failed) / total`
+# exceeds 0.5 ("the product stopped producing built lessons"). This catches BOTH failure modes.
+#
+# It reads the structured signal we already emit: `run.complete{outcome}` (run-job.ts, complete|
+# degraded) AND `run.failed{outcome:'failed'}` (run-job.ts:94), both projected to the `run_outcome`
+# counter above — NOT a brittle regex over the `console.warn` free text (no labels, breaks on a
+# wording change).
 #
 # Channel = EMAIL = ticket-class, never a page. On a single-user app the real risk is a FALSE NEGATIVE
-# (a stale-deploy/all-degrade going unseen), so the condition biases toward sensitivity: a degrade
-# RATIO, not an absolute count (SRE doctrine: low-traffic services alert on a rate, not a single
-# event). It fires when `degraded / (degraded+complete)` over a rolling 1h window exceeds 0.5, guarded
-# by a ≥2-run minimum so a single isolated degraded run does not trip it — a stale deploy pushes the
-# ratio to ~1.0 and trips with as few as 2 runs, while a lone benign degrade amid healthy completes
-# keeps the ratio low and stays quiet. No metric-absence arm (a DELTA counter emits points only on
-# completed runs, so absence cannot tell a stale deploy from an idle day on a single-user app).
+# (a stale-deploy/all-degrade or a failure storm going unseen), so the condition biases toward
+# sensitivity: a RATIO, not an absolute count (SRE doctrine: low-traffic services alert on a rate, not
+# a single event). It fires when the non-complete fraction over a rolling 1h window exceeds 0.5,
+# guarded by a ≥2-run minimum so a single isolated bad run does not trip it — a stale deploy or a
+# failure storm pushes the fraction to ~1.0 and trips with as few as 2 runs, while a lone bad run amid
+# healthy completes keeps the fraction low and stays quiet. No metric-absence arm (a DELTA counter
+# emits points only on terminating runs, so absence cannot tell a broken deploy from an idle day on a
+# single-user app).
 #
 # DEPLOY: orchestrator-run SCOPED apply only —
 #   terraform apply -target=google_monitoring_notification_channel.alert_email \
@@ -685,7 +692,7 @@ resource "google_monitoring_dashboard" "workflow_runs" {
 # trigger a controlled degrade and confirm the email fires — before trusting it (issue #185 AC).
 
 resource "google_monitoring_notification_channel" "alert_email" {
-  display_name = "Topic Synthesis — degrade alerts (email)"
+  display_name = "Topic Synthesis — run-health alerts (email)"
   type         = "email"
   labels = {
     email_address = var.alert_email
@@ -693,37 +700,46 @@ resource "google_monitoring_notification_channel" "alert_email" {
 }
 
 resource "google_monitoring_alert_policy" "degrade_rate" {
-  display_name = "Topic Synthesis — sustained degrade rate"
+  display_name = "Topic Synthesis — sustained non-complete run rate"
   combiner     = "OR" # single condition; OR is the GCP default for a one-condition policy.
 
   # ONE condition = one metric reference ($0.35/mo once alerting billing starts ≥ Sep 1 2026; $0 today).
-  # MQL expresses the degrade RATIO + the ≥2-run guard in a single condition (a native threshold ratio
-  # cannot enforce the run-count floor in one condition). The query collapses the `run_outcome` counter
-  # to a global degraded vs. total count over a trailing 1h window and fires only when the ratio
-  # exceeds 0.5 AND there are at least 2 runs. The inner join drops to no rows when there are zero
-  # degraded runs (healthy → quiet) — the join's two label-less single series combine into one row only
-  # when both the degraded and total streams have data.
+  # MQL expresses the non-complete RATIO + the ≥2-run guard in a single condition (a native threshold
+  # ratio cannot enforce the run-count floor in one condition). The query collapses the `run_outcome`
+  # counter to a global bad (= NON-complete: degraded OR failed) vs. total count over a trailing 1h
+  # window and fires only when the bad fraction exceeds 0.5 AND there are at least 2 runs.
   #
-  # The ratio is written as the cross-multiplication `degraded > total * 0.5` rather than
-  # `degraded / total > 0.5` ON PURPOSE: both sums are INT64, so a literal `/` risks INTEGER division
-  # (e.g. 3 degraded / 5 total = 0, silently never firing on a 60%-degrade window). The `* 0.5` form
-  # promotes to float comparison and also sidesteps divide-by-zero. Equivalent for total ≥ 2 > 0.
+  # NUMERATOR = bad (`outcome != 'complete'`), not `complete`, ON PURPOSE: the inner join drops to no
+  # rows when its filtered branch is empty, so we must filter the side that is NON-empty exactly when
+  # we want to fire. With `bad` as the numerator: all runs healthy → `bad` branch empty → join empty →
+  # quiet (correct); a degrade/failure storm → `bad` non-empty → join matches → evaluated (correct,
+  # including a TOTAL outage where zero runs completed — the `complete < total*0.5` form would have an
+  # empty numerator there and silently never fire). `!= 'complete'` also future-proofs: any new
+  # non-complete outcome counts as bad automatically.
+  #
+  # The ratio is the cross-multiplication `bad > total * 0.5` rather than `bad / total > 0.5` ON
+  # PURPOSE: both sums are INT64, so a literal `/` risks INTEGER division (e.g. 3 bad / 5 total = 0,
+  # silently never firing on a 60%-bad window). The `* 0.5` form promotes to float comparison and also
+  # sidesteps divide-by-zero. Equivalent for total ≥ 2 > 0.
   conditions {
-    display_name = "Degraded fraction of runs > 50% (≥2 runs, rolling 1h)"
+    display_name = "Non-complete (degraded|failed) fraction > 50% (≥2 runs, rolling 1h)"
     condition_monitoring_query_language {
+      # Rolling 1h window: `align delta(1h)` is the window width; `every 5m` evaluates it every 5
+      # minutes (output period < window = SLIDING), so a bad streak straddling an hour boundary still
+      # trips — not a tumbling hourly bucket.
       query    = <<-MQL
         fetch cloud_run_job
         | metric 'logging.googleapis.com/user/topic_synthesis/run_outcome'
         | align delta(1h)
-        | every 1h
+        | every 5m
         | {
-            filter metric.outcome == 'degraded'
-            | group_by [], [degraded: sum(val())]
+            filter metric.outcome != 'complete'
+            | group_by [], [bad: sum(val())]
           ;
             group_by [], [total: sum(val())]
           }
         | join
-        | condition degraded > total * 0.5 && total >= 2
+        | condition bad > total * 0.5 && total >= 2
       MQL
       duration = "0s" # fire on the first violating evaluation — email is ticket-class, bias to sensitivity.
       trigger {
@@ -741,15 +757,17 @@ resource "google_monitoring_alert_policy" "degrade_rate" {
   documentation {
     mime_type = "text/markdown"
     content   = <<-DOC
-      **Sustained degrade rate** — over half of recent runs degraded to `'soon'` (≥2 runs, rolling 1h).
+      **Sustained non-complete run rate** — over half of recent runs did NOT produce a built lesson
+      (degraded to `'soon'` OR failed outright) over a rolling 1h window (≥2 runs).
 
-      A degraded run ships a fallback page, so this is usually a *silent* quality regression or a bad
-      deploy that degrades every run (the stale-image incident).
+      The product has effectively stopped shipping built lessons. Common causes: a stale/rolled-back
+      deploy that degrades every run, a quality regression, or a persist/pipeline failure storm
+      (`run.failed`) like the 2026-06-30 post-deploy incident.
 
       Runbook:
-      1. Check for a recent deploy — a stale/rolled-back image degrades every run (`codeRev`, issue #184, stamps the running commit on each run event).
-      2. Inspect the pipeline Job's Cloud Logging for `run.failed` / stage errors.
-      3. Open the workflow-runs dashboard (run outcome + critic panels) for the degrade pattern.
+      1. Check for a recent deploy — a stale/rolled-back image degrades or fails every run (`codeRev`, issue #184, stamps the running commit on each run event).
+      2. Inspect the pipeline Job's Cloud Logging for `run.failed` / stage errors to tell degrade from failure.
+      3. Open the workflow-runs dashboard (run outcome + critic panels) for the degrade/failure pattern.
     DOC
   }
 }
