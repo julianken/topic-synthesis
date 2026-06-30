@@ -1,9 +1,17 @@
 import { APICallError } from 'ai';
 import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { complete, completeObject, DEFAULT_CODE_DEADLINE_MS, searchWeb, streamComplete } from './client';
+import {
+  complete,
+  completeObject,
+  DEFAULT_CODE_DEADLINE_MS,
+  searchWeb,
+  streamComplete,
+  withResilientRetry,
+} from './client';
 import type { StageModel } from './models';
+import { estimateCostUsd } from './pricing';
 
 const OPUS: StageModel = { provider: 'anthropic', model: 'claude-opus-4-8' };
 
@@ -233,5 +241,276 @@ describe('streamComplete', () => {
     // yet sit well under the Cloud Run Job's 3600s task timeout so THIS deadline is what bounds a stall.
     expect(DEFAULT_CODE_DEADLINE_MS).toBeGreaterThan(270_000); // > the observed healthy code-phase max
     expect(DEFAULT_CODE_DEADLINE_MS).toBeLessThan(3_600_000); // < the 3600s Job task timeout (cloud-run.tf:95)
+  });
+});
+
+// ---- issue #187: withResilientRetry — bounded, jittered retry for the TRANSIENT failure class ----
+
+/** Build a retryable/non-retryable provider error with an optional Retry-After header. */
+function apiError(statusCode: number, opts: { retryAfter?: string; isRetryable?: boolean } = {}): APICallError {
+  return new APICallError({
+    message: `status ${statusCode}`,
+    url: 'https://api.anthropic.test',
+    requestBodyValues: {},
+    statusCode,
+    ...(opts.retryAfter !== undefined ? { responseHeaders: { 'retry-after': opts.retryAfter } } : {}),
+    isRetryable: opts.isRetryable ?? (statusCode >= 500 || statusCode === 429),
+  });
+}
+
+describe('withResilientRetry (#187)', () => {
+  it('(a) retries a 429 ONCE after honoring Retry-After, then succeeds', async () => {
+    const delays: number[] = [];
+    const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+    let calls = 0;
+    const fn = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw apiError(429, { retryAfter: '2' }); // server asked for 2s
+      return 'ok';
+    });
+
+    const res = await withResilientRetry(fn, { sleep, random: () => 0.5 });
+
+    expect(res).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2); // one transient retry, then success
+    expect(delays).toEqual([2000]); // honored the 2s Retry-After exactly (not a jittered value)
+  });
+
+  it('(b) retries a 529 with FULL-JITTER backoff within bounds, never trusting its Retry-After', async () => {
+    const delays: number[] = [];
+    const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+    let calls = 0;
+    const fn = vi.fn(async () => {
+      calls += 1;
+      // A 529 may carry a Retry-After too; the policy IGNORES it (overloaded servers' values are
+      // unreliable) and jitters instead, so we assert the delay is the jittered window, not 300_000.
+      if (calls === 1) throw apiError(529, { retryAfter: '300' });
+      return 'ok';
+    });
+
+    const base = 500;
+    const cap = 8000;
+    const res = await withResilientRetry(fn, { sleep, random: () => 0.5, baseDelayMs: base, capDelayMs: cap });
+
+    expect(res).toBe('ok');
+    expect(delays).toHaveLength(1);
+    const window = Math.min(cap, base * 2 ** 1); // attempt 1's full-jitter window
+    expect(delays[0]).toBeGreaterThanOrEqual(0);
+    expect(delays[0]).toBeLessThanOrEqual(window); // within [0, min(cap, base·2^attempt)]
+    expect(delays[0]).not.toBe(300_000); // did NOT honor the 529's Retry-After
+  });
+
+  it('(b2) the full-jitter delay stays within bounds across the RNG range (0 and ~1)', async () => {
+    // Assert the jitter window, not exact timing: at random()→0 the delay is 0; at random()→~1 it
+    // approaches (never exceeds) the window. Deterministic via an injected, non-random RNG.
+    for (const r of [0, 0.999999]) {
+      const delays: number[] = [];
+      const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+      let calls = 0;
+      const fn = vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) throw apiError(529);
+        return 'ok';
+      });
+      await withResilientRetry(fn, { sleep, random: () => r, baseDelayMs: 500, capDelayMs: 8000 });
+      const window = Math.min(8000, 500 * 2 ** 1);
+      expect(delays[0]).toBeGreaterThanOrEqual(0);
+      expect(delays[0]).toBeLessThanOrEqual(window);
+    }
+  });
+
+  it('(a2) clamps a huge honored 429 Retry-After to retryAfterCapMs (no unbounded sleep)', async () => {
+    const delays: number[] = [];
+    const sleep = vi.fn(async (ms: number) => void delays.push(ms));
+    let calls = 0;
+    const fn = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw apiError(429, { retryAfter: '3600' }); // server asks for a full HOUR
+      return 'ok';
+    });
+
+    const res = await withResilientRetry(fn, { sleep, retryAfterCapMs: 60_000 });
+
+    expect(res).toBe('ok');
+    expect(delays).toEqual([60_000]); // clamped to the 60s cap, NOT the 3_600_000ms the server asked for
+  });
+
+  it('(c) rethrows a non-retryable 400 IMMEDIATELY without retrying or sleeping', async () => {
+    const sleep = vi.fn(async () => {});
+    const fn = vi.fn(async () => {
+      throw apiError(400, { isRetryable: false });
+    });
+
+    await expect(withResilientRetry(fn, { sleep })).rejects.toThrow(/status 400/);
+    expect(fn).toHaveBeenCalledTimes(1); // no retry on a client error
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('(c2) rethrows a non-APICallError (e.g. an abort/timeout) without retrying', async () => {
+    const sleep = vi.fn(async () => {});
+    const fn = vi.fn(async () => {
+      throw new Error('aborted by deadline'); // the #186 TimeoutError class — never retried
+    });
+
+    await expect(withResilientRetry(fn, { sleep })).rejects.toThrow(/aborted/);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('(e) caps total attempts and rethrows the LAST error after exhausting them', async () => {
+    const sleep = vi.fn(async () => {});
+    const fn = vi.fn(async () => {
+      throw apiError(529);
+    });
+
+    await expect(withResilientRetry(fn, { sleep, maxAttempts: 3, random: () => 0.5 })).rejects.toThrow(/status 529/);
+    expect(fn).toHaveBeenCalledTimes(3); // 1 initial + 2 retries, then give up
+    expect(sleep).toHaveBeenCalledTimes(2); // one backoff before each retry
+  });
+
+  it('(e2) stops retrying once the outer AbortSignal deadline elapses during backoff', async () => {
+    const controller = new AbortController();
+    // Model the deadline firing mid-backoff: the injected sleep aborts the controller while "sleeping".
+    const sleep = vi.fn(async () => void controller.abort());
+    const fn = vi.fn(async () => {
+      throw apiError(529);
+    });
+
+    await expect(
+      withResilientRetry(fn, { sleep, signal: controller.signal, maxAttempts: 5, random: () => 0.5 }),
+    ).rejects.toThrow(/status 529/);
+    expect(fn).toHaveBeenCalledTimes(1); // first failure → backoff trips the deadline → give up (not 5×)
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('(e3) does not retry at all when the deadline is ALREADY aborted before the first failure', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const sleep = vi.fn(async () => {});
+    const fn = vi.fn(async () => {
+      throw apiError(529);
+    });
+
+    await expect(withResilientRetry(fn, { sleep, signal: controller.signal })).rejects.toThrow(/status 529/);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+
+// ---- issue #187: the code-stage length-aware retry (opt-in via retryAtMaxTokens) ----
+
+/** A streaming result that finishes with a chosen reason + usage — the doStream return shape. */
+function streamResult(
+  reason: 'stop' | 'length' | 'content-filter' | 'error',
+  text: string,
+  usage: { input?: number; output?: number } = {},
+) {
+  return {
+    stream: convertArrayToReadableStream([
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'text-start' as const, id: 't1' },
+      { type: 'text-delta' as const, id: 't1', delta: text },
+      { type: 'text-end' as const, id: 't1' },
+      {
+        type: 'finish' as const,
+        finishReason: { unified: reason, raw: reason },
+        usage: {
+          inputTokens: { total: usage.input ?? 1, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: usage.output ?? 1, text: undefined, reasoning: undefined },
+        },
+      },
+    ]),
+  };
+}
+
+describe('streamComplete — length-aware retry (code stage, #187)', () => {
+  it('(d) retries ONCE at the raised maxTokens on finishReason==="length", then succeeds', async () => {
+    // First attempt truncates at the base cap; the opt-in retryAtMaxTokens triggers exactly ONE more
+    // attempt at the raised cap (< the model's 64K cap), which finishes cleanly.
+    const model = new MockLanguageModelV3({
+      doStream: async ({ maxOutputTokens }) =>
+        (maxOutputTokens ?? 0) <= 32000 ? streamResult('length', 'partial') : streamResult('stop', 'full page'),
+    });
+
+    const res = await streamComplete(
+      { model: OPUS, prompt: 'x', maxTokens: 32000, retryAtMaxTokens: 48000 },
+      undefined,
+      model,
+    );
+
+    expect(res.text).toBe('full page');
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(32000); // base cap first
+    expect(model.doStreamCalls[1]?.maxOutputTokens).toBe(48000); // raised cap on the single retry
+    expect(res.record.maxTokens).toBe(48000); // the record reflects the successful (raised) attempt
+  });
+
+  it('(d2) does NOT retry a content-filter finish — no raised-cap re-bill', async () => {
+    const model = new MockLanguageModelV3({ doStream: async () => streamResult('content-filter', 'blocked') });
+
+    await expect(
+      streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000, retryAtMaxTokens: 48000 }, undefined, model),
+    ).rejects.toThrow(/filter/);
+    expect(model.doStreamCalls).toHaveLength(1); // never re-billed at the raised cap
+  });
+
+  it('(d3) still degrades (throws) when the raised-cap retry ALSO truncates — one retry only', async () => {
+    const model = new MockLanguageModelV3({ doStream: async () => streamResult('length', 'partial') });
+
+    await expect(
+      streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000, retryAtMaxTokens: 48000 }, undefined, model),
+    ).rejects.toThrow(/truncated|cap/);
+    expect(model.doStreamCalls).toHaveLength(2); // base + exactly ONE raised retry, then give up
+  });
+
+  it('(d4) does not retry length at all when retryAtMaxTokens is unset (opt-in only)', async () => {
+    const model = new MockLanguageModelV3({ doStream: async () => streamResult('length', 'partial') });
+
+    await expect(
+      streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000 }, undefined, model),
+    ).rejects.toThrow(/truncated|cap/);
+    expect(model.doStreamCalls).toHaveLength(1); // no opt-in → guard throws on the first length
+  });
+
+  it('(d6) folds BOTH attempts cost + tokens into the record on a length-retry (no under-report)', async () => {
+    // The first (truncated 'length') attempt is a REAL, already-billed ~32K generation; the returned record
+    // must represent the TOTAL code-stage spend (attempt1 + attempt2), not just the successful attempt, or
+    // the #166/#167 telemetry + eleatic trace + per-lesson $ metric under-report it (#196 review).
+    const model = new MockLanguageModelV3({
+      doStream: async ({ maxOutputTokens }) =>
+        (maxOutputTokens ?? 0) <= 32000
+          ? streamResult('length', 'partial', { input: 1000, output: 32000 })
+          : streamResult('stop', 'full page', { input: 1000, output: 40000 }),
+    });
+
+    const res = await streamComplete(
+      { model: OPUS, prompt: 'x', maxTokens: 32000, retryAtMaxTokens: 48000 },
+      undefined,
+      model,
+    );
+
+    expect(res.record.inputTokens).toBe(2000); // 1000 (truncated) + 1000 (success)
+    expect(res.record.outputTokens).toBe(72000); // 32000 (truncated) + 40000 (success)
+    expect(res.record.finishReason).toBe('stop'); // the clean second-attempt reason, not 'length'
+    const c1 = estimateCostUsd('anthropic:claude-opus-4-8', { inputTokens: 1000, outputTokens: 32000 });
+    const c2 = estimateCostUsd('anthropic:claude-opus-4-8', { inputTokens: 1000, outputTokens: 40000 });
+    expect(res.record.costUsd).toBeCloseTo(c1 + c2, 9); // total spend, NOT just attempt2…
+    expect(res.record.costUsd).toBeGreaterThan(c2); // …which would silently drop the first attempt's bill
+  });
+
+  it('(d5) prefers an external signal over a self-created timeout (shared deadline across attempts)', async () => {
+    // #187 shares ONE deadline across every retry attempt; streamComplete must thread opts.signal through
+    // to the inner streamText abortSignal rather than minting a fresh per-call timeout.
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const model = new MockLanguageModelV3({
+      doStream: async ({ abortSignal }) => {
+        seen = abortSignal;
+        return streamResult('stop', 'ok');
+      },
+    });
+
+    await streamComplete({ model: OPUS, prompt: 'x', maxTokens: 32000, signal: controller.signal }, undefined, model);
+    expect(seen).toBe(controller.signal); // the caller's deadline reached the inner call
   });
 });
