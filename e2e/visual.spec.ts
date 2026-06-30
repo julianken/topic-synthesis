@@ -213,6 +213,23 @@ test.describe('visual — generating (live-research, mid-run)', () => {
   });
 });
 
+test.describe('visual — frozen completed-workflow page (issue #232, owner-only)', () => {
+  // The PRESERVED completed-workflow page (run-lifecycle 3/4) — GeneratingView in mode="frozen" at the
+  // /lesson/[id]/workflow route, re-rendered AT REST from the durable step_event + research_event the
+  // BUILT seed carries. It is fully static (no LiveTimer, no pulse, the entrance suppressed) and the
+  // seeded timelines are FIXED, so the whole page is byte-stable — no masking needed. DESIGN.md wins.
+
+  test('the frozen /workflow page matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_RUN_ID}/workflow`);
+    // The frozen surfaces are present before capture (past-tense header, the terminal chip, the band).
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Generated');
+    await expect(page.getByTestId('gen-disposition')).toContainText('Built');
+    await expect(page.getByTestId('gen-research-band')).toContainText('3 / 3 extracted');
+    await expect(page).toHaveScreenshot('workflow-frozen.png', { fullPage: true });
+  });
+});
+
 test.describe('visual — build-summary disclosure (issue #175, owner-only)', () => {
   // The owner-only "How this was built" disclosure on the persisted lesson page. ELEMENT-scoped snapshots
   // (the disclosure box, not the whole page) so the captures are deterministic regardless of the iframe

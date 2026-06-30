@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { displayName } from '../../auth/session-nav';
 import { getLesson, getRunMeta, ownsRun } from '../../../store/repo';
-import type { LessonDisposition } from './build-summary';
+import { deriveDisposition } from './build-summary';
 import { BuildSummary } from './build-summary-view';
 import { GeneratingPoller } from './generating';
 import { ReaderShell } from './reader-shell';
@@ -52,9 +52,10 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   //   failed → status='soon' WITHOUT html (synthesis produced no artifact).
   // It splits the old "degraded" lump so a HELD lesson stops claiming "couldn't finish" (the all-✓ rail
   // would contradict that). It changes COPY ONLY — the render gate below still keys on status==='built',
-  // so a `held` lesson (status='soon') stays NON-rendered and the critic gate is never defeated.
-  const disposition: LessonDisposition =
-    page && page.status === 'built' ? 'built' : page && page.hasHtml ? 'held' : 'failed';
+  // so a `held` lesson (status='soon') stays NON-rendered and the critic gate is never defeated. The
+  // derivation is the SHARED `deriveDisposition` (issue #232) — the frozen /workflow chip reads the SAME
+  // function, so the chip and this page can't drift.
+  const disposition = deriveDisposition(page);
 
   const head = {
     eyebrow: view.topic,

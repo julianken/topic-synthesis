@@ -137,12 +137,14 @@ CREATE TABLE IF NOT EXISTS step_result (
 -- (issue #166); the default PgStepEventSink (src/store/pg-step-event-sink.ts) stamps started_at when a step
 -- REALLY runs (cache miss) and finished_at on completion — a cache HIT (a crash-resume of an already-done
 -- step) writes nothing, so the original row stands and the timeline stays complete + non-duplicated across
--- a resume. Same (run, name, key) shape as step_result. UNLIKE step_result + run_owner + research_event,
--- `persistRun` does NOT prune step_event (issue #175 removed that DELETE): the persisted lesson page replays
--- this run's per-step timeline (learner-safe labels + frozen durations + status) in the owner-only build
--- disclosure, owner-gated for free by the page's `getLesson(id, sub)` filter. It is structurally leak-proof
--- (no token/cost/model/error-text column — just name/key/timestamps/status), so it is safe to keep durable;
--- it is still NOT used for cross-run analysis (no such view) — only the lesson's own owner reads it back.
+-- a resume. Same (run, name, key) shape as step_result. UNLIKE step_result + run_owner + code_progress,
+-- `persistRun` does NOT prune step_event (issue #175 removed that DELETE) — and since issue #232 it does NOT
+-- prune research_event either, so step_event + research_event are the TWO durable per-run tables: the
+-- persisted lesson page replays this run's per-step timeline (learner-safe labels + frozen durations +
+-- status) in the owner-only build disclosure (and the frozen /workflow page), owner-gated for free by the
+-- page's `getLesson(id, sub)` filter. It is structurally leak-proof (no token/cost/model/error-text column
+-- — just name/key/timestamps/status), so it is safe to keep durable; it is still NOT used for cross-run
+-- analysis (no such view) — only the lesson's own owner reads it back.
 CREATE TABLE IF NOT EXISTS step_event (
   run_id      TEXT NOT NULL,
   name        TEXT NOT NULL,
@@ -161,13 +163,16 @@ CREATE INDEX IF NOT EXISTS idx_step_event_run ON step_event (run_id);
 -- 'done'/'error' once the research step resolves. The writes are BEST-EFFORT + FIRE-AND-FORGET
 -- (PgResearchSink, never awaited on the run's critical path), so a slow/failed write yields NO live
 -- rows and the paid pipeline completes identically — the UI degrades to the existing stage-rail.
--- Like step_event + step_result + run_owner, this is the FOURTH transient per-run table: read ONLY by
--- the live generating UI while the run is in flight (the finished lesson folds the research into the
--- durable brief→lesson), so `persistRun` PRUNES this run's rows in its transaction once the curriculum
--- lands — intentionally NOT kept for cross-run analysis. `findings`/`sources` denormalize each finding
--- against its retrieved source ({claim, {url, title}}) IN THE SINK, so no internal sourceIndex is ever
--- stored. `ordinal` is the question's index in the deduped/capped list — questions arrive concurrently
--- from the Promise.all fan-out, so started_at alone is racy; the reader orders by it.
+-- Like step_event (issue #175), research_event is KEPT past persist (issue #232): `persistRun` no longer
+-- PRUNES it (only step_result + run_owner + code_progress are pruned). It powers the FROZEN owner-only
+-- /lesson/[id]/workflow page's RESEARCH band — the planned questions + each question's grounded findings/
+-- sources, replayed at rest on the finished lesson. It is LEAK-SAFE: `findings`/`sources` denormalize each
+-- finding against its retrieved source ({claim, {url, title}}) IN THE SINK, so no internal sourceIndex is
+-- ever stored — only copy-safe learner-facing text + counts, the same bar that justified keeping step_event.
+-- Owner-gated for free by the page's `getLesson(id, sub)` filter (the frozen route gates on getLesson, NOT
+-- ownsRun — run_owner is pruned, so an ownsRun gate would 404 every completed run). Still NOT used for
+-- cross-run analysis (no such view). `ordinal` is the question's index in the deduped/capped list —
+-- questions arrive concurrently from the Promise.all fan-out, so started_at alone is racy; readers order by it.
 CREATE TABLE IF NOT EXISTS research_event (
   run_id        TEXT NOT NULL,
   question      TEXT NOT NULL,            -- the REAL research question (planner output, deduped/capped)
@@ -187,9 +192,10 @@ CREATE INDEX IF NOT EXISTS idx_research_event_run ON research_event (run_id);
 -- `onProgress` hook per delta; the FAIL-SAFE PgCodeProgressSink coalesces those samples (throttled,
 -- fire-and-forget, NEVER awaited on the run's critical path) into ONE row per run so the generating UI can
 -- show a learner-safe "Writing the lesson…" progress bar while the longest phase (~83% of run wall-clock)
--- is otherwise opaque. Like step_result + run_owner + research_event, this is a TRANSIENT per-run table
--- read ONLY by the in-flight generating UI; `persistRun` PRUNES this run's row in its transaction once the
--- curriculum lands — it is NOT durable like step_event (#175) and NOT kept for cross-run analysis.
+-- is otherwise opaque. Like step_result + run_owner (research_event is now KEPT — issue #232), this is a
+-- TRANSIENT per-run table read ONLY by the in-flight generating UI; `persistRun` PRUNES this run's row in
+-- its transaction once the curriculum lands — it is NOT durable like step_event (#175) / research_event
+-- (#232) and NOT kept for cross-run analysis.
 -- STRUCTURALLY LEAK-PROOF (the no-project-internals rule): the fraction is computed IN THE SINK
 -- (outputTokens / maxTokens, clamped ≤0.95) and ONLY the bounded `fraction` is stored — there is NO raw
 -- token count, cap, cost, or model column, so no internal magnitude can ever reach the wire or the learner

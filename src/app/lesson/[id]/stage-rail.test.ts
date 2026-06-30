@@ -286,7 +286,10 @@ describe('TS-23 — the view is a pure presentation reshape over the EXISTING st
     expect(REPO).not.toContain('DELETE FROM step_event WHERE run_id = $1');
     expect(REPO).toContain('DELETE FROM step_result WHERE run_id = $1');
     expect(REPO).toContain('DELETE FROM run_owner WHERE run_id = $1');
-    expect(REPO).toContain('DELETE FROM research_event WHERE run_id = $1');
+    // issue #232 — research_event is ALSO kept durable now (the frozen /workflow page replays it), so its
+    // prune is removed too; code_progress stays the lone live-bar transient still pruned.
+    expect(REPO).not.toContain('DELETE FROM research_event WHERE run_id = $1');
+    expect(REPO).toContain('DELETE FROM code_progress WHERE run_id = $1');
   });
 
   it('AC6 — step_event is still defined as a per-run table (no new timeline table/column)', () => {

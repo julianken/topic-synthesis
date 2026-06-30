@@ -146,33 +146,30 @@ export async function persistRun(
         [runId, pageId, tier, category, ordinal],
       );
     }
-    // Prune this run's transient per-run rows now that the curriculum has persisted. FOUR of the FIVE
-    // per-run tables have NO post-persist consumer: step_result is the engine's crash-resume
+    // Prune this run's still-transient per-run rows now that the curriculum has persisted. THREE of the
+    // FIVE per-run tables have NO post-persist consumer: step_result is the engine's crash-resume
     // memoization (only read mid-run, on retry); run_owner is the dispatch-time ownership stamp for the
-    // pre-persist poll window (redundant once curriculum.owner_sub exists); research_event is the
-    // live-research feed (live-research generating Stage 1 — the planned questions + each question's
-    // grounded findings/sources, read ONLY by the in-flight generating UI; the finished lesson folds the
-    // research into the durable brief→lesson, so the live rows have no post-persist consumer and are NOT
-    // kept for cross-run analysis); code_progress is the live code-phase bar's one row (PR-4 / #180), read
-    // only by the in-flight generating UI, likewise no post-persist consumer. Deleting these bounds them
-    // at exactly their useful lifetime.
+    // pre-persist poll window (redundant once curriculum.owner_sub exists); code_progress is the live
+    // code-phase bar's one row (PR-4 / #180), read only by the in-flight generating UI. Deleting these
+    // bounds them at exactly their useful lifetime.
     //
-    // step_event is DELIBERATELY KEPT past persist (issue #175): the owner-only "How this was built"
-    // disclosure on the persisted lesson page replays this run's per-step timeline (learner-safe labels +
-    // frozen per-step durations + status) — a durable consumer the prune used to foreclose. It is
-    // structurally leak-proof (no token/cost/model/error-text column — just name/key/timestamps/status),
-    // owner-gated for free by the page's existing `getLesson(id, sub)` filter, and the dispatch marker
-    // (recordDispatch) it carries is not a STAGE_RAIL position, so the frozen rail's `deriveRail` ignores
-    // it. The deletes run AFTER the inserts and inside the SAME transaction, so a persist failure rolls
-    // them back too — leaving the run fully resumable. (A fire-and-forget research-sink write that lands
-    // AFTER this prune is a harmless straggler — bounded, owner-scoped, never read post-persist; the
-    // sink's 'done' UPDATE simply matches zero rows once they're gone.)
+    // step_event (issue #175) AND research_event (issue #232) are DELIBERATELY KEPT past persist: they
+    // power the FROZEN owner-only completed-workflow surfaces on the finished lesson page — step_event
+    // the "How this was built" disclosure (the six-stage rail), research_event the frozen /lesson/[id]/
+    // workflow page's RESEARCH band (the planned questions + each question's grounded findings/sources).
+    // Both are structurally LEAK-SAFE: step_event has no token/cost/model/error-text column (just
+    // name/key/timestamps/status); research_event holds only copy-safe learner-facing text
+    // ({question, subtopic, status, claim/url/title, counts, timestamps}) — the sink already
+    // denormalizes the internal sourceIndex away before the write. Both are owner-gated for free by the
+    // page's existing `getLesson(id, sub)` filter (the frozen route gates on getLesson, NOT ownsRun —
+    // run_owner is pruned below, so an ownsRun gate would 404 every completed run), and neither is used
+    // for cross-run analysis (no such view). The dispatch marker (recordDispatch) step_event carries is
+    // not a STAGE_RAIL position, so `deriveRail` ignores it. The deletes run AFTER the inserts and inside
+    // the SAME transaction, so a persist failure rolls them back too — leaving the run fully resumable.
     await client.query('DELETE FROM step_result WHERE run_id = $1', [runId]);
     await client.query('DELETE FROM run_owner WHERE run_id = $1', [runId]);
-    await client.query('DELETE FROM research_event WHERE run_id = $1', [runId]);
-    // code_progress (PR-4 / #180) is the FOURTH still-pruned transient table — the live code-phase bar's
-    // one row, read only by the in-flight generating UI; it has no post-persist consumer (unlike the
-    // durable step_event), so it is bounded at its in-run lifetime here alongside research_event.
+    // code_progress (PR-4 / #180) stays pruned — the live code-phase bar's one row has no post-persist
+    // consumer (unlike the now-durable step_event + research_event), so it is bounded at its in-run life.
     await client.query('DELETE FROM code_progress WHERE run_id = $1', [runId]);
     await client.query('COMMIT');
     client.release();
@@ -411,8 +408,9 @@ export interface StepEvent {
  *  FIRST, then reads this. Two callers, two gates: the in-flight status route gates on `ownsRun`; the
  *  persisted lesson page reaches it through its existing owner-scoped `getLesson(id, sub)` render (issue
  *  #175). A non-owner never reaches either. The step_event rows are KEPT past persist (issue #175 removed
- *  their `persistRun` prune — step_result + run_owner + research_event are still pruned), so this serves
- *  BOTH the pre-persist poll window AND the owner-only "How this was built" disclosure on the finished page. */
+ *  their `persistRun` prune — step_result + run_owner + code_progress are still pruned; research_event is
+ *  now kept too, issue #232), so this serves BOTH the pre-persist poll window AND the owner-only "How this
+ *  was built" disclosure (and the frozen /workflow page's rail) on the finished page. */
 export async function getStepEvents(
   runId: string,
   deps: StoreDeps = { pool: getPool() },
@@ -464,11 +462,17 @@ export interface ResearchEvent {
   finishedAt: string | null;
 }
 
-/** Read a run's per-question live-research feed, oldest-first by `ordinal` (live-research generating
- *  Stage 1). NOT owner-scoped here — the caller (the status route) gates on `ownsRun` FIRST, then reads
- *  this; a non-owner never reaches it (the SAME contract as getStepEvents). The research_event rows
- *  live only while the run is in flight: `persistRun` PRUNES them (with step_event + step_result +
- *  run_owner) once the curriculum lands, so this read only ever serves the pre-persist poll window.
+/** Read a run's per-question research feed, oldest-first by `ordinal` (live-research generating Stage 1).
+ *  NOT owner-scoped here — each caller gates FIRST, then reads this; a non-owner never reaches it (the
+ *  SAME contract as getStepEvents). Two callers, two gates: the in-flight status route gates on `ownsRun`
+ *  (pre-persist poll window); the frozen /lesson/[id]/workflow page reaches it through its existing
+ *  owner-scoped `getLesson(id, sub)` render (issue #232). The research_event rows are KEPT past persist
+ *  (issue #232 removed their `persistRun` prune — step_result + run_owner + code_progress are still
+ *  pruned, like step_event since #175), so this serves BOTH the pre-persist poll AND the finished page's
+ *  frozen RESEARCH band. The rows are LEAK-SAFE: only copy-safe learner-facing fields (question/subtopic/
+ *  status/claim/url/title/counts) — no token/cost/model, no internal sourceIndex (the sink denormalizes
+ *  it away before the write). A legacy run persisted before #232 pruned its rows → this returns [] and
+ *  the frozen band shows the empty-research placeholder.
  *
  *  TOLERANT BY CONSTRUCTION (the listLessons precedent): `findings`/`sources` are JSONB that is NULL on
  *  a pending row and an object once resolved — pg returns JSONB already parsed, so this normalizes a
@@ -530,8 +534,9 @@ export async function getResearchEvents(
  * WRITE SHAPE: `onQuestions` INSERTs one 'pending' row per question (ON CONFLICT DO NOTHING — the
  * dedup already collapses duplicates; the PK makes a defensive re-announce a no-op). `onResearch`
  * UPDATEs that row to 'done' — the SAME insert-then-update shape as markStepStarted→markStepFinished.
- * Because 'done' is an UPDATE (not an upsert), a write that lands AFTER `persistRun` pruned the rows
- * matches ZERO rows — a straggler can't resurrect a pruned run's feed.
+ * Since issue #232 these rows are KEPT past persist (they power the frozen /workflow page's RESEARCH
+ * band), so unlike the pre-#232 contract there is no prune for a late write to straggle after; the
+ * UPDATE-not-upsert shape still means a 'done' for a never-announced question is a harmless no-op.
  */
 export class PgResearchSink implements ResearchSink {
   constructor(
@@ -556,7 +561,7 @@ export class PgResearchSink implements ResearchSink {
   }
 
   /** A question's grounded research landed — UPDATE its row to 'done' with the denormalized
-   *  findings/sources + count. UPDATE (not upsert), so a post-prune straggler matches zero rows. */
+   *  findings/sources + count. UPDATE (not upsert): a 'done' for a never-announced question no-ops. */
   async onResearch(question: string, research: Research): Promise<void> {
     try {
       // Denormalize each finding's sourceIndex → {claim, {url,title}} HERE, so the internal index

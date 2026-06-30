@@ -29,7 +29,10 @@ export async function BuildSummary({
 }) {
   const model = buildSummaryModel(await getStepEvents(id), disposition);
   if (!model) return null;
-  return <BuildSummaryView model={model} />;
+  // Pass the frozen-workflow route href (run-lifecycle 3/4 — issue #232). It renders ONLY on the DEGRADED
+  // variant (BuildSummaryView gates it on `degraded`), where this disclosure is the page's sole entry;
+  // the BUILT branch stays byte-unchanged (4/4 owns the prominent built-reader "See the full build" link).
+  return <BuildSummaryView model={model} workflowHref={`/lesson/${encodeURIComponent(id)}/workflow`} />;
 }
 
 /**
@@ -39,11 +42,21 @@ export async function BuildSummary({
  * primitive (no new §0 token); a `:focus-visible` ring is on the summary; the box aligns to the reading
  * spine (`--frame-max` / `--edge-gap`) via `.build-summary`. Status is by label + icon, never colour alone.
  */
-export function BuildSummaryView({ model }: { model: BuildSummaryModel }) {
+export function BuildSummaryView({
+  model,
+  workflowHref,
+}: {
+  model: BuildSummaryModel;
+  /** The frozen completed-workflow route (issue #232). Rendered as a single "See the full workflow" link
+   *  ONLY on the DEGRADED variant (the degraded reader page has no other entry to it); the BUILT branch
+   *  never renders it, so the built disclosure stays byte-unchanged. Omitted ⇒ no link. */
+  workflowHref?: string;
+}) {
   // Render from the 3-way disposition (issue #215): `data-degraded` (held|failed) keeps the existing CSS
   // hook unchanged, and `data-disposition` exposes the precise terminal state for finer styling/testing.
   const degraded = model.disposition !== 'built';
   return (
+    <>
     <details
       className="build-summary"
       data-degraded={degraded || undefined}
@@ -113,5 +126,16 @@ export function BuildSummaryView({ model }: { model: BuildSummaryModel }) {
         </dl>
       </div>
     </details>
+      {/* DEGRADED-only entry to the frozen completed-workflow page (issue #232). On the degraded reader
+          page this disclosure is the sole affordance, so the link sits beside it (OUTSIDE `.build-summary`,
+          so the element-scoped build-summary snapshot is untouched). The BUILT branch passes no
+          workflowHref, so this never renders there (the built reader's prominent link is run-lifecycle 4/4). */}
+      {degraded && workflowHref ? (
+        <a className="build-summary__workflow-link" href={workflowHref}>
+          See the full workflow
+          <span aria-hidden="true"> →</span>
+        </a>
+      ) : null}
+    </>
   );
 }

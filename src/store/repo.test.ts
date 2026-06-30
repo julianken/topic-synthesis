@@ -178,21 +178,21 @@ describe('persistRun (transaction shape, fake pool)', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('prunes the FOUR transient per-run rows AFTER the inserts, all before COMMIT — but NOT step_event', async () => {
+  it('prunes the THREE transient per-run rows AFTER the inserts, all before COMMIT — but NOT step_event/research_event', async () => {
     const { deps, client } = fakePool();
     await persistRun(
       { runId: 'run-prune', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
       deps,
     );
     const sqls = sqlsOf(client.query);
-    // FOUR transient tables are each deleted, scoped to this run. step_event is DELIBERATELY EXCLUDED
-    // (issue #175): it is kept durable past persist to power the owner-only "How this was built"
-    // disclosure on the finished lesson page — so it must NOT be in the prune set. code_progress (PR-4 /
-    // #180) IS pruned (the live code-phase bar's transient row has no post-persist consumer).
+    // THREE transient tables are each deleted, scoped to this run. step_event (issue #175) AND
+    // research_event (issue #232) are DELIBERATELY EXCLUDED: both are kept durable past persist to power
+    // the FROZEN owner-only surfaces on the finished lesson page (the "How this was built" disclosure +
+    // the /lesson/[id]/workflow page), so neither may be in the prune set. code_progress (PR-4 / #180) IS
+    // pruned (the live code-phase bar's transient row has no post-persist consumer).
     const dels = [
       'DELETE FROM step_result',
       'DELETE FROM run_owner',
-      'DELETE FROM research_event',
       'DELETE FROM code_progress',
     ];
     const delIdxs = dels.map((d) => sqls.findIndex((s) => s.includes(d)));
@@ -210,11 +210,12 @@ describe('persistRun (transaction shape, fake pool)', () => {
     expect(Math.max(...delIdxs)).toBeLessThan(commit);
   });
 
-  it('KEEPS step_event durable past persist (issue #175): persistRun never DELETEs it', async () => {
-    // The owner-only build disclosure replays this run's per-step timeline AFTER the curriculum lands,
-    // so the prune that used to bound step_event at the run's in-flight lifetime is removed. The OTHER
-    // three transient tables (step_result + run_owner + research_event) are STILL pruned (above), so the
-    // durability is surgical: step_event alone survives. A regression that re-adds the DELETE trips this.
+  it('KEEPS step_event (issue #175) AND research_event (issue #232) durable past persist: persistRun never DELETEs them', async () => {
+    // The owner-only build disclosure replays this run's per-step timeline AND the frozen /workflow page
+    // replays its research feed AFTER the curriculum lands, so the prunes that used to bound step_event
+    // (#175) and research_event (#232) at the run's in-flight lifetime are removed. The OTHER three
+    // transient tables (step_result + run_owner + code_progress) are STILL pruned (above), so the
+    // durability is surgical. A regression that re-adds either DELETE trips this.
     const { deps, client } = fakePool();
     await persistRun(
       { runId: 'run-keep', request, result, costUsd: 0.2, modelSnapshots: STAGE_MODELS },
@@ -224,10 +225,11 @@ describe('persistRun (transaction shape, fake pool)', () => {
     // No DELETE FROM step_event is emitted at all — the dispatch marker rides step_event, so it too
     // survives persist (it is not a STAGE_RAIL position, so the frozen rail ignores it).
     expect(sqls.some((s) => s.includes('DELETE FROM step_event'))).toBe(false);
-    // …while the four that DO get pruned are still pruned (the surgical-removal contract).
+    // …and research_event is now durable too (the frozen /workflow page's RESEARCH band reads it back).
+    expect(sqls.some((s) => s.includes('DELETE FROM research_event'))).toBe(false);
+    // …while the three that DO get pruned are still pruned (the surgical-removal contract).
     expect(sqls.some((s) => s.includes('DELETE FROM step_result'))).toBe(true);
     expect(sqls.some((s) => s.includes('DELETE FROM run_owner'))).toBe(true);
-    expect(sqls.some((s) => s.includes('DELETE FROM research_event'))).toBe(true);
     expect(sqls.some((s) => s.includes('DELETE FROM code_progress'))).toBe(true);
   });
 

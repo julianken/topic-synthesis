@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { buildSummaryModel, formatWholeSeconds, LEARNER_LABEL } from './build-summary';
+import { buildSummaryModel, deriveDisposition, formatWholeSeconds, LEARNER_LABEL } from './build-summary';
 import { BuildSummaryView } from './build-summary-view';
 import type { StepEvent } from './stage-rail';
 
@@ -249,3 +249,26 @@ describe('COPY-GATE — the rendered disclosure leaks NO project internals (AC3)
     expect(FAILED_HTML).toMatch(/didn(?:&#x27;|&#39;|')t finish/); // its state word (status by label + icon)
   });
 });
+
+// ── issue #232: the SHARED disposition source — page.tsx + the frozen /workflow chip both read THIS, so
+// they can't drift (SUGGESTION 2 — the prior inline page.tsx ternary would have been a second copy). ────
+describe('deriveDisposition — the single (status, html) → disposition source', () => {
+  it('built: status="built" → built (html presence irrelevant)', () => {
+    expect(deriveDisposition({ status: 'built', hasHtml: true })).toBe('built');
+    expect(deriveDisposition({ status: 'built', hasHtml: false })).toBe('built');
+  });
+
+  it('held: non-built status WITH html present → held (the reviewer held a rendered lesson back)', () => {
+    expect(deriveDisposition({ status: 'soon', hasHtml: true })).toBe('held');
+    expect(deriveDisposition({ status: 'text', hasHtml: true })).toBe('held');
+  });
+
+  it('failed: non-built status WITHOUT html → failed (no artifact produced)', () => {
+    expect(deriveDisposition({ status: 'soon', hasHtml: false })).toBe('failed');
+  });
+
+  it('failed: an absent/null page (a degraded run with no resolved page) → failed', () => {
+    expect(deriveDisposition(null)).toBe('failed');
+    expect(deriveDisposition(undefined)).toBe('failed');
+  });
+})

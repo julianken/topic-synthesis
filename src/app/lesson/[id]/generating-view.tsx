@@ -11,10 +11,31 @@ import {
 import { fitColumn, type FitResult } from './fit-column';
 import { buildLedger, buildResearchGraph, type LedgerFinding } from './research-graph';
 import { deriveRail, DISPATCH_LABEL, formatDuration, isStarting, type RailStage, type StepEvent } from './stage-rail';
+import type { LessonDisposition } from './build-summary';
 import { SPECIMEN_TOPIC_NAME } from '../../library-morph';
 import type { CodeProgress, ResearchEvent } from '../../../store/repo';
 
 const TICK_MS = 250; // how often the live in-progress timer re-renders
+
+/**
+ * The mode this view renders in. `'live'` (the default) is the in-flight generating screen polled by
+ * `generating.tsx` — byte-unchanged. `'frozen'` (issue #232 — the `/lesson/[id]/workflow` route) is the
+ * COMPLETED-workflow render at rest from DURABLE data: no poll, a past-tense header, the LIVE-RESEARCH
+ * band relabeled RESEARCH (pulse removed), the live phase-shimmer slot replaced by a terminal disposition
+ * chip, and a "complete" progress caption. Every frozen branch is gated on this so the live path stays
+ * byte-identical (the existing generating specs guard it).
+ */
+export type GeneratingMode = 'live' | 'frozen';
+
+/** The terminal disposition chip shown in the frozen view's top-right slot (issue #232, Figma 103:2) —
+ *  the SAME three states the degraded reader page reads (Figma 93:2/96:2 + page.tsx wording), each by
+ *  §0 status color + glyph + label (never color alone, §Accessibility): Built (--ok ✓) · Held (--warn ◷) ·
+ *  Not built (--err ✗). The disposition is the shared `deriveDisposition` source, so it can't drift. */
+const DISPOSITION_CHIP: Record<LessonDisposition, { glyph: string; label: string }> = {
+  built: { glyph: '✓', label: 'Built' },
+  held: { glyph: '◷', label: 'Held' },
+  failed: { glyph: '✗', label: 'Not built' },
+};
 
 /**
  * The SHARED live-research GENERATING view — a FULL-WIDTH, COLUMN-LOCKED TABLE (the owner-approved,
@@ -54,15 +75,20 @@ const TICK_MS = 250; // how often the live in-progress timer re-renders
  * touches the opaque-origin lesson iframe or its trust boundary.
  */
 export function GeneratingView({
+  mode = 'live',
   topic,
   level,
   depth,
   category,
+  disposition,
   steps,
   research,
   codeProgress,
   stalled,
 }: {
+  /** `'live'` (default) is the in-flight poll-driven screen — byte-unchanged; `'frozen'` is the completed
+   *  workflow render at rest (issue #232 — the /lesson/[id]/workflow route). See {@link GeneratingMode}. */
+  mode?: GeneratingMode;
   topic?: string | undefined;
   /** The run's level (intro/intermediate/advanced), where known — from `run_owner` via the status poll's
    *  `meta` (run-lifecycle #225) or the page's SSR props. */
@@ -72,6 +98,9 @@ export function GeneratingView({
   /** The REAL subject category (e.g. BIOLOGY), where truthfully known. Classified at the run TAIL, so it
    *  is NOT in the live poll — omitted (not fabricated) on every live path today. */
   category?: string | undefined;
+  /** The run's terminal disposition (issue #232), used ONLY in `'frozen'` mode to render the top-right
+   *  disposition chip. Ignored in `'live'` mode (the run hasn't finished). Omitted → no chip. */
+  disposition?: LessonDisposition | undefined;
   steps: StepEvent[];
   research: ResearchEvent[];
   /** The live code-phase progress (PR-4 / #180): a learner-safe `{ fraction, elapsedMs }` (or null when
@@ -79,6 +108,7 @@ export function GeneratingView({
   codeProgress?: CodeProgress | null;
   stalled: boolean;
 }) {
+  const frozen = mode === 'frozen';
   const rail = deriveRail(steps);
   const planStage = rail.find((s) => s.name === 'plan');
   const briefStage = rail.find((s) => s.name === 'brief');
@@ -87,9 +117,10 @@ export function GeneratingView({
 
   // The settings sub-line ("<level> · depth <n> · building one lesson"), shown only when the run's level +
   // depth are known to this caller (the create-form path). Mirrors the persisted reader route's meta line.
+  // Frozen reads "one lesson" (the build is over — Figma 103:2); live keeps "building one lesson".
   const settingsLine =
     level && typeof depth === 'number'
-      ? `${level} · depth ${String(depth)} · building one lesson`
+      ? `${level} · depth ${String(depth)} · ${frozen ? 'one lesson' : 'building one lesson'}`
       : null;
 
   // The DISPATCH WINDOW (issue #162): the dispatch marker has landed but no real pipeline step has yet —
@@ -104,26 +135,39 @@ export function GeneratingView({
   const livePhase = running ? running.label : starting ? DISPATCH_LABEL : 'Working';
 
   return (
-    <section className="gen" role="status" aria-live="polite">
-      {/* TOP CHROME — wordmark left, the live phase label (shimmer) right. */}
+    // `data-mode` is set ONLY on the frozen path (omitted in live → the live DOM is byte-unchanged), and
+    // `aria-live` is dropped in frozen (a completed surface never updates, so no polite announcements).
+    <section className="gen" data-mode={frozen ? 'frozen' : undefined} role="status" aria-live={frozen ? undefined : 'polite'}>
+      {/* TOP CHROME — wordmark left; LIVE: the running-phase shimmer; FROZEN: the terminal disposition chip. */}
       <div className="gen-top">
         <div className="gen-top__mark">
           topic·synthesis
           <small>this lesson&rsquo;s generation pipeline · plan → critic</small>
         </div>
-        <div className="gen-top__live">
-          <b className="gen-shimmer" data-text={livePhase} data-testid="gen-live-phase">
-            {livePhase}
-          </b>
-          <small>web-grounded · extracting claims</small>
-        </div>
+        {frozen ? (
+          <div className="gen-top__live gen-top__live--frozen">
+            {disposition ? (
+              <>
+                <span className="gen-disposition__eyebrow">Run disposition</span>
+                <DispositionChip disposition={disposition} />
+              </>
+            ) : null}
+          </div>
+        ) : (
+          <div className="gen-top__live">
+            <b className="gen-shimmer" data-text={livePhase} data-testid="gen-live-phase">
+              {livePhase}
+            </b>
+            <small>web-grounded · extracting claims</small>
+          </div>
+        )}
       </div>
 
-      {/* TOPIC HEADER. */}
+      {/* TOPIC HEADER. FROZEN reads "Generated <topic>" (past tense, no ellipsis); LIVE "Generating <topic>…". */}
       <header className="gen-topic">
         {category ? <p className="gen-topic__eyebrow">{category}</p> : null}
         <h1 className="gen-topic__title">
-          Generating
+          {frozen ? 'Generated' : 'Generating'}
           {topic ? (
             <>
               {' '}
@@ -141,18 +185,37 @@ export function GeneratingView({
               </span>
             </>
           ) : null}
-          …
+          {frozen ? null : '…'}
         </h1>
         {settingsLine ? <p className="gen-topic__settings">{settingsLine}</p> : null}
       </header>
 
       {/* THE TABLE — the stepper (column headers) over the column-locked plane, then the full-width band. */}
-      <PhaseTable rail={rail} graph={graph} ledger={ledger} codeProgress={codeProgress ?? null} />
+      <PhaseTable rail={rail} graph={graph} ledger={ledger} codeProgress={codeProgress ?? null} frozen={frozen} />
 
-      <ProgressBar rail={rail} starting={starting} stalled={stalled} />
+      <ProgressBar rail={rail} starting={starting} stalled={stalled} frozen={frozen} />
 
       <StateLegend />
     </section>
+  );
+}
+
+/** The terminal disposition chip (issue #232, Figma 103:2) — §0 status color + glyph + label. Status by
+ *  label + icon (never color alone, §Accessibility); the chip is self-describing for AT via aria-label. */
+function DispositionChip({ disposition }: { disposition: LessonDisposition }) {
+  const { glyph, label } = DISPOSITION_CHIP[disposition];
+  return (
+    <span
+      className="gen-disposition"
+      data-disposition={disposition}
+      data-testid="gen-disposition"
+      aria-label={`Run outcome: ${label}`}
+    >
+      <span className="gen-disposition__glyph" aria-hidden="true">
+        {glyph}
+      </span>
+      {label}
+    </span>
   );
 }
 
@@ -250,12 +313,16 @@ function PhaseTable({
   graph,
   ledger,
   codeProgress,
+  frozen,
 }: {
   rail: RailStage[];
   graph: ReturnType<typeof buildResearchGraph>;
   ledger: ReturnType<typeof buildLedger>;
   /** The live code-phase progress (PR-4 / #180) — surfaced ONLY on the Code column node while it runs. */
   codeProgress: CodeProgress | null;
+  /** Frozen (issue #232): the completed-workflow render — relabels the band RESEARCH (pulse removed) and
+   *  swaps the live-only empty-research copy for the "not retained" placeholder (legacy pruned runs). */
+  frozen: boolean;
 }) {
   const planeRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -508,12 +575,15 @@ function PhaseTable({
                       />
                     ))
                   ) : (
+                    // Empty research column. LIVE: the plan hasn't produced questions yet. FROZEN (issue
+                    // #232): a legacy run persisted before research_event was kept — its rows were pruned,
+                    // so show an honest "not retained" placeholder, never the live "planning…" copy.
                     <PhaseNode
                       nodeId="research-empty"
                       phase="research"
                       state="pending"
-                      title="Planning research questions…"
-                      meta="awaiting the plan"
+                      title={frozen ? 'Research details weren’t kept' : 'Planning research questions…'}
+                      meta={frozen ? 'for this run' : 'awaiting the plan'}
                       height={fit.nodeH}
                     />
                   )}
@@ -549,7 +619,7 @@ function PhaseTable({
         </div>
       </div>
 
-      {/* THE FULL-WIDTH LIVE RESEARCH band — evidence + the overflow sink. */}
+      {/* THE FULL-WIDTH research band — evidence + the overflow sink (LIVE RESEARCH live; RESEARCH frozen). */}
       <LiveResearchBand
         extracted={ledger.extracted}
         total={researchCount}
@@ -559,6 +629,7 @@ function PhaseTable({
           rLabel: `R${String(fit.visible + k + 1)}`,
           question: r.title,
         }))}
+        frozen={frozen}
       />
     </div>
   );
@@ -690,25 +761,35 @@ function LiveResearchBand({
   total,
   findings,
   overflow,
+  frozen,
 }: {
   extracted: number;
   total: number;
   findings: LedgerFinding[];
   overflow: OverflowCard[];
+  /** Frozen (issue #232): the completed band — RESEARCH (not LIVE RESEARCH), no pulse dot, and the
+   *  "not retained" empty copy for a legacy pruned run (instead of the live "has not started" copy). */
+  frozen: boolean;
 }) {
   const empty = findings.length === 0 && overflow.length === 0;
   return (
-    <section className="gen-research" aria-label="Live research findings" data-testid="gen-research-band">
+    <section
+      className="gen-research"
+      aria-label={frozen ? 'Research findings' : 'Live research findings'}
+      data-testid="gen-research-band"
+    >
       <div className="gen-research__head">
-        <span className="gen-research__pulse" aria-hidden="true" />
-        <span className="gen-research__title">LIVE RESEARCH</span>
+        {frozen ? null : <span className="gen-research__pulse" aria-hidden="true" />}
+        <span className="gen-research__title">{frozen ? 'RESEARCH' : 'LIVE RESEARCH'}</span>
         <span className="gen-research__count" data-testid="gen-research-count">
           {String(extracted)} / {String(total)} extracted
         </span>
       </div>
       {empty ? (
         <p className="gen-research__parked">
-          Research has not started — findings will appear here as claims are extracted.
+          {frozen
+            ? 'Research details weren’t kept for this lesson.'
+            : 'Research has not started — findings will appear here as claims are extracted.'}
         </p>
       ) : (
         <ul className="gen-research__grid">
@@ -764,7 +845,19 @@ const SEG_AFFORDANCE: Record<RailStage['state'], { glyph: string; word: string }
  * durations + the running step's LIVE ticking timer, then a single caption line. The SAME real per-step
  * data the shipped #61 timeline carries — names, durations, the current-stage glyph, and the live timer.
  */
-function ProgressBar({ rail, starting, stalled }: { rail: RailStage[]; starting: boolean; stalled: boolean }) {
+function ProgressBar({
+  rail,
+  starting,
+  stalled,
+  frozen,
+}: {
+  rail: RailStage[];
+  starting: boolean;
+  stalled: boolean;
+  /** Frozen (issue #232): every segment shows its frozen duration (no LiveTimer, since no stage runs) and
+   *  the caption is the completed-run summary instead of the live "Working…"/elapsed-timer line. */
+  frozen: boolean;
+}) {
   const running = rail.find((s) => s.state === 'running');
   return (
     <div className="gen-progress">
@@ -774,8 +867,34 @@ function ProgressBar({ rail, starting, stalled }: { rail: RailStage[]; starting:
           <ProgressSegment key={stage.name} stage={stage} last={i === rail.length - 1} />
         ))}
       </ol>
-      <ProgressCaption running={running ?? null} starting={starting} stalled={stalled} />
+      {frozen ? (
+        <FrozenCaption rail={rail} />
+      ) : (
+        <ProgressCaption running={running ?? null} starting={starting} stalled={stalled} />
+      )}
     </div>
+  );
+}
+
+/** The frozen completed-run caption (issue #232) — "complete · plan → critic ran in Xs" when every stage
+ *  finished (BUILT / HELD), else an honest "ended · N of 6 stages ran" (a FAILED run where a stage threw
+ *  before the rest could run). Timeline-only: a whole/decimal-second span, never a token/cost magnitude. */
+function FrozenCaption({ rail }: { rail: RailStage[] }) {
+  const ran = rail.filter((s) => s.event !== null);
+  const allDone = rail.every((s) => s.state === 'done');
+  const starts = ran.flatMap((s) => (s.event ? [new Date(s.event.startedAt).getTime()] : []));
+  const ends = ran.flatMap((s) =>
+    s.event && s.event.finishedAt ? [new Date(s.event.finishedAt).getTime()] : [],
+  );
+  const span = starts.length > 0 && ends.length > 0 ? formatDuration(Math.max(...ends) - Math.min(...starts)) : null;
+  const text =
+    allDone && span
+      ? `complete · plan → critic ran in ${span}`
+      : `ended · ${String(ran.length)} of ${String(rail.length)} stages ran`;
+  return (
+    <p className="gen-progress__caption" data-testid="gen-progress-caption">
+      {text}
+    </p>
   );
 }
 

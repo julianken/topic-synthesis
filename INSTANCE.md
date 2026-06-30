@@ -56,7 +56,7 @@ Generate an interactive, scaffolded lesson from a topic.
 | Page | Page node | Key nodes |
 | --- | --- | --- |
 | **Overview** | `9:2` | Product header + File map; Foundation/§0 token block `9:15` |
-| **Feature Screens** | `0:1` | Sign-in `5:2` · Library `6:2` · Generating `1:2` · Lesson workspace `3:2` · Lesson workspace — degraded (held) `93:2` · Lesson workspace — degraded (failed) `96:2` |
+| **Feature Screens** | `0:1` | Sign-in `5:2` · Library `6:2` · Generating `1:2` · Lesson workspace `3:2` · Lesson workspace — degraded (held) `93:2` · Lesson workspace — degraded (failed) `96:2` · Lesson workflow — completed (frozen) `103:2` |
 | **User Journey** | `9:3` | 5-stage learner map `12:5` |
 | **User Flows** | `9:4` | App navigation `19:5` · Generation pipeline (ANALYSIS→SYNTHESIS) `19:6` |
 | **Storyboards** | `9:5` | Card→reader morph `30:6` · Predict-then-reveal `30:7` · Generating→reveal `30:8` |
