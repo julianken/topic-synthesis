@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
-import { SEED_DEGRADED_RUN_ID, SEED_RUN_ID, clearDegradedLesson, seedDegradedLesson } from './seed';
+import {
+  SEED_DEGRADED_RUN_ID,
+  SEED_HELD_RUN_ID,
+  SEED_RUN_ID,
+  clearDegradedLesson,
+  clearHeldLesson,
+  seedDegradedLesson,
+  seedHeldLesson,
+} from './seed';
 
 // lesson-build-summary.spec — the owner-only "How this was built" disclosure (issue #175, epic PR-5).
 // RIGOROUS + DETERMINISTIC behavioural assertions (DOM + text, not pixels) at BOTH DESIGN.md viewports
@@ -136,6 +144,60 @@ test.describe('build-summary — DEGRADED lesson (the "See what happened" entry)
 
     const reviewing = disclosure.locator('.build-summary__row', { hasText: 'Reviewing' });
     await expect(reviewing).toHaveAttribute('data-state', 'pending');
+
+    assertNoLeaks((await disclosure.innerText()).toString());
+  });
+});
+
+test.describe('build-summary — HELD lesson (honest "held back", NOT "couldn\'t finish" — issue #215)', () => {
+  // Seed the HELD `soon`+html lesson ONLY for this describe (it is another owner library card, kept out of
+  // the global seed) and clear it after, leaving the library-snapshot tests at one dense card.
+  test.beforeAll(seedHeldLesson);
+  test.afterAll(clearHeldLesson);
+
+  test('the held branch reads honestly: "held back · not published", an all-✓ rail, and the artifact is NOT rendered', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_HELD_RUN_ID}`);
+
+    // The degraded (non-rendered) branch renders — the critic gate is NOT defeated even though html exists.
+    await expect(page.locator('.lesson-degraded')).toBeVisible();
+    // The opaque-origin lesson iframe + its morph-box are ABSENT (held stays non-rendered).
+    await expect(page.locator('.artifact-frame')).toHaveCount(0);
+    await expect(page.locator('#readerPanel')).toHaveCount(0);
+
+    // The page lead is HONEST: it says the lesson was held back, NEVER "couldn't be generated" (the lie
+    // this issue removes — a held lesson WAS generated).
+    const lead = page.locator('.lesson-degraded .lead');
+    await expect(lead).toContainText('held this lesson back');
+    await expect(lead).not.toContainText(/couldn[’']t be generated/);
+
+    const disclosure = page.locator('.build-summary');
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure).toHaveAttribute('data-disposition', 'held');
+
+    const summary = disclosure.locator('summary');
+    await expect(summary).toContainText('See what happened');
+    await expect(summary).toContainText('held back for review');
+    await expect(summary).toContainText('not published');
+    // The OLD conflation copy must be gone on the held branch.
+    await expect(summary).not.toContainText(/couldn[’']t finish/);
+    await expect(summary).not.toContainText('not built');
+
+    await summary.click();
+    const rail = disclosure.locator('.build-summary__rail');
+    await expect(rail).toBeVisible();
+    // THE NON-CONTRADICTION (AC): every one of the six rail rows is ✓ done — no per-stage ✗ — under the
+    // "held back" header. An all-✓ rail and the held header no longer disagree.
+    const rows = rail.locator('.build-summary__row');
+    await expect(rows).toHaveCount(6);
+    await expect(disclosure.locator('.build-summary__row[data-state="error"]')).toHaveCount(0);
+    for (let i = 0; i < 6; i++) {
+      await expect(rows.nth(i).locator('.build-summary__glyph')).toHaveText('✓');
+    }
 
     assertNoLeaks((await disclosure.innerText()).toString());
   });

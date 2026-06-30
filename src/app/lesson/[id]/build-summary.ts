@@ -76,20 +76,32 @@ export interface BuildRow {
   duration: string | null;
 }
 
+/**
+ * The terminal disposition of a finished run — the honest three-way state (issue #215), derived in the
+ * read path from `(page status, html presence)`:
+ *   - `built`  — `status='built'`: a real interactive page was accepted.
+ *   - `held`   — `status='soon'` WITH html present: the reviewer HELD it back (rendered but not accepted).
+ *   - `failed` — `status='soon'` WITHOUT html: synthesis genuinely FAILED to produce an artifact.
+ * It replaces the old 2-way `degraded: boolean`, which conflated "held back" with "couldn't finish" and
+ * made the all-✓ rail contradict a "couldn't finish" header.
+ */
+export type LessonDisposition = 'built' | 'held' | 'failed';
+
 /** The render model for the disclosure (or `null` when there is nothing to disclose — see
  *  {@link buildSummaryModel}). All strings are learner-safe + timeline-only by construction. */
 export interface BuildSummaryModel {
-  /** Did the run fail to produce a built lesson? Drives the headline + the summary verdict copy. */
-  degraded: boolean;
-  /** The collapsed summary's lead: "How this was built" (built) | "See what happened" (degraded). */
+  /** The honest three-way terminal disposition. Drives the headline + summary copy, and (in the view) the
+   *  `data-degraded`/`data-disposition` hooks. A non-`built` disposition is the "degraded" branch. */
+  disposition: LessonDisposition;
+  /** The collapsed summary's lead: "How this was built" (built) | "See what happened" (held/failed). */
   headline: string;
-  /** The middle dot-separated summary parts — e.g. ["built in 47s", "6 steps"] (built) or
-   *  ["couldn't finish"] (degraded). Timeline-only; never a token/cost/model figure. */
+  /** The middle dot-separated summary parts — e.g. ["built in 47s", "6 steps"] (built), ["held back for
+   *  review"] (held), or ["couldn't finish"] (failed). Timeline-only; never a token/cost/model figure. */
   metaParts: string[];
-  /** The summary verdict glyph — "✓" (built) | "✗" (degraded). Paired with {@link verdictWord} so the
+  /** The summary verdict glyph — "✓" (built) | "✗" (held/failed). Paired with {@link verdictWord} so the
    *  status is never colour alone. */
   verdictGlyph: string;
-  /** The summary verdict word — "passed" (built) | "not built" (degraded). */
+  /** The summary verdict word — "passed" (built) | "not published" (held) | "not built" (failed). */
   verdictWord: string;
   /** The frozen six-stage rail rows, in pipeline order. */
   rows: BuildRow[];
@@ -112,11 +124,12 @@ export function formatWholeSeconds(ms: number): string {
  * already excludes it), so the count stays the honest six and the span is the plan→critic build time.
  *
  * @param events the run's `step_event` rows (from `getStepEvents`); the dispatch marker is ignored.
- * @param degraded the lesson did NOT build (its page status is `soon`/`text`) — drives the summary verdict.
+ * @param disposition the run's honest terminal state (`built | held | failed`, issue #215) — drives the
+ *        headline + summary copy + verdict. `held`/`failed` are the two "degraded" (non-`built`) kinds.
  */
 export function buildSummaryModel(
   events: ReadonlyArray<StepEvent>,
-  degraded: boolean,
+  disposition: LessonDisposition,
 ): BuildSummaryModel | null {
   const rail = deriveRail(events);
   const ran = rail.filter((s) => s.event !== null);
@@ -150,19 +163,34 @@ export function buildSummaryModel(
     ends.length > 0 ? formatWholeSeconds(Math.max(...ends) - Math.min(...starts)) : null;
 
   const stepCount = ran.length;
-  const metaParts: string[] = degraded
-    ? ["couldn't finish"]
-    : [
-        ...(spanText ? [`built in ${spanText}`] : []),
-        `${String(stepCount)} ${stepCount === 1 ? 'step' : 'steps'}`,
-      ];
+  // Per-disposition copy. `held` reads HONESTLY — the reviewer held it back (every stage ran, ✓ rail), it
+  // is just not published — NEVER "couldn't finish", which only `failed` (no artifact produced) earns.
+  // The summary ✗ on held/failed reflects "didn't build" (the page status is `soon`), consistent with the
+  // per-STAGE rail which stays all-✓ on a graceful hold (no thrown stage) — so header + rail agree. #215.
+  const SUMMARY_COPY: Record<
+    LessonDisposition,
+    { headline: string; verdictGlyph: string; verdictWord: string }
+  > = {
+    built: { headline: 'How this was built', verdictGlyph: '✓', verdictWord: 'passed' },
+    held: { headline: 'See what happened', verdictGlyph: '✗', verdictWord: 'not published' },
+    failed: { headline: 'See what happened', verdictGlyph: '✗', verdictWord: 'not built' },
+  };
+  const metaParts: string[] =
+    disposition === 'built'
+      ? [
+          ...(spanText ? [`built in ${spanText}`] : []),
+          `${String(stepCount)} ${stepCount === 1 ? 'step' : 'steps'}`,
+        ]
+      : disposition === 'held'
+        ? ['held back for review']
+        : ["couldn't finish"];
 
   return {
-    degraded,
-    headline: degraded ? 'See what happened' : 'How this was built',
+    disposition,
+    headline: SUMMARY_COPY[disposition].headline,
     metaParts,
-    verdictGlyph: degraded ? '✗' : '✓',
-    verdictWord: degraded ? 'not built' : 'passed',
+    verdictGlyph: SUMMARY_COPY[disposition].verdictGlyph,
+    verdictWord: SUMMARY_COPY[disposition].verdictWord,
     rows,
   };
 }

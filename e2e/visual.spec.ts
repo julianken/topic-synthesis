@@ -3,9 +3,12 @@ import { signInAsTestOwner } from './auth';
 import {
   SEED_DEGRADED_RUN_ID,
   SEED_GENERATING_RUN_ID,
+  SEED_HELD_RUN_ID,
   SEED_RUN_ID,
   clearDegradedLesson,
+  clearHeldLesson,
   seedDegradedLesson,
+  seedHeldLesson,
 } from './seed';
 import { GENERATING_STATUS_PAYLOAD, GENERATING_STATUS_PAYLOAD_CODE } from './generating-fixture';
 
@@ -303,5 +306,26 @@ test.describe('visual — build-summary disclosure (issue #175, owner-only)', ()
     await disclosure.locator('summary').click();
     await expect(disclosure.locator('.build-summary__rail')).toBeVisible();
     await expect(disclosure).toHaveScreenshot('build-summary-degraded-expanded.png');
+  });
+});
+
+// The HELD disclosure (issue #215): a critic-rejected lesson that DID render (status `soon` + html present)
+// reads "See what happened · held back for review · ✗ not published" over an ALL-✓ six-stage rail. A NET-NEW
+// visible state (not a shifted screen) — its baseline is committed fresh. Seeded describe-scoped (the held
+// `soon` curriculum is a 2nd owner library card) so the earlier library-dense-card snapshot stays one card.
+test.describe('visual — build-summary disclosure HELD (issue #215, owner-only)', () => {
+  test.beforeAll(seedHeldLesson);
+  test.afterAll(clearHeldLesson);
+
+  test('HELD — collapsed then expanded matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_HELD_RUN_ID}`);
+    const disclosure = page.locator('.build-summary');
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure.locator('summary')).toContainText('held back for review');
+    await expect(disclosure).toHaveScreenshot('build-summary-held-collapsed.png');
+    await disclosure.locator('summary').click();
+    await expect(disclosure.locator('.build-summary__rail')).toBeVisible();
+    await expect(disclosure).toHaveScreenshot('build-summary-held-expanded.png');
   });
 });

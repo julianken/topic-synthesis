@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { displayName } from '../../auth/session-nav';
 import { getLesson, ownsRun } from '../../../store/repo';
+import type { LessonDisposition } from './build-summary';
 import { BuildSummary } from './build-summary-view';
 import { GeneratingPoller } from './generating';
 import { ReaderShell } from './reader-shell';
@@ -40,6 +41,16 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   const page = view.hub.tiers
     .flatMap((tier) => tier.categories.flatMap((category) => category.pages))
     .find(() => true);
+
+  // The honest terminal disposition (issue #215), derived from (status, html presence) — NO schema change:
+  //   built  → status='built' (accepted interactive page),
+  //   held   → status='soon' WITH html present (the reviewer held a rendered lesson back),
+  //   failed → status='soon' WITHOUT html (synthesis produced no artifact).
+  // It splits the old "degraded" lump so a HELD lesson stops claiming "couldn't finish" (the all-✓ rail
+  // would contradict that). It changes COPY ONLY — the render gate below still keys on status==='built',
+  // so a `held` lesson (status='soon') stays NON-rendered and the critic gate is never defeated.
+  const disposition: LessonDisposition =
+    page && page.status === 'built' ? 'built' : page && page.hasHtml ? 'held' : 'failed';
 
   const head = {
     eyebrow: view.topic,
@@ -84,7 +95,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
           // Owner-only "How this was built" disclosure (issue #175) — server-rendered HERE (under the
           // owner-scoped getLesson gate above, so it inherits the owner gate for free) and slotted quietly
           // near the reader head. Returns null for a legacy lesson with no recorded timeline.
-          buildSummary={<BuildSummary id={id} degraded={false} />}
+          buildSummary={<BuildSummary id={id} disposition={disposition} />}
         />
       </main>
     );
@@ -111,14 +122,19 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
           </span>{' '}
           {STATUS_LABEL[page ? page.status : 'soon']}
         </span>
+        {/* HONEST degraded copy (issue #215): a HELD lesson WAS generated and then held back at review —
+            never tell the learner it "couldn't be generated" (that lie contradicted the all-✓ build rail).
+            A genuinely FAILED lesson keeps the "couldn't be generated" framing because that is true. */}
         <p className="lead">
-          This lesson couldn&rsquo;t be generated as an interactive page. Try generating it again.
+          {disposition === 'held'
+            ? 'A reviewer held this lesson back before publishing it — it didn’t quite meet the bar this time. You can try generating it again.'
+            : 'This lesson couldn’t be generated as an interactive page. Try generating it again.'}
         </p>
       </div>
       {/* Owner-only "How this was built" disclosure (issue #175) — on the DEGRADED branch it is the
-          higher-intent "See what happened" entry (the owner most wants to know what went wrong). Same
-          owner gate as the built branch: rendered only after the getLesson owner-scoping above. */}
-      <BuildSummary id={id} degraded />
+          higher-intent "See what happened" entry. The 3-way disposition (issue #215) gives held vs failed
+          honest summary copy. Same owner gate as the built branch: rendered only after getLesson scoping. */}
+      <BuildSummary id={id} disposition={disposition} />
     </main>
   );
 }

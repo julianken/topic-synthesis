@@ -118,7 +118,7 @@ const SEED_RESULT: PipelineResult = {
         categories: [
           {
             name: 'Lesson',
-            pages: [{ slug: 'photosynthesis', title: 'Photosynthesis', status: 'built', built: true, href: '' }],
+            pages: [{ slug: 'photosynthesis', title: 'Photosynthesis', status: 'built', built: true, hasHtml: true, href: '' }],
           },
         ],
       },
@@ -173,8 +173,10 @@ const SEED_DEGRADED_STEPS: SeedStep[] = [
   { name: 'code', startMs: 19_000, endMs: null, status: 'error' },
 ];
 
-/** A DEGRADED single-lesson result: one `soon` page (no built artifact) — what a coverage/critic degrade
- *  persists. page.tsx renders the degraded branch (status !== 'built'). */
+/** A FAILED single-lesson result: one `soon` page with NO artifact (html null) — a genuine synthesis
+ *  exception (its `code` step threw). page.tsx renders the degraded branch with the honest "couldn't be
+ *  generated" copy; `getLesson`'s `has_html` is FALSE → disposition `failed` (issue #215). This is the
+ *  case the existing `build-summary-degraded-*` baselines capture (its copy is unchanged by #215). */
 const SEED_DEGRADED_RESULT: PipelineResult = {
   hub: {
     tiers: [
@@ -183,17 +185,78 @@ const SEED_DEGRADED_RESULT: PipelineResult = {
         categories: [
           {
             name: 'Lesson',
-            pages: [{ slug: 'tides', title: 'How tides work', status: 'soon', built: false, href: '' }],
+            pages: [{ slug: 'tides', title: 'How tides work', status: 'soon', built: false, hasHtml: false, href: '' }],
           },
         ],
       },
     ],
   },
-  pages: [], // no built artifact — a degraded run produces no page HTML
+  pages: [], // no built artifact — a FAILED run produces no page HTML (has_html false → disposition `failed`)
 };
 
 const SEED_DEGRADED_REQUEST: TopicRequest = {
   topic: 'How tides work',
+  settings: { level: 'intro', depth: 2, audience: 'a self-taught learner' },
+};
+
+// ── issue #215 HELD fixture: a critic-REJECTED lesson that DID render an artifact (status `soon` WITH html
+// present) — distinct from the FAILED case above (soon + null html). On the read path `getLesson`'s
+// has_html is TRUE → disposition `held`, so page.tsx + the build disclosure show HONEST "held back" copy
+// (never "couldn't finish") under an all-✓ build rail. NOT rendered (the critic gate is never defeated).
+
+/** A FIXED HELD run id (owned by the e2e owner) whose page persisted as `soon` WITH html present, so the
+ *  reader route renders the DEGRADED branch with the honest HELD copy and the build disclosure reads
+ *  "See what happened · held back for review · ✗ not published" over an all-✓ six-stage rail (issue #215). */
+export const SEED_HELD_RUN_ID = 'e2e-seed-held';
+
+/** The HELD lesson's rendered-but-rejected artifact HTML. PRESENT (non-empty) so persistRun writes it and
+ *  `getLesson` reads has_html TRUE. The page is NOT rendered (held stays in the degraded branch), so the
+ *  body is minimal — it exists only to make html-presence true. No sender script needed. */
+const SEED_HELD_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>How vaccines work</title></head><body><main><h1>How vaccines work</h1><p>A rendered lesson the reviewer held back.</p></main></body></html>`;
+
+/** The HELD lesson's COMPLETE six-stage timeline — every stage ran and returned (the critic returned a
+ *  reject WITHOUT throwing), so the rail is ALL ✓. This is what makes the all-✓ rail + a degraded header
+ *  contradictory under the OLD copy; the #215 disposition fixes the header to "held back" honesty. */
+const SEED_HELD_STEPS: SeedStep[] = [
+  { name: 'plan', startMs: 0, endMs: 2_400, status: 'done' },
+  { name: 'research', startMs: 2_400, endMs: 15_000, status: 'done' },
+  { name: 'brief', startMs: 15_000, endMs: 17_200, status: 'done' },
+  { name: 'spec', startMs: 17_200, endMs: 22_500, status: 'done' },
+  { name: 'code', startMs: 22_500, endMs: 49_000, status: 'done' },
+  { name: 'critic', startMs: 49_000, endMs: 52_000, status: 'done' },
+];
+
+/** A HELD single-lesson result: one `soon` page WITH a rendered artifact (`passed: false` — the reviewer
+ *  held it back). persistRun writes status `soon` + the html, so the read's has_html is TRUE → disposition
+ *  `held`. The hub page's `hasHtml: true` mirrors the persisted truth (re-derived authoritatively on read). */
+const SEED_HELD_RESULT: PipelineResult = {
+  hub: {
+    tiers: [
+      {
+        tier: 'Tier 1',
+        categories: [
+          {
+            name: 'Lesson',
+            pages: [{ slug: 'vaccines', title: 'How vaccines work', status: 'soon', built: false, hasHtml: true, href: '' }],
+          },
+        ],
+      },
+    ],
+  },
+  pages: [
+    {
+      nodeSlug: 'vaccines',
+      html: SEED_HELD_HTML, // PRESENT → has_html true on read → disposition `held`
+      learningGoal: 'How a vaccine teaches the immune system to recognise a pathogen before it strikes.',
+      spec: { nodeSlug: 'vaccines', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      passed: false, // the reviewer HELD it back (a clean reject — no throw)
+      critique: 'held back at review',
+    },
+  ],
+};
+
+const SEED_HELD_REQUEST: TopicRequest = {
+  topic: 'How vaccines work',
   settings: { level: 'intro', depth: 2, audience: 'a self-taught learner' },
 };
 
@@ -318,6 +381,52 @@ export async function clearDegradedLesson(): Promise<void> {
   const pool = makePool();
   try {
     await clearDegraded(pool);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Delete the HELD lesson's curriculum + cascade pages + step_event timeline (counterpart to
+ *  seedHeldLesson). Idempotent. */
+async function clearHeld(pool: Pool): Promise<void> {
+  await pool.query(`DELETE FROM step_event WHERE run_id = $1`, [SEED_HELD_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum_page WHERE curriculum_id = $1`, [SEED_HELD_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum WHERE id = $1`, [SEED_HELD_RUN_ID]);
+}
+
+/** Seed (idempotently) ONLY the HELD lesson (issue #215): a `soon` curriculum WITH a rendered artifact
+ *  (html present → has_html true → disposition `held`) plus its ALL-✓ six-stage step_event timeline (the
+ *  reviewer rejected without throwing). Kept OUT of the global seed for the same reason as the FAILED
+ *  (degraded) lesson — a `soon` curriculum is still a library card — so the held specs seed it in a
+ *  describe-scoped beforeAll and clear it in afterAll (clearHeldLesson), leaving the library-snapshot
+ *  tests at exactly the one dense card. */
+export async function seedHeldLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearHeld(pool);
+    await persistRun(
+      {
+        runId: SEED_HELD_RUN_ID,
+        request: SEED_HELD_REQUEST,
+        result: SEED_HELD_RESULT,
+        costUsd: 0,
+        modelSnapshots: STAGE_MODELS,
+        ownerSub: E2E_OWNER_SUB,
+      },
+      { pool },
+    );
+    await seedStepEvents(pool, SEED_HELD_RUN_ID, SEED_HELD_STEPS);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Remove the held lesson + its step_event rows (the afterAll counterpart to seedHeldLesson), so the
+ *  library home returns to exactly the one seeded dense card for any later library-snapshot test. */
+export async function clearHeldLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearHeld(pool);
   } finally {
     await pool.end();
   }

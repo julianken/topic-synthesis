@@ -204,6 +204,9 @@ interface PageJoinRow {
   concept_slug: string;
   title: string;
   status: PageStatus;
+  /** Presence flag from `getLesson`'s SELECT (`p.html IS NOT NULL AND p.html <> ''`) — NOT the blob.
+   *  Distinguishes a reviewer-HELD lesson (soon + html present) from a FAILED one (soon + null). #215. */
+  has_html: boolean;
 }
 
 /** Rebuild the tiered hub from ordered join rows (the inverse of flattenHub). Pure. */
@@ -225,6 +228,9 @@ export function rebuildHub(rows: PageJoinRow[], lessonId: string): SitemapHub {
       title: row.title,
       status: row.status,
       built: row.status === 'built',
+      // Authoritative html-presence for the read path (issue #215): a `soon` page WITH html present is a
+      // reviewer-HELD lesson (cleanly rejected, renderable), WITHOUT html is a FAILED one (no artifact).
+      hasHtml: row.has_html,
       // Authorize the artifact THROUGH the owning curriculum (the cookie-borne, owner-checked route),
       // NOT a per-pageId capability — pageId is a content hash SHARED across curricula (identity.ts), so
       // it is no secret. Keyed by the URL-safe slug; the route re-resolves it owner-scoped.
@@ -249,7 +255,13 @@ export async function getLesson(
   const row = cur.rows[0];
   if (!row) return null;
   const pages = await deps.pool.query<PageJoinRow>(
-    `SELECT cp.tier, cp.category, cp.page_id, p.concept_slug, p.title, p.status
+    // `has_html` is PRESENCE ONLY — the blob is never pulled into the hub query. The faithful predicate
+    // mirrors how persistRun writes html (`artifact?.html ?? null`, repo.ts): only a NULL/absent artifact
+    // nulls the column, but an empty-string artifact would also mean "no real page", so `<> ''` closes
+    // that edge — a `soon` row with non-empty html is HELD (rejected-but-renderable); null/empty is
+    // FAILED (no artifact). The page derives `built | held | failed` from (status, has_html). #215.
+    `SELECT cp.tier, cp.category, cp.page_id, p.concept_slug, p.title, p.status,
+            (p.html IS NOT NULL AND p.html <> '') AS has_html
        FROM curriculum_page cp
        JOIN concept_page p ON p.id = cp.page_id
       WHERE cp.curriculum_id = $1
