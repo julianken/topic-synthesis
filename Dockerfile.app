@@ -25,6 +25,12 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
+# #184: commit-stamp the image — the OCI revision label (queryable on the registry) + a runtime ENV the
+# container self-reports via the /version route, so the deploy verify-gate can assert running_sha ==
+# deployed_sha before promoting traffic. Closes the "fresh SHA tag, stale bytes" gap at deploy time.
+ARG GIT_SHA=dev
+LABEL org.opencontainers.image.revision=$GIT_SHA
+ENV GIT_SHA=$GIT_SHA
 RUN useradd --uid 1001 --create-home app
 USER app
 # Standalone bundles server.js + a minimal traced node_modules; static assets ship separately.

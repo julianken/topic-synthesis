@@ -11,7 +11,7 @@ describe('StdoutEventSink', () => {
     expect(JSON.parse(lines[0] as string)).toMatchObject({
       runId: 'run1',
       seq: 0,
-      schemaVersion: 2,
+      schemaVersion: 3,
       severity: 'INFO',
       eventType: 'step.finish',
       stage: 'code',

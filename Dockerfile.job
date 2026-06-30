@@ -32,6 +32,12 @@ RUN npm run build:job
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# #184: commit-stamp the image — the OCI revision label (queryable on the registry) + a runtime ENV the
+# container self-reports (run-job boot-logs it + folds it into run.complete/run.failed as codeRev). Makes
+# "which bytes is prod running?" answerable, so a stale image under a fresh SHA tag is caught at deploy time.
+ARG GIT_SHA=dev
+LABEL org.opencontainers.image.revision=$GIT_SHA
+ENV GIT_SHA=$GIT_SHA
 RUN useradd --uid 1001 --create-home job
 USER job
 COPY --from=deps --chown=job:job /app/node_modules ./node_modules

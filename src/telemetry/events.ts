@@ -11,8 +11,12 @@
  */
 import type { Stage } from '../llm/models';
 
-/** Bumped when the emitted envelope/field shape changes, so #167's metric extractors can evolve. */
-export const EVENT_SCHEMA_VERSION = 2;
+/**
+ * Bumped when the emitted envelope/field shape changes, so #167's metric extractors can evolve.
+ * v3 (#184): the additive optional `codeRev` on `run.complete`/`run.failed` — the commit each run
+ * executed (the metrics filter on `eventType` only, so the dashboard survives the bump untouched).
+ */
+export const EVENT_SCHEMA_VERSION = 3;
 
 /**
  * The canonical `stage` label — the engine step-name vocabulary, which is ALSO the `step_event` /
@@ -64,8 +68,12 @@ export type WorkflowEvent =
       pages: number;
       outcome: 'complete' | 'degraded';
       criticPassed: boolean;
+      // #184: the commit (GIT_SHA) this run executed, baked into the image. Optional — absent off a
+      // built image (local `npm run job`). Lets prod telemetry attribute a run to its exact bytes, so a
+      // stale-deploy regression (a job image cache-frozen under a fresh SHA tag) is visible after the fact.
+      codeRev?: string;
     }
-  | { eventType: 'run.failed'; outcome: 'failed'; errorKind?: string };
+  | { eventType: 'run.failed'; outcome: 'failed'; errorKind?: string; codeRev?: string };
 
 /**
  * The port. `onEvent` may be sync (the stdout/log sink) OR async (the Postgres `step_event`
