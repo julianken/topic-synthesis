@@ -87,6 +87,28 @@ export interface BuildRow {
  */
 export type LessonDisposition = 'built' | 'held' | 'failed';
 
+/** The minimal shape {@link deriveDisposition} reads off the resolved lone page of a single-lesson
+ *  curriculum — its terminal `status` and whether an artifact was actually rendered (`hasHtml`). Kept
+ *  structural (not the full hub page type) so this module stays a pure, repo-free, node-testable core. */
+export interface DispositionPage {
+  status: string;
+  hasHtml: boolean;
+}
+
+/**
+ * The SINGLE source of a finished run's terminal disposition (issue #232) — derived from the lone page's
+ * `(status, html presence)`, with no schema change:
+ *   - `built`  — `status='built'`: a real interactive page was accepted.
+ *   - `held`   — `status='soon'` WITH html present: the reviewer HELD a rendered lesson back.
+ *   - `failed` — `status='soon'` WITHOUT html: synthesis produced no artifact.
+ * Both the reader page (`page.tsx`'s built/degraded branches) AND the frozen `/lesson/[id]/workflow`
+ * disposition chip read THIS function, so the chip and the page disposition CAN'T drift (the prior inline
+ * ternary at `page.tsx` would have been a second, drift-prone copy). PURE — reads only its arg.
+ */
+export function deriveDisposition(page: DispositionPage | null | undefined): LessonDisposition {
+  return page && page.status === 'built' ? 'built' : page && page.hasHtml ? 'held' : 'failed';
+}
+
 /** The render model for the disclosure (or `null` when there is nothing to disclose — see
  *  {@link buildSummaryModel}). All strings are learner-safe + timeline-only by construction. */
 export interface BuildSummaryModel {

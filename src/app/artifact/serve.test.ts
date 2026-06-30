@@ -171,6 +171,8 @@ describe('artifactResponse — serve-time §0 :root injection (TS-19)', () => {
     expect(ARTIFACT_ROOT_STYLE).toContain('--bg-app:oklch(0.165 0.018 250)'); // near-black canvas
     expect(ARTIFACT_ROOT_STYLE).toContain('--text:oklch(0.95 0.008 250)'); // near-white body text
     expect(ARTIFACT_ROOT_STYLE).toContain('--accent:oklch(0.82 0.145 215)'); // cyan-blue, NOT green
+    // the badge-border status tints, incl. the new err tint (issue #232 — the frozen "Not built" chip)
+    expect(ARTIFACT_ROOT_STYLE).toContain('--badge-border-err:oklch(0.461 0.094 25)');
     expect(ARTIFACT_ROOT_STYLE).toContain('--measure:33rem');
     expect(ARTIFACT_ROOT_STYLE).toContain('--frame-max:1640px');
     expect(ARTIFACT_ROOT_STYLE).toContain('--serif:"Iowan Old Style"');

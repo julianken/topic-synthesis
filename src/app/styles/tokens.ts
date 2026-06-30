@@ -43,6 +43,7 @@ export const colorPrimitiveTokens = [
   '--faint',
   '--badge-border-ok',
   '--badge-border-warn',
+  '--badge-border-err',
   '--badge-border-neutral',
 ] as const;
 

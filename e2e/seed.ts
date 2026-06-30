@@ -163,6 +163,47 @@ const SEED_BUILT_STEPS: SeedStep[] = [
   { name: 'critic', startMs: 44_000, endMs: 47_000, status: 'done' },
 ];
 
+// ── issue #232 frozen-workflow fixture: a DURABLE research_event feed (kept past persist — #232 removed
+// its persistRun prune) so the frozen /lesson/[id]/workflow page's RESEARCH band replays the planned
+// questions + grounded findings deterministically. The rows are LEAK-SAFE (copy-safe text only) and match
+// the Figma 103:2 frame's three answered questions. `started_at`/`finished_at` are FIXED so any timestamp
+// the band might render is byte-stable.
+
+/** One seeded research_event row — a question + its grounded finding (denormalized {claim,url,title}, the
+ *  exact shape PgResearchSink writes + getResearchEvents reads back). All copy-safe; no internal index. */
+interface SeedResearch {
+  question: string;
+  subtopic: string;
+  claim: string;
+  url: string;
+  title: string;
+}
+
+/** The BUILT lesson's three answered research questions (Figma 103:2). Each lands one grounded finding. */
+const SEED_BUILT_RESEARCH: SeedResearch[] = [
+  {
+    question: 'Where does a plant’s mass come from?',
+    subtopic: 'Carbon source',
+    claim: 'A tree’s mass comes mostly from CO₂ in the air, not the soil.',
+    url: 'https://www.britannica.com/science/photosynthesis',
+    title: 'Britannica',
+  },
+  {
+    question: 'Light reactions vs. the Calvin cycle?',
+    subtopic: 'Two stages',
+    claim: 'Photosynthesis splits water (H₂O) to release O₂.',
+    url: 'https://www.nature.com/articles/photosynthesis',
+    title: 'Nature',
+  },
+  {
+    question: 'Chlorophyll’s role in capturing light?',
+    subtopic: 'Pigments',
+    claim: 'Chlorophyll absorbs red & blue light, reflects green.',
+    url: 'https://www.khanacademy.org/science/biology',
+    title: 'Khan Academy',
+  },
+];
+
 /** The DEGRADED lesson's timeline — the `code` step THREW (status='error', no finish) and `critic` never
  *  ran. Summary → "See what happened · couldn't finish · ✗ not built"; the code row shows a per-stage ✗. */
 const SEED_DEGRADED_STEPS: SeedStep[] = [
@@ -273,6 +314,35 @@ async function seedStepEvents(pool: Pool, runId: string, steps: SeedStep[]): Pro
   }
 }
 
+/** Insert a deterministic research_event feed for a run (idempotent — clears the run's prior rows first).
+ *  These rows are KEPT past persist (issue #232), so the frozen /workflow page reads them back. The
+ *  findings/sources JSON match the {claim,url,title} / {url,title} shape PgResearchSink writes (so
+ *  getResearchEvents reads them back unchanged). All 'done' with one grounded finding apiece. */
+async function seedResearchEvents(pool: Pool, runId: string, rows: SeedResearch[]): Promise<void> {
+  await pool.query(`DELETE FROM research_event WHERE run_id = $1`, [runId]);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!;
+    const findings = [{ claim: r.claim, url: r.url, title: r.title }];
+    const sources = [{ url: r.url, title: r.title }];
+    await pool.query(
+      `INSERT INTO research_event
+         (run_id, question, subtopic, status, findings, sources, finding_count, started_at, finished_at, ordinal)
+       VALUES ($1, $2, $3, 'done', $4, $5, $6, $7, $8, $9)`,
+      [
+        runId,
+        r.question,
+        r.subtopic,
+        JSON.stringify(findings),
+        JSON.stringify(sources),
+        findings.length,
+        seedTs(2_100),
+        seedTs(7_400 + i * 1_500),
+        i,
+      ],
+    );
+  }
+}
+
 /** A Pool on the same Postgres the app/webServer use (DATABASE_URL, the compose default otherwise). */
 function makePool(): Pool {
   const connectionString =
@@ -337,6 +407,10 @@ export async function seedDenseLibraryCard(): Promise<void> {
     // persistRun to underscore that persistRun no longer prunes step_event (the deletes that DO run never
     // touch it). The DEGRADED lesson's timeline is seeded separately (seedDegradedLesson), not here.
     await seedStepEvents(pool, SEED_RUN_ID, SEED_BUILT_STEPS);
+
+    // issue #232 — the BUILT lesson's durable research_event feed (kept past persist) so the frozen
+    // /lesson/[id]/workflow page's RESEARCH band replays the real grounded findings deterministically.
+    await seedResearchEvents(pool, SEED_RUN_ID, SEED_BUILT_RESEARCH);
 
     // Stamp the IN-FLIGHT run owner (NO curriculum persisted for this id) so the reader route's
     // generating branch renders for the visual spec. getLesson(this id) stays null → page.tsx shows
@@ -429,6 +503,59 @@ export async function clearHeldLesson(): Promise<void> {
   const pool = makePool();
   try {
     await clearHeld(pool);
+  } finally {
+    await pool.end();
+  }
+}
+
+// ── issue #232 frozen-workflow non-owner gate fixture: a REAL built lesson owned by a DIFFERENT
+// (non-e2e, NOT allowlisted) sub. The e2e owner requesting THIS id's /workflow gets the SAME uniform 404
+// as an absent id — proving the route has no existence oracle (a real foreign lesson is indistinguishable
+// from absent). Owned by a non-e2e sub, so it never appears in the e2e owner's library (no baseline
+// regression). Seeded describe-scoped by the workflow spec (beforeAll/afterAll), not globally.
+
+/** A FIXED foreign-owned lesson id for the non-owner 404 test (issue #232). */
+export const SEED_FOREIGN_RUN_ID = 'e2e-seed-foreign-workflow';
+/** A sub that is NOT the e2e owner and NOT allowlisted — owns SEED_FOREIGN_RUN_ID. */
+const SEED_FOREIGN_OWNER_SUB = 'e2e-foreign-owner-sub';
+
+/** Delete the foreign lesson + its cascade pages + its durable timelines. Idempotent. */
+async function clearForeign(pool: Pool): Promise<void> {
+  await pool.query(`DELETE FROM research_event WHERE run_id = $1`, [SEED_FOREIGN_RUN_ID]);
+  await pool.query(`DELETE FROM step_event WHERE run_id = $1`, [SEED_FOREIGN_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum_page WHERE curriculum_id = $1`, [SEED_FOREIGN_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum WHERE id = $1`, [SEED_FOREIGN_RUN_ID]);
+}
+
+/** Seed (idempotently) ONLY the foreign-owned built lesson + its durable step_event/research_event
+ *  timelines, so the e2e owner's request for its /workflow 404s like an absent id (issue #232). */
+export async function seedForeignLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearForeign(pool);
+    await persistRun(
+      {
+        runId: SEED_FOREIGN_RUN_ID,
+        request: SEED_REQUEST,
+        result: SEED_RESULT,
+        costUsd: 0,
+        modelSnapshots: STAGE_MODELS,
+        ownerSub: SEED_FOREIGN_OWNER_SUB,
+      },
+      { pool },
+    );
+    await seedStepEvents(pool, SEED_FOREIGN_RUN_ID, SEED_BUILT_STEPS);
+    await seedResearchEvents(pool, SEED_FOREIGN_RUN_ID, SEED_BUILT_RESEARCH);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Remove the foreign lesson + its timelines (the afterAll counterpart to seedForeignLesson). */
+export async function clearForeignLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearForeign(pool);
   } finally {
     await pool.end();
   }

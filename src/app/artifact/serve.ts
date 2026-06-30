@@ -70,6 +70,7 @@ export const ARTIFACT_ROOT_TOKENS: Readonly<Record<string, string>> = {
   '--faint': 'oklch(0.568 0.029 254)',
   '--badge-border-ok': 'oklch(0.499 0.080 152)',
   '--badge-border-warn': 'oklch(0.549 0.090 80)',
+  '--badge-border-err': 'oklch(0.461 0.094 25)',
   '--badge-border-neutral': 'oklch(0.401 0.019 248)',
   // type scale + per-role line-heights + letter-spacing + radii (so a generated lesson can speak the
   // §0 reading/heading/gloss type system; unitless/rem/em values carry no hex).

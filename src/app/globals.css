@@ -46,6 +46,7 @@
      brighter status/pipeline color). neutral is the Text-badge / chrome-control outline. */
   --badge-border-ok: oklch(0.499 0.080 152);
   --badge-border-warn: oklch(0.549 0.090 80);
+  --badge-border-err: oklch(0.461 0.094 25);
   --badge-border-neutral: oklch(0.401 0.019 248);
 
   /* semantic — color (reference primitives, DESIGN.md §0) */
@@ -1280,6 +1281,27 @@ body.has-ws-topbar > .appbar {
   border-color: var(--status-soon);
 }
 
+/* The DEGRADED-only "See the full workflow" link to the frozen completed-workflow page (issue #232) — a
+   quiet inline affordance below the disclosure (the degraded page's sole entry to the workflow route).
+   Aligned to the same reading spine as the disclosure; color eases on hover via the §0 catalog primitive. */
+.build-summary__workflow-link {
+  display: inline-block;
+  margin-top: var(--sp-3);
+  max-inline-size: var(--measure);
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  color: var(--interactive);
+  text-decoration: none;
+  transition: var(--tr-color);
+}
+.build-summary__workflow-link:hover {
+  color: var(--interactive-hover);
+}
+.build-summary__workflow-link:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+
 .build-summary__summary {
   display: flex;
   flex-wrap: wrap;
@@ -1881,6 +1903,61 @@ body.has-ws-topbar > .appbar {
   100% {
     background-position: 0% 0;
   }
+}
+
+/* ── Frozen completed-workflow mode (issue #232 — the /lesson/[id]/workflow page) ─────────────────────────
+   The SAME composition at rest. The entrance stagger is suppressed so nodes + finding cards paint settled
+   (the SVG edge measurer then anchors on the RESTING node rects — no entrance-displacement, the geometry
+   the frozen-edge spec asserts), and the live RESEARCH pulse never animates. No new motion; this only
+   REMOVES animation on the frozen path (the live path is byte-unchanged). */
+.gen[data-mode='frozen'] .gen-node,
+.gen[data-mode='frozen'] .gen-finding {
+  animation: none;
+}
+
+/* The top-right disposition slot — a flex column right-aligning the eyebrow over the terminal chip. */
+.gen-top__live--frozen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+.gen-disposition__eyebrow {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+/* The terminal disposition chip (Figma 103:2) — §0 status color for the text + glyph, the matching dim
+   badge-border tint for the 1px outline (the SAME vocabulary as the library status chips). Status is by
+   label + icon + outline, never color alone (§Accessibility). */
+.gen-disposition {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--badge-border-neutral);
+}
+.gen-disposition__glyph {
+  font-weight: 700;
+}
+.gen-disposition[data-disposition='built'] {
+  color: var(--status-built);
+  border-color: var(--badge-border-ok);
+}
+.gen-disposition[data-disposition='held'] {
+  color: var(--status-soon);
+  border-color: var(--badge-border-warn);
+}
+.gen-disposition[data-disposition='failed'] {
+  color: var(--status-error);
+  border-color: var(--badge-border-err);
 }
 
 /* ── Topic header ──────────────────────────────────────────────────────────────────────────────────────── */
