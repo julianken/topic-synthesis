@@ -33,3 +33,13 @@ variable "auth_allowlist" {
   default     = ""
   description = "Comma-separated Google `sub`s allowed to use the app (the spend gate + private reads, ADR 0002 §5). Empty = no one (fail-closed); set to the owner's sub at delivery."
 }
+
+variable "alert_email" {
+  type        = string
+  description = "Email address for the degrade-rate alert notification channel (issue #185). NO committed default — this is a PUBLIC repo, so the owner's address must never be published here; supply it at apply time via `-var 'alert_email=…'` or an un-committed tfvars file."
+
+  validation {
+    condition     = can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.alert_email))
+    error_message = "alert_email must be a single valid email address (supplied at apply time, never committed)."
+  }
+}
