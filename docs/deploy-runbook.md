@@ -7,15 +7,20 @@ under a fresh commit-SHA tag (run `cea1663a`, 2026-06-29 — see [issue #184](ht
 **Who runs this:** the **orchestrator** (it holds `gcloud`/`terraform` auth). The implementer and reviewer
 never run a deploy. Every step below is a real, scoped operation — no `terraform apply` without `-target`.
 
-The flow is four phases: **build (clean) → deploy by digest → verify (`running_sha == deployed_sha`) →
-promote traffic.** The verify gate is the step that would have caught the #184 incident; do not skip it.
+The correct overall order is: **build → update images by digest → run migrate (if `schema.sql` changed) →
+verify (`running_sha == deployed_sha`) → promote traffic.** Two ordering controls protect prod: **Step 0**
+— when `src/store/schema.sql` changed, the migrate Job must apply the new schema **before** any new
+pipeline code persists, or every run fails at `persistRun` (the 2026-06-30 incident, below); and the
+**verify gate**, which would have caught the #184 incident. Do not skip either.
 
 ```
 git SHA ──► cloudbuild.yaml (NO remote cache) ──► app@sha256:… + job@sha256:…
                                                           │
               ┌───────────────────────────────────────────┘
               ▼
-   deploy BY DIGEST (Service --no-traffic, Jobs update)
+   deploy BY DIGEST (Service --no-traffic, Jobs update — incl. the migrate Job)
+              ▼
+   MIGRATE FIRST (if schema.sql changed): execute migrate Job (new image) --wait
               ▼
    VERIFY: /version gitSha == SHA  AND  Job boot-log gitSha == SHA  (else abort)
               ▼
@@ -85,6 +90,37 @@ image — `topic-synthesis-migrate` shares the job image, command-overridden to 
 gcloud run jobs update topic-synthesis-pipeline --region "$REGION" --image "$AR/job@$JOB_DIGEST"
 gcloud run jobs update topic-synthesis-migrate  --region "$REGION" --image "$AR/job@$JOB_DIGEST"
 ```
+
+## 0. Apply schema migrations first (if `schema.sql` changed)
+
+Numbered **0** because it's the precondition every later step assumes. Phase 2 just pointed the migrate
+Job at the new `job` digest; if `src/store/schema.sql` changed since the last deploy, run it **now** — after
+the image update, before the Phase 3 verify smoke run (which calls `persistRun`) and before any traffic is
+promoted. Skip this step only when `schema.sql` is unchanged.
+
+**How to tell if `schema.sql` changed** — diff it against the SHA currently live (the Service's `/version`
+`gitSha`, or the previous deploy's recorded SHA); an empty diff means nothing to apply, skip to Phase 3:
+
+```sh
+git diff <last-deployed-sha>..HEAD -- src/store/schema.sql
+```
+
+**Apply it** — execute the migrate Job (it command-overrides the same `job@$JOB_DIGEST` image to
+`tsx src/store/migrate.ts`, which applies `src/store/schema.sql` — idempotent `CREATE TABLE IF NOT EXISTS …`,
+safe to re-run):
+
+```sh
+gcloud run jobs execute topic-synthesis-migrate --region "$REGION" --wait
+```
+
+**Why the ordering is load-bearing.** New pipeline-Job code may depend on tables/columns the new schema
+adds — `persistRun` issues `DELETE FROM code_progress` (and prunes the other transient per-run tables) on
+every run. Promote traffic (or run the Phase 3 pipeline smoke) against the **old** schema and *every* run
+fails at persist until migrate catches up. That is exactly the **2026-06-30 incident**: the new `job` image
+shipped with a `code_progress` reference, the table didn't exist yet, and `persistRun` failed for every run
+until `gcloud run jobs execute topic-synthesis-migrate` was run by hand. Because the schema is **additive**
+(`IF NOT EXISTS`), applying it ahead of the new pipeline code is safe and the still-live old code tolerates
+the extra tables — so migrate-first never has a backward-compat window.
 
 ## 3. Verify gate — `running_sha == deployed_sha` (else abort)
 
@@ -174,7 +210,8 @@ gcloud artifacts repositories set-cleanup-policies topic-synthesis \
 
 ## 6. Post-merge clean redeploy (the #184 restoration)
 
-After #184 merges, the orchestrator runs phases 1–4 from `origin/main`, confirms the new `job` digest ≠
+After #184 merges, the orchestrator runs the build → deploy → (Step 0 migrate, if `schema.sql` changed) →
+verify → promote flow from `origin/main`, confirms the new `job` digest ≠
 `da741df5`, that the smoke run emits `schemaVersion: 3` + streams, then re-runs topic *"borderline
 personality disorder"* and confirms it reaches **`built`** (not `'soon'`). Record the digests + outcome in
 the PR/issue thread. This is the action that actually restores streaming (#176) to prod.
