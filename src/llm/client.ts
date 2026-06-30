@@ -33,6 +33,12 @@ export interface CompleteOptions {
   prompt: string;
   system?: string;
   maxTokens?: number;
+  /**
+   * Total-elapsed deadline (ms) for a STREAMED call (`streamComplete` only — the blocking paths
+   * ignore it). Defaults to `DEFAULT_CODE_DEADLINE_MS`. On a stall the call aborts (un-retried) and
+   * the run degrades to 'soon' rather than re-billing a slow generation (issue #186).
+   */
+  deadlineMs?: number;
 }
 
 export interface TextResult {
@@ -94,12 +100,38 @@ export async function complete(opts: CompleteOptions, modelOverride?: LanguageMo
 }
 
 /**
+ * Total-elapsed deadline (ms) for the streamed `code` call. A stall is the single most expensive
+ * failure on the pipeline: with no cap the AI SDK would re-run the full ~15K-token generation up to
+ * 3× (default `maxRetries: 2`) and the Cloud Run Job would retry once more, re-billing the run's
+ * priciest call (~$0.228) several times before degrading (the BPD incident burned 908 s ≈ 3×300 s
+ * this way). Retrying a *slow* (vs *failing*) non-idempotent generation can never succeed; it only
+ * re-bills. So we abort fast and cheap into the existing degrade-to-'soon' net (issue #186).
+ *
+ * Value (480_000 = 8 min) is anchored on the OBSERVED healthy code-phase band — ~210–270 s max,
+ * i.e. ≈83% of a ~326 s run's wall-clock — plus a generous tail margin (~1.8× the observed max), so a
+ * legitimately-slow-but-healthy generation is NEVER aborted. It sits comfortably under the 3600 s
+ * Cloud Run Job task timeout (`infra/cloud-run.tf:95`) — 480 s is ~13% of it, leaving >3000 s of
+ * headroom — so this deadline, not the outer Job timeout, is what bounds a stalled `code` call.
+ */
+export const DEFAULT_CODE_DEADLINE_MS = 480_000;
+
+/**
  * A STREAMING free-text completion — the `code` stage's path. Streaming is what lets us capture
  * per-call WALL-CLOCK: `ttftMs` (time to the first text delta = prefill/think) and `genMs`
  * (generation = total − ttft), plus `maxTokens` (cap-proximity) and `outputBytes` (size). It also
  * exposes a periodic `onProgress` hook — the live code-phase progress feed (PR-1 only EMITS it; PR-4
  * consumes it). The `guard(finishReason)` truncation/abort check is preserved exactly as on the
  * blocking path. Pass `modelOverride` (a mock streaming model) in tests, mirroring `complete`.
+ *
+ * Two failure-cost guards on the `streamText` call (issue #186): `maxRetries: 0` so a stalled or
+ * failing establishment is NEVER blindly re-billed (the AI SDK `maxRetries` is a flat count over all
+ * retryable errors — there is no "retry only transient 429/529"; the jittered transient-retry policy
+ * is #187's job, layered ABOVE this single-attempt inner call), and `abortSignal:
+ * AbortSignal.timeout(deadlineMs)` as the single binding TOTAL-elapsed cap (with streaming, undici's
+ * `headersTimeout` is satisfied at prefill and `bodyTimeout` guards only inter-chunk gaps, so neither
+ * bounds total elapsed — the AbortSignal is the real ceiling). On abort the stream ends and the
+ * subsequent `await result.finishReason` rejects with the `TimeoutError`, propagating UN-retried
+ * through `code` → `synthesizeLesson`'s catch → degrade-to-'soon' (no crash, no re-bill).
  */
 export async function streamComplete(
   opts: CompleteOptions,
@@ -116,6 +148,10 @@ export async function streamComplete(
     model: modelOverride ?? resolveModel(opts.model),
     prompt: opts.prompt,
     maxOutputTokens: maxTokens,
+    // Fail fast + cheap on a stall: never blindly re-bill (retries are #187's job, one layer up), and
+    // bound TOTAL elapsed with an explicit deadline. A timeout aborts un-retried → degrade-to-'soon'.
+    maxRetries: 0,
+    abortSignal: AbortSignal.timeout(opts.deadlineMs ?? DEFAULT_CODE_DEADLINE_MS),
     ...(opts.system !== undefined ? { system: opts.system } : {}),
   });
   let ttftMs: number | undefined;
