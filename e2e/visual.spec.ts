@@ -230,6 +230,21 @@ test.describe('visual — frozen completed-workflow page (issue #232, owner-only
   });
 });
 
+test.describe('visual — "See the full build" reader affordance (issue #233, owner-only)', () => {
+  // The BUILT-reader "See the full build" affordance (run-lifecycle 4/4) — the reader head gains this
+  // visible element (Inter Medium 13px --fog-50 label + --accent arrow), slotted after the #175 disclosure.
+  // ELEMENT-scoped snapshot (the affordance box, not the whole page) so the capture is deterministic
+  // regardless of the iframe artifact / disclosure timing — it is static text, byte-stable, no masking.
+  test('the affordance matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_RUN_ID}`);
+    const link = page.locator('.reader-build-link');
+    await expect(link).toBeVisible();
+    await expect(link).toContainText('See the full build');
+    await expect(link).toHaveScreenshot('reader-view-build.png');
+  });
+});
+
 test.describe('visual — build-summary disclosure (issue #175, owner-only)', () => {
   // The owner-only "How this was built" disclosure on the persisted lesson page. ELEMENT-scoped snapshots
   // (the disclosure box, not the whole page) so the captures are deterministic regardless of the iframe
