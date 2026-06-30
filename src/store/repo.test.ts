@@ -64,8 +64,8 @@ const result: PipelineResult = {
           {
             name: 'Foundations',
             pages: [
-              { slug: 'sine', title: 'Sine', status: 'built', built: true, href: '' },
-              { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, href: '' },
+              { slug: 'sine', title: 'Sine', status: 'built', built: true, hasHtml: true, href: '' },
+              { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, hasHtml: false, href: '' },
             ],
           },
         ],
@@ -90,7 +90,7 @@ const lessonResult: PipelineResult = {
     tiers: [
       {
         tier: 'Tier 1',
-        categories: [{ name: 'Lesson', pages: [{ slug: 'fourier', title: 'Fourier', status: 'built', built: true, href: '' }] }],
+        categories: [{ name: 'Lesson', pages: [{ slug: 'fourier', title: 'Fourier', status: 'built', built: true, hasHtml: true, href: '' }] }],
       },
     ],
   },
@@ -107,24 +107,47 @@ const lessonResult: PipelineResult = {
 };
 
 describe('rebuildHub', () => {
-  it('groups ordered rows into tiers → categories → pages with href + built', () => {
+  it('groups ordered rows into tiers → categories → pages with href + built + hasHtml', () => {
     const hub = rebuildHub(
       [
-        { tier: 'T1', category: 'C', page_id: 'p1', concept_slug: 'sine', title: 'Sine', status: 'built' },
-        { tier: 'T1', category: 'C', page_id: 'p2', concept_slug: 'cosine', title: 'Cosine', status: 'soon' },
+        { tier: 'T1', category: 'C', page_id: 'p1', concept_slug: 'sine', title: 'Sine', status: 'built', has_html: true },
+        { tier: 'T1', category: 'C', page_id: 'p2', concept_slug: 'cosine', title: 'Cosine', status: 'soon', has_html: false },
       ],
       'c1',
     );
     expect(hub.tiers).toHaveLength(1);
     expect(hub.tiers[0]?.categories[0]?.pages).toEqual([
-      { slug: 'sine', title: 'Sine', status: 'built', built: true, href: '/lesson/c1/artifact/sine' },
-      { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, href: '/lesson/c1/artifact/cosine' },
+      { slug: 'sine', title: 'Sine', status: 'built', built: true, hasHtml: true, href: '/lesson/c1/artifact/sine' },
+      { slug: 'cosine', title: 'Cosine', status: 'soon', built: false, hasHtml: false, href: '/lesson/c1/artifact/cosine' },
     ]);
+  });
+
+  it('surfaces html-presence (AC1, issue #215): a soon+html row (HELD) vs a soon+null-html row (FAILED)', () => {
+    // getLesson's SELECT projects `(p.html IS NOT NULL AND p.html <> '') AS has_html` (presence only, never
+    // the blob). rebuildHub carries it onto SitemapPage.hasHtml verbatim, so the page can derive
+    // built | held | failed from (status, hasHtml). Two `soon` rows, distinguished ONLY by html presence.
+    const hub = rebuildHub(
+      [
+        { tier: 'T', category: 'C', page_id: 'h', concept_slug: 'held', title: 'Held', status: 'soon', has_html: true },
+        { tier: 'T', category: 'C', page_id: 'f', concept_slug: 'failed', title: 'Failed', status: 'soon', has_html: false },
+      ],
+      'c2',
+    );
+    const pages = hub.tiers[0]?.categories[0]?.pages ?? [];
+    const held = pages.find((p) => p.slug === 'held')!;
+    const failed = pages.find((p) => p.slug === 'failed')!;
+    // Same non-built status, but html-presence (the held-vs-failed signal) differs.
+    expect(held.status).toBe('soon');
+    expect(failed.status).toBe('soon');
+    expect(held.hasHtml).toBe(true); // reviewer HELD a rendered lesson back
+    expect(failed.hasHtml).toBe(false); // synthesis produced NO artifact
+    expect(held.built).toBe(false); // neither is `built` — only the disposition copy differs downstream
+    expect(failed.built).toBe(false);
   });
 
   it('builds a curriculum-scoped artifact href keyed by slug — NOT a per-pageId capability', () => {
     const hub = rebuildHub(
-      [{ tier: 'T', category: 'C', page_id: 'sine@intermediate:d3#a1b2c3', concept_slug: 'sine', title: 'Sine', status: 'built' }],
+      [{ tier: 'T', category: 'C', page_id: 'sine@intermediate:d3#a1b2c3', concept_slug: 'sine', title: 'Sine', status: 'built', has_html: true }],
       'cur-1',
     );
     const href = hub.tiers[0]?.categories[0]?.pages[0]?.href;
@@ -338,7 +361,7 @@ describe('persistRun — one-page single-lesson curriculum (issue #48)', () => {
       { match: 'FROM curriculum WHERE', rows: [{ id: 'lesson-1', topic: 'Fourier', settings_json: request.settings }] },
       {
         match: 'FROM curriculum_page',
-        rows: [{ tier: 'Tier 1', category: 'Lesson', page_id: 'p1', concept_slug: 'fourier', title: 'Fourier', status: 'built' }],
+        rows: [{ tier: 'Tier 1', category: 'Lesson', page_id: 'p1', concept_slug: 'fourier', title: 'Fourier', status: 'built', has_html: true }],
       },
     ]);
     const view = await getLesson('lesson-1', 'owner-1', owned.deps);
@@ -373,12 +396,25 @@ describe('getLesson / getOwnedPage (fake pool, owner-scoped)', () => {
       { match: 'FROM curriculum WHERE', rows: [{ id: 'c1', topic: 'Fourier', settings_json: request.settings }] },
       {
         match: 'FROM curriculum_page',
-        rows: [{ tier: 'T1', category: 'C', page_id: 'p1', concept_slug: 'sine', title: 'Sine', status: 'built' }],
+        rows: [{ tier: 'T1', category: 'C', page_id: 'p1', concept_slug: 'sine', title: 'Sine', status: 'built', has_html: true }],
       },
     ]);
     const view = await getLesson('c1', 'owner-1', deps);
     expect(view?.topic).toBe('Fourier');
     expect(view?.hub.tiers[0]?.categories[0]?.pages[0]?.href).toBe('/lesson/c1/artifact/sine');
+  });
+
+  it('getLesson SELECT exposes html-PRESENCE (has_html boolean), never the html blob (AC1, issue #215)', async () => {
+    // Provide a curriculum row so getLesson proceeds to the page SELECT (a null curriculum short-circuits).
+    const { deps, client } = fakePool([
+      { match: 'FROM curriculum WHERE', rows: [{ id: 'c1', topic: 'T', settings_json: request.settings }] },
+    ]);
+    await getLesson('c1', 'owner-1', deps);
+    const sql = sqlsOf(client.query).find((s) => s.includes('FROM curriculum_page')) ?? '';
+    // Presence as a BOOLEAN expression in the projection — not a bare `p.html` blob column. This is what
+    // lets the page derive built | held | failed without ever pulling the (potentially large) html into
+    // the hub query.
+    expect(sql).toContain("(p.html IS NOT NULL AND p.html <> '') AS has_html");
   });
 
   it('getOwnedPage returns the html via the owner-scoped JOIN, null when not owned', async () => {

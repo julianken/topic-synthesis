@@ -63,7 +63,7 @@ const hubWith = (built: boolean): SitemapHub => ({
   tiers: [
     {
       tier: 'Tier 1',
-      categories: [{ name: 'Lesson', pages: [{ slug: 's', title: 't', built, status: built ? 'built' : 'soon', href: '' }] }],
+      categories: [{ name: 'Lesson', pages: [{ slug: 's', title: 't', built, hasHtml: built, status: built ? 'built' : 'soon', href: '' }] }],
     },
   ],
 });

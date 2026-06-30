@@ -22,6 +22,11 @@ export function assembleHub(gated: GatedGraph, passedSlugs: ReadonlySet<string>)
       slug: node.slug,
       title: node.title,
       built: status === 'built',
+      // Structural default on the pipeline-assembled hub (DORMANT curriculum path): a built page carries
+      // html. The AUTHORITATIVE read-path value comes from rebuildHub (src/store/repo.ts) off the
+      // persisted row — this pipeline hub is rebuilt from the DB on read, so this field is never the
+      // disposition source (issue #215; mirrors the `href` placeholder note below).
+      hasHtml: status === 'built',
       status,
       // Placeholder: the read path (rebuildHub in src/store/repo.ts) sets the real owner-scoped
       // /curriculum/<id>/artifact/<slug> href; this pipeline-built href is never consumed (the hub is

@@ -498,8 +498,14 @@ export async function runLesson(
         categories: [
           {
             // href is a placeholder — the read path (rebuildHub) sets the real owner-scoped href.
+            // hasHtml mirrors what persistRun writes (`artifact?.html ?? null`) + the read predicate
+            // (`<> ''`): a critic-HELD lesson keeps its rendered html (artifact present, passed:false → soon
+            // + hasHtml), a synthesis-FAILED one has none (status soon + no html). The AUTHORITATIVE value
+            // is re-derived by rebuildHub on read; this pipeline-side flag is never the disposition source. #215
             name: 'Lesson',
-            pages: [{ slug, title: briefTitle(briefed.brief), status, built, href: '' }],
+            pages: [
+              { slug, title: briefTitle(briefed.brief), status, built, hasHtml: Boolean(synth.artifact?.html), href: '' },
+            ],
           },
         ],
       },

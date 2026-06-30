@@ -1,4 +1,8 @@
-import { buildSummaryModel, type BuildSummaryModel } from './build-summary';
+import {
+  buildSummaryModel,
+  type BuildSummaryModel,
+  type LessonDisposition,
+} from './build-summary';
 import { getStepEvents } from '../../../store/repo';
 
 /**
@@ -16,8 +20,14 @@ import { getStepEvents } from '../../../store/repo';
 /** The async server component: read the durable `step_event` timeline (kept past persist — issue #175),
  *  fold it to a model, and render. Returns `null` when there's nothing to disclose (a legacy/blob lesson
  *  with no recorded steps), so the page renders no empty shell. */
-export async function BuildSummary({ id, degraded }: { id: string; degraded: boolean }) {
-  const model = buildSummaryModel(await getStepEvents(id), degraded);
+export async function BuildSummary({
+  id,
+  disposition,
+}: {
+  id: string;
+  disposition: LessonDisposition;
+}) {
+  const model = buildSummaryModel(await getStepEvents(id), disposition);
   if (!model) return null;
   return <BuildSummaryView model={model} />;
 }
@@ -30,8 +40,15 @@ export async function BuildSummary({ id, degraded }: { id: string; degraded: boo
  * spine (`--frame-max` / `--edge-gap`) via `.build-summary`. Status is by label + icon, never colour alone.
  */
 export function BuildSummaryView({ model }: { model: BuildSummaryModel }) {
+  // Render from the 3-way disposition (issue #215): `data-degraded` (held|failed) keeps the existing CSS
+  // hook unchanged, and `data-disposition` exposes the precise terminal state for finer styling/testing.
+  const degraded = model.disposition !== 'built';
   return (
-    <details className="build-summary" data-degraded={model.degraded || undefined}>
+    <details
+      className="build-summary"
+      data-degraded={degraded || undefined}
+      data-disposition={model.disposition}
+    >
       <summary className="build-summary__summary">
         <span className="build-summary__chevron" aria-hidden="true" />
         <span className="build-summary__head">{model.headline}</span>
