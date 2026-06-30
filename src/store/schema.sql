@@ -73,6 +73,15 @@ ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS owner_sub TEXT;
 ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS category TEXT;
 ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS summary  TEXT;
 
+-- Recoverable soft-delete (lesson-deletion epic, #198). Additive + idempotent + NULLABLE, the SAME
+-- pattern as the owner_sub/category/summary backfills above: a non-NULL `deleted_at` marks a lesson
+-- recoverably deleted. Every owner-scoped read gains `AND deleted_at IS NULL`, so a deleted lesson reads
+-- back identically to an absent/not-owned one (uniform 404, no existence oracle); the dedicated
+-- Recently-deleted reads filter `deleted_at IS NOT NULL`. softDelete/restore are single owner-scoped
+-- guarded UPDATEs (set/clear deleted_at, RETURNING id) — idempotent + ordering-safe. No FK/cascade/index
+-- change: a partial index `WHERE deleted_at IS NULL` is deferred until data volume warrants it (GAPS.md).
+ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
 -- Run ownership stamped at DISPATCH (before the curriculum persists), so the hub can tell a caller's
 -- own still-generating run (→ "generating") from a foreign/absent id (→ uniform 404) with no DB
 -- existence oracle. The Job later writes the same sub onto curriculum.owner_sub at persist. ADR 0002 §5.

@@ -235,14 +235,15 @@ export function rebuildHub(rows: PageJoinRow[], lessonId: string): SitemapHub {
 }
 
 /** Read a curriculum + its tiered hub, OWNER-SCOPED: absent and not-owned both yield null (a uniform
- *  404 upstream — no 403/404 existence oracle). ADR 0002 §5. */
+ *  404 upstream — no 403/404 existence oracle). ADR 0002 §5. A soft-deleted lesson (`deleted_at` set —
+ *  lesson-deletion epic #198) reads back null the same way, so deletion is "absent at the read layer". */
 export async function getLesson(
   id: string,
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
 ): Promise<LessonView | null> {
   const cur = await deps.pool.query<{ id: string; topic: string; settings_json: Settings }>(
-    `SELECT id, topic, settings_json FROM curriculum WHERE id = $1 AND owner_sub = $2`,
+    `SELECT id, topic, settings_json FROM curriculum WHERE id = $1 AND owner_sub = $2 AND deleted_at IS NULL`,
     [id, ownerSub],
   );
   const row = cur.rows[0];
@@ -267,7 +268,8 @@ export interface StoredPage {
 
 /** Read a page's stored HTML, authorized THROUGH the owning curriculum (ADR 0002 §5): a JOIN scoped to
  *  (lessonId owned by ownerSub, slug). null for absent / not-owned (uniform 404). The slug — not
- *  the shared content-hash pageId — is the lookup key, so a per-pageId capability is never the gate. */
+ *  the shared content-hash pageId — is the lookup key, so a per-pageId capability is never the gate.
+ *  A soft-deleted lesson (`c.deleted_at` set — #198) reads back null too, so its artifact is unreachable. */
 export async function getOwnedPage(
   lessonId: string,
   slug: string,
@@ -284,7 +286,7 @@ export async function getOwnedPage(
        FROM curriculum c
        JOIN curriculum_page cp ON cp.curriculum_id = c.id
        JOIN concept_page p ON p.id = cp.page_id
-      WHERE c.id = $1 AND c.owner_sub = $2 AND p.concept_slug = $3`,
+      WHERE c.id = $1 AND c.owner_sub = $2 AND p.concept_slug = $3 AND c.deleted_at IS NULL`,
     [lessonId, ownerSub, slug],
   );
   const row = res.rows[0];
@@ -681,7 +683,9 @@ export interface LessonCard {
 /** List one poster-card descriptor per lesson the caller owns, newest-first — the reader the library
  *  home (TS-17) builds its card grid on. OWNER-SCOPED (ADR 0002 §5): scoped on `curriculum.owner_sub`,
  *  so a caller with no owned lessons AND an unknown/foreign `ownerSub` both get `[]` — no existence
- *  oracle. ONE owner-scoped query joining `curriculum` → a single representative `concept_page`,
+ *  oracle. Soft-deleted lessons (`deleted_at` set — #198) are filtered out, so the library home never
+ *  shows a deleted lesson; the Recently-deleted shelf reads them via `listDeletedLessons`. ONE
+ *  owner-scoped query joining `curriculum` → a single representative `concept_page`,
  *  projecting only the card fields — NOT a per-lesson `getLesson` loop (which would be N+1 and
  *  over-fetch the tiered hub).
  *
@@ -731,7 +735,7 @@ export async function listLessons(
            FROM curriculum c
            JOIN curriculum_page cp ON cp.curriculum_id = c.id
            JOIN concept_page p ON p.id = cp.page_id
-          WHERE c.owner_sub = $1
+          WHERE c.owner_sub = $1 AND c.deleted_at IS NULL
           ORDER BY c.id, cp.ordinal
        ) cards
       ORDER BY created_at DESC`,
@@ -751,4 +755,126 @@ export async function listLessons(
     category: r.category ?? null,
     summary: r.summary ?? null,
   }));
+}
+
+// ── soft-delete data layer (lesson-deletion epic, #198) ───────────────────────────────────────────
+// Recoverable deletion as one nullable `curriculum.deleted_at` stamp (schema.sql). Deletion is "absent
+// at the read layer" — the three reads above each carry `deleted_at IS NULL`. softDelete/restore are
+// single owner-scoped GUARDED UPDATEs whose `RETURNING id` is the reconcile seam the optimistic clients
+// (#199/#201/#203) reconcile against. NO route/UI here — this is the foundational data layer #199–#205
+// build on (no `hardDelete`; that's #205). NO durable behavior change beyond the column + predicates.
+
+/** Soft-delete the caller's lessons by id — a SINGLE owner-scoped guarded UPDATE that stamps
+ *  `deleted_at = now()` ONLY on rows the caller owns that are not already deleted, and returns the ids
+ *  actually affected (the `RETURNING id` rows). IDEMPOTENT + ordering-safe by construction: the
+ *  `deleted_at IS NULL` guard makes a re-delete, a foreign-owner id, and a stale/absent id all match
+ *  ZERO rows and return `[]` (so a late delete can never overtake a restore). Owner-scoping
+ *  (`owner_sub = $2`) is UNCONDITIONAL — the client id list is never the authorization boundary. The
+ *  returned ids are the reconcile seam the optimistic clients (#199/#201/#203) reconcile against — never
+ *  the client's own requested list. (#198) */
+export async function softDelete(
+  ids: string[],
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<string[]> {
+  const res = await deps.pool.query<{ id: string }>(
+    `UPDATE curriculum SET deleted_at = now()
+      WHERE id = ANY($1) AND owner_sub = $2 AND deleted_at IS NULL
+      RETURNING id`,
+    [ids, ownerSub],
+  );
+  return res.rows.map((r) => r.id);
+}
+
+/** Restore the caller's soft-deleted lessons by id — the inverse of `softDelete`: a SINGLE owner-scoped
+ *  guarded UPDATE that clears `deleted_at` ONLY on rows the caller owns that are currently deleted, and
+ *  returns the ids actually affected. IDEMPOTENT + ordering-safe: the `deleted_at IS NOT NULL` guard
+ *  makes a re-restore, a foreign-owner id, and a not-currently-deleted id all match ZERO rows and return
+ *  `[]`. Owner-scoping is UNCONDITIONAL, same as `softDelete`. (#198) */
+export async function restore(
+  ids: string[],
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<string[]> {
+  const res = await deps.pool.query<{ id: string }>(
+    `UPDATE curriculum SET deleted_at = NULL
+      WHERE id = ANY($1) AND owner_sub = $2 AND deleted_at IS NOT NULL
+      RETURNING id`,
+    [ids, ownerSub],
+  );
+  return res.rows.map((r) => r.id);
+}
+
+/** A Recently-deleted poster card — a `LessonCard` plus the `deletedAt` ISO stamp the recovery shelf
+ *  (#204) orders + labels by ("deleted 3h ago"). The Recently-deleted surface reuses the dense library
+ *  card, so this extends `LessonCard` rather than inventing a second card shape. (#198) */
+export type DeletedLessonCard = LessonCard & { deletedAt: string };
+
+/** List one poster-card per SOFT-DELETED lesson the caller owns, newest-deleted-first — the reader the
+ *  Recently-deleted shelf (#204) builds on. OWNER-SCOPED (ADR 0002 §5): scoped on `curriculum.owner_sub`
+ *  AND filtered to `c.deleted_at IS NOT NULL`, so a foreign/unknown owner gets `[]` (no existence oracle),
+ *  and a live (not-deleted) lesson never appears. REUSES the `listLessons` one-card-per-curriculum
+ *  `DISTINCT ON (c.id)` projection (so a multi-page curriculum still emits ONE card), adding the
+ *  `deleted_at` column and ordering by it DESC. Each card carries a `deletedAt` ISO string. (#198) */
+export async function listDeletedLessons(
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<DeletedLessonCard[]> {
+  const res = await deps.pool.query<{
+    id: string;
+    created_at: string | Date;
+    deleted_at: string | Date;
+    concept_slug: string;
+    title: string;
+    status: PageStatus;
+    settings_json: Settings;
+    category: string | null;
+    summary: string | null;
+  }>(
+    // Same one-card-per-curriculum shape as listLessons (inner DISTINCT ON (c.id) → lowest-ordinal
+    // representative page), filtered to deleted rows and re-ordered newest-DELETED-first by the outer
+    // query (DISTINCT ON forces ORDER BY c.id first, so the deleted_at DESC sort lives in the outer query).
+    `SELECT id, created_at, deleted_at, concept_slug, title, status, settings_json, category, summary
+       FROM (
+         SELECT DISTINCT ON (c.id)
+                c.id, c.created_at, c.deleted_at, c.settings_json, c.category, c.summary,
+                p.concept_slug, p.title, p.status
+           FROM curriculum c
+           JOIN curriculum_page cp ON cp.curriculum_id = c.id
+           JOIN concept_page p ON p.id = cp.page_id
+          WHERE c.owner_sub = $1 AND c.deleted_at IS NOT NULL
+          ORDER BY c.id, cp.ordinal
+       ) cards
+      ORDER BY deleted_at DESC`,
+    [ownerSub],
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    slug: r.concept_slug,
+    title: r.title,
+    status: r.status,
+    level: r.settings_json.level,
+    depth: r.settings_json.depth,
+    // pg returns TIMESTAMPTZ as a Date; normalize to ISO strings (same as listLessons.createdAt).
+    createdAt: new Date(r.created_at).toISOString(),
+    category: r.category ?? null,
+    summary: r.summary ?? null,
+    deletedAt: new Date(r.deleted_at).toISOString(),
+  }));
+}
+
+/** The friendly-stale existence read the reader (#202) branches on: does this caller OWN this id AND is
+ *  it currently soft-deleted? Returns `{ id, topic }` for an owned soft-deleted lesson (so the reader can
+ *  show a "this lesson is in Recently deleted — restore it?" state instead of a bare 404), and `null` for
+ *  an absent, not-owned, OR not-deleted id alike — no 403/404 existence oracle. (#198) */
+export async function getOwnedDeletedLesson(
+  id: string,
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<{ id: string; topic: string } | null> {
+  const res = await deps.pool.query<{ id: string; topic: string }>(
+    `SELECT id, topic FROM curriculum WHERE id = $1 AND owner_sub = $2 AND deleted_at IS NOT NULL`,
+    [id, ownerSub],
+  );
+  return res.rows[0] ?? null;
 }
