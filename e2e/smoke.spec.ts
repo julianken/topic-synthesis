@@ -68,8 +68,8 @@ test.describe('smoke — generate → generating (pipeline + dispatch mocked)', 
       .then((req) => req.postDataJSON() as Record<string, unknown>);
 
     // Fill the topic and submit. The form POSTs /api/generate which (E2E=1) runs the NETWORK-FREE stub
-    // pipeline in-process and returns a runId; the in-place generating shell polls + navigates to
-    // /lesson/<id> once the (fast) stub run lands.
+    // pipeline in-process and returns a runId; on the 202 the create form NAVIGATES (a full cross-document
+    // nav) to /lesson/<id> — the SINGLE generating screen (run-lifecycle #225, no in-place shell).
     await page.getByRole('textbox').first().fill('Fourier transforms');
     await page.getByRole('button', { name: /generate/i }).click();
 
@@ -80,7 +80,8 @@ test.describe('smoke — generate → generating (pipeline + dispatch mocked)', 
     expect(body.depth).toBe(3); // the default
     expect(body).toHaveProperty('audience'); // present (empty string when unfilled)
 
-    // Land on the reader route for the new run (the in-place generating shell navigates on ready).
+    // Land on the reader route for the new run (the create form NAVIGATES to /lesson/<id> on the 202 —
+    // the single generating screen; run-lifecycle #225).
     await expect(page).toHaveURL(/\/lesson\/[0-9a-f-]+$/i, { timeout: 30_000 });
 
     // The reader shows EITHER the generating state (run still in flight, polling status) OR — once the

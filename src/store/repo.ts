@@ -306,17 +306,51 @@ export async function getOwnedPage(
   return { slug: row.concept_slug, title: row.title, status: row.status, html: row.html };
 }
 
+/** The run's typed topic + settings, stamped on `run_owner` at dispatch (run-lifecycle #225). Owner-gated
+ *  via {@link getRunMeta}; surfaced on the SINGLE generating screen's header (topic + the `<level> · depth
+ *  <n>` sub-line) now that the create-form path NAVIGATES to /lesson/[id] instead of passing the topic
+ *  client-side from an in-place shell. */
+export interface RunMeta {
+  topic: string;
+  level: string;
+  depth: number;
+}
+
 /** Stamp run ownership at dispatch — before the curriculum persists — so the pre-persist poll window
- *  can be owner-scoped without a DB existence oracle. Idempotent. */
+ *  can be owner-scoped without a DB existence oracle. Idempotent. The optional `meta` (run-lifecycle #225)
+ *  records the typed topic + settings so the generating screen at /lesson/[id] shows them server-side;
+ *  omit it (legacy/seed callers) → the columns stay NULL and the header honestly degrades to "Generating…". */
 export async function recordRunOwner(
   runId: string,
   ownerSub: string,
+  meta?: RunMeta,
   deps: StoreDeps = { pool: getPool() },
 ): Promise<void> {
   await deps.pool.query(
-    `INSERT INTO run_owner (run_id, owner_sub) VALUES ($1, $2) ON CONFLICT (run_id) DO NOTHING`,
+    `INSERT INTO run_owner (run_id, owner_sub, topic, level, depth) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (run_id) DO NOTHING`,
+    [runId, ownerSub, meta?.topic ?? null, meta?.level ?? null, meta?.depth ?? null],
+  );
+}
+
+/** Read a run's typed topic + settings (run-lifecycle #225), OWNER-SCOPED so a non-owner / absent id gets
+ *  `null` — identical to a legacy run_owner row with no topic recorded (no existence oracle). Returns null
+ *  unless ALL THREE columns are present (the dispatch writes them atomically; a partial/legacy row → the
+ *  honest "Generating…" degrade). Two callers: the page's generating branch (SSR — so the header + the
+ *  `specimen-topic` morph target render at first paint) and the status route's `meta` field (kept fresh in
+ *  the poll). Like the rest of `run_owner`, pruned at persist — it serves only the in-run window. */
+export async function getRunMeta(
+  runId: string,
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<RunMeta | null> {
+  const res = await deps.pool.query<{ topic: string | null; level: string | null; depth: number | null }>(
+    `SELECT topic, level, depth FROM run_owner WHERE run_id = $1 AND owner_sub = $2`,
     [runId, ownerSub],
   );
+  const row = res.rows[0];
+  if (!row || row.topic === null || row.level === null || row.depth === null) return null;
+  return { topic: row.topic, level: row.level, depth: row.depth };
 }
 
 /** The synthetic step name (and step_key) of the dispatch marker. NOT a pipeline stage — it's the

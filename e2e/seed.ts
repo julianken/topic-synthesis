@@ -342,8 +342,10 @@ export async function seedDenseLibraryCard(): Promise<void> {
     // generating branch renders for the visual spec. getLesson(this id) stays null → page.tsx shows
     // the live-research generating view; ownsRun(this id) is true → it's the generating branch, not a 404.
     // The mid-run research/steps data comes from the spec's status-poll interception (deterministic),
-    // not the DB, so no research_event/step_event rows are seeded here.
-    await recordRunOwner(SEED_GENERATING_RUN_ID, E2E_OWNER_SUB, { pool });
+    // not the DB, so no research_event/step_event rows are seeded here. Deliberately NO topic meta (4th
+    // arg omitted, run-lifecycle #225): the reader-route generating captures the honest bare "Generating…"
+    // degrade; the create-form specs supply the typed topic via the intercepted poll's `meta` field.
+    await recordRunOwner(SEED_GENERATING_RUN_ID, E2E_OWNER_SUB, undefined, { pool });
   } finally {
     await pool.end();
   }

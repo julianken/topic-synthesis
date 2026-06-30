@@ -117,7 +117,14 @@ export async function POST(req: Request): Promise<Response> {
   const runId = randomUUID();
   // Stamp ownership at dispatch (before the curriculum persists) so the hub can owner-scope the
   // pre-persist poll window with no existence oracle; the Job writes owner_sub onto the curriculum.
-  await recordRunOwner(runId, identity.sub);
+  // ALSO record the typed topic + settings (run-lifecycle #225) so the SINGLE generating screen at
+  // /lesson/[id] — the create-form now NAVIGATES there — shows "Generating <topic>…" + the settings
+  // sub-line server-side (owner-gated via getRunMeta), not a bare "Generating…".
+  await recordRunOwner(runId, identity.sub, {
+    topic: request.topic,
+    level: request.settings.level,
+    depth: request.settings.depth,
+  });
   // BEST-EFFORT (issue #162): write a "Starting…" dispatch marker so the generating view shows
   // immediate progress during the Job's cold-start window — before the first real step_event lands. A
   // failed marker write must NEVER fail the dispatch: the run still proceeds; the UI just lacks the

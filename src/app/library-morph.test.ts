@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BEGIN_GENERATE_TYPE,
   NEW_SURFACE_NAME,
   prefersReducedMotion,
   runViewTransition,
@@ -11,9 +10,10 @@ import {
 } from './library-morph';
 
 // ── The create-form flow's pure motion gate (mirrors reader-morph-guard.test.ts conventions) ─────────
-// This flow's open/close/submit morphs are SCRIPTED same-document View-Transitions, so unlike the
+// The `+New` card ↔ form open/close morphs are SCRIPTED same-document View-Transitions, so unlike the
 // CSS-driven card→reader morph they must be gated in JS before the call. The gate (vtOff) + the
-// instant-swap floor (runViewTransition) are the node-testable core; the .tsx island wires them.
+// instant-swap floor (runViewTransition) are the node-testable core; the .tsx island wires them. The
+// submit handoff is now a CROSS-document route navigation (run-lifecycle #225), gated by the same vtOff.
 
 /** A `win`-shaped capability stub matching the two gate inputs (VT API present, reduced-motion). */
 function fakeWin({
@@ -30,13 +30,14 @@ function fakeWin({
 }
 
 describe('the value-locked shared view-transition-name constants (no static CSS leak)', () => {
-  it('pins the morph endpoint names + the typed submit type', () => {
+  it('pins the morph endpoint names', () => {
     // The names are JS constants set inline on both endpoints — NEVER a static CSS rule (a single global
     // `view-transition-name` could never pair two per-flow endpoints). page.test.ts guards the CSS leak;
     // these pin the literal values both endpoints share so origin and destination can't silently drift.
+    // `specimen-topic` now bridges the CROSS-document create-form → generating morph (run-lifecycle #225):
+    // the form's topic text-twin (OLD doc) pairs with the generating view's `#genTopic` header (NEW doc).
     expect(NEW_SURFACE_NAME).toBe('new-surface');
     expect(SPECIMEN_TOPIC_NAME).toBe('specimen-topic');
-    expect(BEGIN_GENERATE_TYPE).toBe('begin-generate');
   });
 });
 
@@ -136,10 +137,10 @@ describe('runViewTransition — the instant-swap floor + the morph call path', (
       document: { startViewTransition },
       matchMedia: () => ({ matches: false }), // motion allowed
     };
-    await runViewTransition(update, [BEGIN_GENERATE_TYPE], win);
+    await runViewTransition(update, ['open-form'], win);
     expect(startViewTransition).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledTimes(1); // invoked by the API, not synchronously by the floor
-    expect(captured!.types).toEqual([BEGIN_GENERATE_TYPE]);
+    expect(captured!.types).toEqual(['open-form']);
   });
 
   it('swallows the AbortError a superseded transition rejects with (rapid open→close never throws)', async () => {

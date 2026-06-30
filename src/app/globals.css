@@ -2498,9 +2498,10 @@ body.has-ws-topbar > .appbar {
   }
 }
 
-/* The reader-route generating wrapper widens to the frame cap so the full-width column-table's six phase
-   columns divide the entire content width (SPEC §1) — the create-form path reuses .generating-shell, which
-   already provides its own column. */
+/* The generating-screen wrapper widens to the frame cap so the full-width column-table's six phase
+   columns divide the entire content width (SPEC §1). This is now the SINGLE generating screen
+   (run-lifecycle #225 — the create-form NAVIGATES to /lesson/[id]; the prior in-place `.generating-shell`
+   on `/` is removed). */
 .wrap--gen {
   max-width: var(--frame-max);
 }
@@ -2764,11 +2765,13 @@ body.has-ws-topbar > .appbar {
    `+ New lesson` card; clicking it GROWS that cell in place into the intake form (a same-document
    container-transform reusing the shipped card→reader morph vocabulary — the shared `view-transition-name`
    + `.morph-box` discipline, the §0 `--dur-*`/`--ease` tokens, the catalog `--tr-*` primitives, and the
-   `rail-reveal` stagger), and a successful submit hands off to an in-place generating shell (the typed
-   `begin-generate` transition: the topic text lifts via `specimen-topic`, the form root recedes). EVERY
-   value resolves to a §0 token or a catalog primitive — no raw ms/easing literal, no new §0 entry. Under
-   `prefers-reduced-motion: reduce` the global rule above zeroes every stagger/transition and the scripted
-   View-Transition simply never starts (the vtOff guard in library-morph.ts), so the swaps are instant.
+   `rail-reveal` stagger), and a successful submit NAVIGATES to the SINGLE generating screen at
+   /lesson/[id] (run-lifecycle #225 — the prior in-place shell is gone): the typed topic text lifts
+   form→generating-header via the `specimen-topic` shared element across the CROSS-document route change
+   (the `@view-transition` transport), not a same-document recede. EVERY value resolves to a §0 token or a
+   catalog primitive — no raw ms/easing literal, no new §0 entry. Under `prefers-reduced-motion: reduce` the
+   global rule above zeroes every stagger/transition and the morph simply never starts (the same-document
+   `+New`↔form morph via the vtOff guard; the cross-document transport via its no-preference scoping).
    ════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /* The library home's ONE standing polite live region (issue #200) — the deletion epic's sole announcement
@@ -2991,29 +2994,19 @@ body.has-ws-topbar > .appbar {
   font-size: var(--fs-caption);
 }
 
-/* The IN-PLACE generating shell (the submit handoff target on `/`). It hosts the SHARED live-research
-   generating view (the full-width column-table: the phase stepper over a column-locked plane + the
-   full-width LIVE RESEARCH band below), so it widens to the frame cap (matching `.wrap--gen`) so the six
-   phase columns divide the full content width (SPEC §1). The view renders its own header (+ the
-   `specimen-topic` topic span that the form's submit handoff morphs into). */
-.generating-shell {
-  max-width: var(--frame-max);
-  margin: 0 auto;
-  padding: var(--sp-6) var(--edge-gap) var(--sp-7);
-}
-
-/* ── Typed-root View-Transition CSS (the create-form flow) ──────────────────────────────────────────
+/* ── View-Transition CSS (the create-form flow) ─────────────────────────────────────────────────────
    Scoped inside `prefers-reduced-motion: no-preference` so the choreography is DECLARED only when motion
    is allowed (matching the card→reader transport's scoping above); under reduced motion the rules are
-   absent AND the scripted View-Transition never starts (the vtOff guard). The morph-box group + the
-   specimen-topic group tween at --dur-slow/--ease (the box/element "last thing moving" cohesion rule);
-   the root cross-fade runs shorter at --dur-base, so the topic text outlasts the root fade. The
-   `begin-generate` typed-root choreography RECEDES the OLD (form) root via @keyframes vt-recede. NO raw
-   duration/easing literal — every value is a §0 token. */
+   absent AND the morph never starts (the same-document `+New`↔form morph is vtOff-gated; the cross-
+   document submit morph rides the `@view-transition` transport, itself scoped to no-preference above).
+   Both the morph-box group (the same-document `+New` card ↔ form container-transform) and the specimen-
+   topic group (the CROSS-document create-form → generating topic morph, run-lifecycle #225) tween at
+   --dur-slow/--ease (the box/element "last thing moving" cohesion rule). NO raw duration/easing literal —
+   every value is a §0 token. */
 @media (prefers-reduced-motion: no-preference) {
-  /* The container-transform group (the +New card ↔ form box, AND the topic text element) tweens at the
-     --dur-slow tier — the same "last thing moving" timing the card→reader morph uses. overflow:clip keeps
-     the growing box from silly-putty-stretching its captured snapshot. */
+  /* The container-transform group (the +New card ↔ form box) tweens at the --dur-slow tier — the same
+     "last thing moving" timing the card→reader morph uses. overflow:clip keeps the growing box from
+     silly-putty-stretching its captured snapshot. */
   ::view-transition-group(.morph-box) {
     animation-duration: var(--dur-slow);
     animation-timing-function: var(--ease);
@@ -3028,27 +3021,14 @@ body.has-ws-topbar > .appbar {
     object-position: top left;
   }
 
-  /* The specimen-topic shared text outlasts the root cross-fade (cohesion) — it runs at --dur-slow while
-     the root fade below stays at --dur-base. */
+  /* The specimen-topic shared text outlasts the root cross-fade (cohesion): it runs at --dur-slow while
+     the default root fade stays at the --dur-slow group tier above. This now drives the CROSS-document
+     create-form → generating topic morph (run-lifecycle #225): the form's topic text-twin (OLD doc) pairs
+     with the generating view's `#genTopic` header (NEW doc) across the route change. The same rule served
+     the prior same-document submit handoff; only the transport changed (a route navigation rides the
+     `@view-transition` transport above, not a scripted same-document call), so no rule is orphaned. */
   ::view-transition-group(specimen-topic) {
     animation-duration: var(--dur-slow);
     animation-timing-function: var(--ease);
-  }
-
-  /* SUBMIT (begin-generate typed transition): the OLD (form) root RECEDES — settles back + fades — as the
-     generating shell comes forward, rather than a flat cross-fade. Keyed to the typed transition so it
-     runs ONLY on submit, not on the open/close card↔form morph. */
-  html:active-view-transition-type(begin-generate) ::view-transition-old(root) {
-    animation: vt-recede var(--dur-base) var(--ease) both;
-  }
-}
-
-/* The form-recedes keyframe — fade + a slight settle-back. Used only by the begin-generate type above; a
-   browser without typed View-Transitions never selects that rule (and under reduced motion the global
-   ::view-transition-old(root) reset zeroes it). */
-@keyframes vt-recede {
-  to {
-    transform: translateY(2%) scale(0.985);
-    opacity: 0;
   }
 }

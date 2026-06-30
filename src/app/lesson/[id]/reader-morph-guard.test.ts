@@ -113,22 +113,26 @@ describe('prefersReducedMotion — the preference gate (AC5)', () => {
 // inline script. These tests exercise the ACTUAL handler body (not just a source byte-pin): given a
 // synthetic `pagereveal` event + DOM/capability/preference stubs, does it call `skipTransition`?
 
-/** Build a `win`-shaped stub matching the three gate inputs (capability, reduced-motion, box presence). */
+/** Build a `win`-shaped stub matching the gate inputs (capability, reduced-motion, + the TWO receiver
+ *  endpoints: the reader's `#readerPanel` box and the generating view's `#genTopic` header — #225). */
 function fakeWin({
   supported,
   reducedMotion,
   boxPresent,
+  genTopicPresent = false,
 }: {
   supported: boolean;
   reducedMotion: boolean;
   boxPresent: boolean;
+  genTopicPresent?: boolean;
 }) {
   return {
     document: {
       // capability: the VT API is present only when `supported`
       startViewTransition: supported ? () => {} : undefined,
-      // receiver: getElementById returns a node only when the box is present
-      getElementById: (id: string) => (id === 'readerPanel' && boxPresent ? {} : null),
+      // receiver: getElementById returns a node for whichever destination endpoint is present
+      getElementById: (id: string) =>
+        (id === 'readerPanel' && boxPresent) || (id === 'genTopic' && genTopicPresent) ? {} : null,
     },
     // capability: view-transition-name support tracks `supported`
     CSS: { supports: (prop: string) => supported && prop === 'view-transition-name' },
@@ -209,6 +213,48 @@ describe('handleReaderPageReveal — the ACTIVE receiver-guarantee fires on the 
         }
       }
     }
+  });
+});
+
+describe('handleReaderPageReveal — the generating-destination receiver branch (run-lifecycle #225, AC4)', () => {
+  // The create-form → generating page renders `.gen` with `#genTopic` (the topic header) but NO
+  // `#readerPanel`. Without a second receiver branch the reader gate alone would always skip and kill the
+  // create-form → generating topic morph. The branch lets the cross-doc VT run when `#genTopic` is present.
+
+  it('does NOT skip on the generating destination (#genTopic present, #readerPanel absent) → the topic morph runs', () => {
+    const skipTransition = vi.fn();
+    handleReaderPageReveal(
+      { viewTransition: { skipTransition } },
+      fakeWin({ supported: true, reducedMotion: false, boxPresent: false, genTopicPresent: true }),
+    );
+    expect(skipTransition).not.toHaveBeenCalled();
+  });
+
+  it('SKIPS the generating destination under prefers-reduced-motion (instant-swap, no half-morph; AC5)', () => {
+    const skipTransition = vi.fn();
+    handleReaderPageReveal(
+      { viewTransition: { skipTransition } },
+      fakeWin({ supported: true, reducedMotion: true, boxPresent: false, genTopicPresent: true }),
+    );
+    expect(skipTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it('SKIPS the generating destination when the cross-doc VT API is unsupported (instant-swap; AC1/AC2)', () => {
+    const skipTransition = vi.fn();
+    handleReaderPageReveal(
+      { viewTransition: { skipTransition } },
+      fakeWin({ supported: false, reducedMotion: false, boxPresent: false, genTopicPresent: true }),
+    );
+    expect(skipTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it('SKIPS when NEITHER endpoint is present (an unknown-topic generating page → a clean nav, no half-morph)', () => {
+    const skipTransition = vi.fn();
+    handleReaderPageReveal(
+      { viewTransition: { skipTransition } },
+      fakeWin({ supported: true, reducedMotion: false, boxPresent: false, genTopicPresent: false }),
+    );
+    expect(skipTransition).toHaveBeenCalledTimes(1);
   });
 });
 

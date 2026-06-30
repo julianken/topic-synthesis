@@ -3,10 +3,12 @@ import {
   getCodeProgress,
   getLesson,
   getResearchEvents,
+  getRunMeta,
   getStepEvents,
   ownsRun,
   type CodeProgress,
   type ResearchEvent,
+  type RunMeta,
   type StepEvent,
 } from '../../../../../store/repo';
 
@@ -30,6 +32,10 @@ export const dynamic = 'force-dynamic';
  *    a learner-safe `{ fraction, elapsedMs }` (or null while code hasn't streamed). Rides the one `owns`
  *    gate too; null for a non-owner/absent id is identical to a just-started owned run (no existence
  *    oracle), and carries NO raw token/cost/model (the fraction is computed in the sink). Pruned at persist.
+ *  - `meta` ⇐ the SAME `ownsRun` gate + getRunMeta(id, sub): the run's typed topic + settings (run-
+ *    lifecycle #225 — `run_owner.topic`/`level`/`depth`), so the SINGLE generating screen at /lesson/[id]
+ *    (the create-form now NAVIGATES there) shows "Generating <topic>…" + the "<level> · depth <n>" sub-
+ *    line. Rides the one `owns` gate; null for a non-owner/absent/legacy-no-topic id (no existence oracle).
  */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await ctx.params;
@@ -39,5 +45,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const steps: StepEvent[] = owns ? await getStepEvents(id) : [];
   const research: ResearchEvent[] = owns ? await getResearchEvents(id) : [];
   const code: CodeProgress | null = owns ? await getCodeProgress(id) : null;
-  return Response.json({ id, ready: view !== null, steps, research, code });
+  const meta: RunMeta | null = owns && identity ? await getRunMeta(id, identity.sub) : null;
+  return Response.json({ id, ready: view !== null, steps, research, code, meta });
 }
