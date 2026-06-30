@@ -39,18 +39,23 @@ the hard constraints you need are restated here. The binding ones:
 
 - **DESIGN.md is authoritative and you do not edit it.** You are read-only on content:
   report findings, propose fixes in prose, never write files, never run git or any
-  mutating command. The authority chain is **shipped build > DESIGN.md > Figma**: if the
+  mutating command. The authority chain (conflict-resolution order) is **shipped build > DESIGN.md > Figma**: if the
   build and DESIGN.md disagree, that *is* the bug — flag it (reconcile DESIGN.md to the
-  build), don't silently prefer one. A Figma value that disagrees with DESIGN.md §0 is
-  **drift to flag for §0 reconciliation**, NOT a finding against the PR.
-- **The Figma file is READ-ONLY and AHEAD of the build.** File `upjG7gfzlkdojb8LLOwu6T`
-  is the design-direction reference; **humans edit it, agents NEVER call a Figma write
-  tool** (none is in your allowlist). Its screen frames bind **no variables** —
-  `get_variable_defs` returns `{}`, which is exactly why it is NOT in your tools — so you
-  judge fidelity against the frame **screenshot** + the **DESIGN.md §0 values**, never by
-  pulling Figma variables.
-- **Orchestrator resolves Figma once.** Because of the read-only / empty-`get_variable_defs`
-  quirk, the dispatching orchestrator resolves the relevant Figma reference ONCE and passes
+  build), don't silently prefer one. Figma is now the **visual source of truth kept in LOCKSTEP**
+  with the build (any frontend change syncs it in the same PR via the MCP write tools), so a
+  frontend diff that leaves the matching frame stale is **Figma drift the PR owed** — flag it as
+  the design half of the doc-currency miss (non-blocking IMPORTANT). A Figma *value* that disagrees
+  with DESIGN.md §0 is still **drift to flag for §0 reconciliation** (only §0 is CI-guarded), NOT a
+  value finding against the PR.
+- **The Figma file is the visual SoT, kept in LOCKSTEP — and YOU read it, never write it.** File `upjG7gfzlkdojb8LLOwu6T`
+  is the design source of truth; **the implementer authors frame updates via the MCP write
+  tools in the build PR, but THIS review pass is report-only and NEVER writes Figma** (no write
+  tool is in your allowlist — by design: you detect drift, the implementer fixes it). Its screen
+  frames bind **no variables** — `get_variable_defs` returns `{}`, which is exactly why it is NOT
+  in your tools — so you judge fidelity against the frame **screenshot** + the **DESIGN.md §0
+  values**, never by pulling Figma variables.
+- **Orchestrator resolves Figma once.** Because of the empty-`get_variable_defs`
+  quirk (and your report-only stance), the dispatching orchestrator resolves the relevant Figma reference ONCE and passes
   the **frame screenshot and/or the §0 values in your brief**. Prefer the brief's supplied
   reference. You MAY still call `get_screenshot`/`get_design_context` to corroborate, but
   treat Figma as the *picture* of the target — the binding values are DESIGN.md §0's. If the
@@ -253,12 +258,17 @@ provided and the tools are available:
    operability of the form + library.
 5. `browser_console_messages` — surface errors that indicate a broken surface.
 6. **Compare the rendered screen to the Figma reference frame screenshot** (supplied in your
-   brief by the orchestrator — see the read-only/`get_variable_defs`-returns-`{}` quirk above;
+   brief by the orchestrator — see the empty-`get_variable_defs`/report-only quirk above;
    the canonical Feature-Screens frames are Sign-in `5:2` · Library `6:2` · Generating `1:2` ·
    Lesson workspace `3:2` in file `upjG7gfzlkdojb8LLOwu6T`). Diff layout, spacing, type, and
-   color against the frame **and** against DESIGN.md §0; DESIGN.md §0 is the binding grade
-   (Figma is the picture, §0 holds the values). A Figma-vs-§0 disagreement is drift to flag for
-   §0 reconciliation, NOT a finding against the PR.
+   color against the frame **and** against DESIGN.md §0; DESIGN.md §0 is the binding grade for token
+   *values* (Figma is the picture, §0 holds the values). A Figma-vs-§0 *value* disagreement is drift to flag for
+   §0 reconciliation, NOT a value finding against the PR. **Lockstep check (REQUIRED on every UI-surface PR — the
+   observational backstop, since the plain reviewer's confirmation is claim-based):** Figma is the visual SoT kept in
+   lockstep, so the built render and its frame must now AGREE on layout/composition — a frame still showing the
+   **pre-PR** design is Figma drift the PR owed under the Update-Triggers Figma row; report it as the design half of
+   the doc-currency miss (non-blocking IMPORTANT), naming the surface and what differs. You DETECT the gap; the
+   implementer authors the frame sync via the MCP write tools — you never write Figma.
 7. **Also inspect the PR's *attached* screenshots when they exist** — not only your local
    captures. If the dispatch names a PR whose body has `user-attachments/assets/<uuid>` image
    URLs, view each one and judge the design pass against those published images too, so you grade

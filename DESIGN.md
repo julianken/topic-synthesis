@@ -2,7 +2,7 @@
 
 > **This file is the whole truth for design.** An agent that has never opened this app must be able to rebuild any surface to pixel fidelity from this document alone. Every value here is concrete and current. Where this file and the working build disagree, the build wins; reconcile this file to match it.
 >
-> **Authority:** shipped build > `DESIGN.md` > Figma (see AGENTS.md → "Design source of truth"). A Figma design file is now configured as a **read-only design-direction reference** (`INSTANCE.md` → "Design / Figma (read-only)"); `DESIGN.md` remains the design source of truth and wins on any conflict — a disagreeing Figma value is reconciled into §0 here, never built from.
+> **Authority (conflict-resolution order):** shipped build > `DESIGN.md` > Figma (see AGENTS.md → "Design source of truth"). The Figma design file is configured as the **agent-synced visual source of truth, kept in LOCKSTEP with the build** (`INSTANCE.md` → "Design / Figma (source of truth, agent-synced)") — any frontend change updates it in the same PR via the Figma MCP write tools, so it is no longer a read-only reference allowed to lag. On a genuine *value* conflict `DESIGN.md` still wins — only its §0 is CI-guarded against the code (the two-copies token invariant) — and a disagreeing Figma value is reconciled into §0 here (and back into Figma in the same PR), never built from.
 
 **This is v0**, scoped to the walking-skeleton chrome (intake form, curriculum hub, page tile, progress, sandboxed artifact frame). It grows as surfaces land. Keep raw literals in §0 only; reference tokens by name everywhere else.
 
