@@ -73,6 +73,7 @@ export function buildJobInput(): { runId: string; request: TopicRequest; options
 export function runCompleteEvent(
   run: PipelineRunResult,
   totalMs: number,
+  codeRev?: string,
 ): Extract<WorkflowEvent, { eventType: 'run.complete' }> {
   const built = run.result.hub.tiers[0]?.categories[0]?.pages[0]?.built ?? false;
   return {
@@ -82,15 +83,29 @@ export function runCompleteEvent(
     pages: run.result.pages.length,
     outcome: built ? 'complete' : 'degraded',
     criticPassed: built,
+    // #184: stamp the running commit so the dashboard can attribute the run to its exact bytes. Optional
+    // — omitted (not `codeRev: undefined`) off a built image, so existing 2-arg callers are byte-identical.
+    ...(codeRev ? { codeRev } : {}),
   };
 }
 
-/** The run-level failure event (a thrown run that never reached `run.complete`). */
-export function runFailedEvent(err: unknown): Extract<WorkflowEvent, { eventType: 'run.failed' }> {
-  return { eventType: 'run.failed', outcome: 'failed', errorKind: err instanceof Error ? err.name : 'unknown' };
+/** The run-level failure event (a thrown run that never reached `run.complete`). `codeRev` (#184) stamps
+ *  the crash case too — the most diagnostically valuable "which commit was actually running?". */
+export function runFailedEvent(err: unknown, codeRev?: string): Extract<WorkflowEvent, { eventType: 'run.failed' }> {
+  return {
+    eventType: 'run.failed',
+    outcome: 'failed',
+    errorKind: err instanceof Error ? err.name : 'unknown',
+    ...(codeRev ? { codeRev } : {}),
+  };
 }
 
 async function main(): Promise<void> {
+  // #184: boot-log the running commit FIRST — the CANONICAL per-run commit signal the deploy verify-gate
+  // greps. It precedes any throw (even a malformed-env crash that emits no `run.failed`), so every run is
+  // attributable to a SHA. GIT_SHA is baked into the image (Dockerfile ENV); 'dev' when run off-image.
+  const gitSha = process.env.GIT_SHA?.trim() || 'dev';
+  console.log(JSON.stringify({ event: 'run-job.boot', gitSha }));
   const { runId, request, options } = buildJobInput();
   const pool = getPool();
   // ONE shared stdout sink per run → a monotonic `seq` across engine lifecycle + llm.call + run.*.
@@ -122,9 +137,9 @@ async function main(): Promise<void> {
     const base = persistInput(runId, request, run, options);
     const ownerSub = process.env.RUN_OWNER?.trim();
     await persistRun(ownerSub ? { ...base, ownerSub } : base);
-    stdout.onEvent(runCompleteEvent(run, Date.now() - startedAtMs));
+    stdout.onEvent(runCompleteEvent(run, Date.now() - startedAtMs, gitSha));
   } catch (err) {
-    stdout.onEvent(runFailedEvent(err));
+    stdout.onEvent(runFailedEvent(err, gitSha));
     throw err;
   } finally {
     await closePool();

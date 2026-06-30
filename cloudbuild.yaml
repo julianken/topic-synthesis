@@ -1,0 +1,100 @@
+# Codified clean build for the Cloud Run Service (app) + pipeline/migrate Job (job) images — issue #184.
+#
+# WHY THIS FILE EXISTS: the prior deploy used an un-versioned manual `gcloud builds submit` with a legacy
+# `cache-from <mutable :latest>` remote cache. That cache matched the `RUN npm run build:job` layer BY
+# COMMAND STRING (not by output), so an unchanged command served stale compiled bytes — the recompiled
+# `dist/job/run-job.js` never entered the image, yet it was tagged with a fresh commit SHA. A stale Job
+# shipped under a fresh SHA tag, and prod silently ran pre-streaming code (run cea1663a degraded).
+#
+# THE FIX: NO remote layer cache at all. Cloud Build VMs are ephemeral with no cross-build layer cache, so
+# a stale layer is ONLY possible when you opt into a remote cache — which we never do here. `--no-cache` is
+# belt-and-suspenders (the VM cache is already empty). Correctness is free at our few-builds/day cadence
+# (well inside the 2,500 free build-minutes/month). Other remote-cache backends are content-correct too but
+# add machinery we don't need until build time hurts; the legacy cache-from flag is what bit us — never it.
+#
+# COMMIT-STAMP: --build-arg GIT_SHA=${_GIT_SHA} flows into each Dockerfile's `ENV GIT_SHA` + OCI revision
+# LABEL, so the running container self-reports its commit (the Service via /version, the Job via its boot
+# log + the run.complete/run.failed `codeRev`). The deploy verify-gate asserts running_sha == deployed_sha.
+#
+# A MANUAL `gcloud builds submit` does NOT populate $COMMIT_SHA (that's trigger-only), so the commit is
+# passed explicitly as the _GIT_SHA substitution. See docs/deploy-runbook.md for the full deploy flow.
+
+steps:
+  # ── Fail BEFORE building (issue #184) if the Firebase client config is missing/empty. The
+  #    NEXT_PUBLIC_FIREBASE_* values are inlined into the CLIENT bundle at `next build`; a BLANK one
+  #    silently breaks Google sign-in for every user — and it would still PASS the /version verify-gate,
+  #    which checks only the gitSha, not that auth works. So assert the config up front: the build never
+  #    reaches build-app with a blank key. (_FIREBASE_API_KEY also has NO default below, so a forgotten
+  #    --substitutions fails Cloud Build's strict substitution match before this step even runs.) ──
+  - id: assert-firebase-config
+    name: 'bash'
+    entrypoint: 'bash'
+    args:
+      - '-euc'
+      - |
+        test -n "${_FIREBASE_API_KEY}"     || { echo "FATAL: _FIREBASE_API_KEY is empty — pass it via --substitutions (terraform -chdir=infra output -raw auth_web_api_key). It is inlined into the client bundle at next build; a blank value silently breaks Google sign-in. See docs/deploy-runbook.md."; exit 1; }
+        test -n "${_FIREBASE_AUTH_DOMAIN}" || { echo "FATAL: _FIREBASE_AUTH_DOMAIN is empty — see docs/deploy-runbook.md."; exit 1; }
+        test -n "${_FIREBASE_PROJECT_ID}"  || { echo "FATAL: _FIREBASE_PROJECT_ID is empty — see docs/deploy-runbook.md."; exit 1; }
+        echo "firebase client config present (api key + auth domain + project id)"
+
+  # ── Job image (pipeline + migrate). Recompiles dist/job/run-job.js from source on every build. ──
+  - id: build-job
+    name: 'gcr.io/cloud-builders/docker'
+    env: ['DOCKER_BUILDKIT=1']
+    args:
+      - build
+      - --no-cache
+      - --build-arg=GIT_SHA=${_GIT_SHA}
+      - -f
+      - Dockerfile.job
+      - -t
+      - ${_AR}/job:${_GIT_SHA}
+      - -t
+      - ${_AR}/job:latest
+      - .
+
+  # ── App image (Next standalone Service). NEXT_PUBLIC_* are inlined into the CLIENT bundle at build time
+  #    (project-identifying, browser-shipped by design — not secrets), supplied from the Terraform outputs. ──
+  - id: build-app
+    name: 'gcr.io/cloud-builders/docker'
+    env: ['DOCKER_BUILDKIT=1']
+    args:
+      - build
+      - --no-cache
+      - --build-arg=GIT_SHA=${_GIT_SHA}
+      - --build-arg=NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY}
+      - --build-arg=NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${_FIREBASE_AUTH_DOMAIN}
+      - --build-arg=NEXT_PUBLIC_FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID}
+      - -f
+      - Dockerfile.app
+      - -t
+      - ${_AR}/app:${_GIT_SHA}
+      - -t
+      - ${_AR}/app:latest
+      - .
+
+# Push all four tags. The build log records each image's resolved sha256 digest — capture the job + app
+# digests here and deploy BY DIGEST (immutable), never by the mutable tag (docs/deploy-runbook.md).
+images:
+  - ${_AR}/job:${_GIT_SHA}
+  - ${_AR}/job:latest
+  - ${_AR}/app:${_GIT_SHA}
+  - ${_AR}/app:latest
+
+options:
+  machineType: 'E2_STANDARD_2'
+
+timeout: '1800s'
+
+substitutions:
+  # The commit being built. A manual `gcloud builds submit` does NOT set $COMMIT_SHA, so pass it:
+  #   --substitutions=_GIT_SHA="$(git rev-parse HEAD)"
+  _GIT_SHA: dev
+  # The Artifact Registry Docker repo (infra/outputs.tf `registry_repo`).
+  _AR: us-central1-docker.pkg.dev/topic-synthesis-prod/topic-synthesis
+  # Identity Platform web config for the client SDK — from `terraform output` (api_key is public/browser-shipped).
+  # PROJECT_ID / AUTH_DOMAIN are stable prod values, so they default here. _FIREBASE_API_KEY has NO default
+  # ON PURPOSE: a missing --substitutions then fails Cloud Build's strict match, and an empty one is caught
+  # by the assert-firebase-config step above — never silently inlined into the client bundle (issue #184).
+  _FIREBASE_PROJECT_ID: topic-synthesis-prod
+  _FIREBASE_AUTH_DOMAIN: topic-synthesis-prod.firebaseapp.com

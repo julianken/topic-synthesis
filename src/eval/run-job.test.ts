@@ -104,6 +104,16 @@ describe('runCompleteEvent', () => {
     r.result.hub.tiers = [];
     expect(runCompleteEvent(r, 5).outcome).toBe('degraded');
   });
+
+  // #184: prod telemetry records the exact commit each run executed, so a future stale-deploy is
+  // visible in the dashboard. The field is OPTIONAL — absent when no GIT_SHA is threaded (above).
+  it('stamps codeRev when a GIT_SHA is threaded', () => {
+    expect(runCompleteEvent(runResult(true, 1), 2000, 'abc1234')).toMatchObject({ codeRev: 'abc1234' });
+  });
+
+  it('omits codeRev when none is threaded (the field is optional)', () => {
+    expect(runCompleteEvent(runResult(true, 1), 2000)).not.toHaveProperty('codeRev');
+  });
 });
 
 describe('runFailedEvent', () => {
@@ -117,5 +127,14 @@ describe('runFailedEvent', () => {
 
   it('falls back to "unknown" for a non-Error throw', () => {
     expect(runFailedEvent('nope')).toEqual({ eventType: 'run.failed', outcome: 'failed', errorKind: 'unknown' });
+  });
+
+  // #184: the crash case is the most diagnostically valuable "which commit was running?" — stamp it too.
+  it('stamps codeRev when a GIT_SHA is threaded', () => {
+    expect(runFailedEvent(new Error('boom'), 'abc1234')).toMatchObject({ codeRev: 'abc1234' });
+  });
+
+  it('omits codeRev when none is threaded (the field is optional)', () => {
+    expect(runFailedEvent('nope')).not.toHaveProperty('codeRev');
   });
 });

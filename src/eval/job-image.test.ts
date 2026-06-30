@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 
 const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const DOCKERFILE = read('../../Dockerfile.job');
+const DOCKERFILE_APP = read('../../Dockerfile.app');
+const CLOUDBUILD = read('../../cloudbuild.yaml');
 const TF = read('../../infra/cloud-run.tf');
 const PKG = JSON.parse(read('../../package.json')) as { scripts: Record<string, string> };
 
@@ -55,5 +57,53 @@ describe('Dockerfile.job — tsx stays for the migrate Job override (issue #162 
   it('the migrate Job command-override still resolves to tsx + the migrate entry (infra/cloud-run.tf)', () => {
     expect(TF).toContain('command = ["node_modules/.bin/tsx"]');
     expect(TF).toContain('args    = ["src/store/migrate.ts"]');
+  });
+});
+
+// #184: the commit-stamp controls. Each final-stage image self-reports the commit it was built from, so
+// prod can be queried for "which SHA is actually running?" — the missing signal that let a stale job image
+// ship under a fresh SHA tag. These pin that the stamp survives a future Dockerfile edit.
+describe('image commit-stamp (issue #184)', () => {
+  it.each([
+    ['Dockerfile.job', DOCKERFILE],
+    ['Dockerfile.app', DOCKERFILE_APP],
+  ])('%s accepts ARG GIT_SHA, sets the OCI revision LABEL, and bakes ENV GIT_SHA', (_name, df) => {
+    expect(df).toContain('ARG GIT_SHA');
+    expect(df).toContain('LABEL org.opencontainers.image.revision=$GIT_SHA');
+    expect(df).toContain('ENV GIT_SHA=$GIT_SHA');
+  });
+});
+
+// #184: the codified build. cloudbuild.yaml replaces the un-versioned manual `gcloud builds submit` whose
+// legacy remote cache served a stale `RUN npm run build:job` layer. These pin the load-bearing invariants:
+// NO remote-cache opt-in (the only way a stale layer is possible), SHA + latest tags, the OCI label, and the
+// _GIT_SHA substitution (a manual submit does NOT populate $COMMIT_SHA).
+describe('cloudbuild.yaml — codified clean build (issue #184)', () => {
+  it('opts into NO remote layer cache (the stale-layer class this incident exposed)', () => {
+    expect(CLOUDBUILD).not.toMatch(/--cache-from/);
+    expect(CLOUDBUILD).not.toMatch(/kaniko/i);
+    expect(CLOUDBUILD).not.toMatch(/registry[- ]?cache/i);
+  });
+
+  it('builds both images tagged by ${_GIT_SHA} AND latest', () => {
+    for (const img of ['app', 'job']) {
+      expect(CLOUDBUILD).toContain(`/${img}:$` + '{_GIT_SHA}');
+      expect(CLOUDBUILD).toContain(`/${img}:latest`);
+    }
+  });
+
+  it('stamps the OCI revision via the GIT_SHA build-arg and substitutes _GIT_SHA', () => {
+    expect(CLOUDBUILD).toContain('GIT_SHA=${_GIT_SHA}');
+    expect(CLOUDBUILD).toContain('_GIT_SHA');
+  });
+
+  // #184 review: a blank Firebase client key inlines silently at `next build` and breaks Google sign-in for
+  // every user — yet still PASSES the gitSha-only /version verify-gate. The build must fail-fast instead.
+  it('fails the build fast on a missing/empty Firebase client key (never a silent empty inline)', () => {
+    // No empty-string default that would let an absent key fall through to `next build`:
+    expect(CLOUDBUILD).not.toMatch(/_FIREBASE_API_KEY:\s*(''|"")/);
+    // An explicit early guard step asserts the client config is present before the app image is built:
+    expect(CLOUDBUILD).toContain('assert-firebase-config');
+    expect(CLOUDBUILD).toMatch(/test -n "\$\{_FIREBASE_API_KEY\}"/);
   });
 });
