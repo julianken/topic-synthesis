@@ -655,3 +655,101 @@ resource "google_monitoring_dashboard" "workflow_runs" {
     }
   })
 }
+
+# ── Degrade-rate alert (issue #185) ───────────────────────────────────────────────────────────
+# A degraded run ships a `'soon'` page and "succeeds" — so a sustained quality regression, or a bad
+# deploy that degrades EVERY run (the stale-image incident), is silent (BPD degraded in prod and
+# nobody knew until the owner asked). This alerts on the structured signal we already emit:
+# `run.complete{outcome}` (run-job.ts) projected to the `run_outcome` counter above — NOT a brittle
+# regex over the `console.warn` free text (no labels, breaks on a wording change).
+#
+# Channel = EMAIL = ticket-class, never a page. On a single-user app the real risk is a FALSE NEGATIVE
+# (a stale-deploy/all-degrade going unseen), so the condition biases toward sensitivity: a degrade
+# RATIO, not an absolute count (SRE doctrine: low-traffic services alert on a rate, not a single
+# event). It fires when `degraded / (degraded+complete)` over a rolling 1h window exceeds 0.5, guarded
+# by a ≥2-run minimum so a single isolated degraded run does not trip it — a stale deploy pushes the
+# ratio to ~1.0 and trips with as few as 2 runs, while a lone benign degrade amid healthy completes
+# keeps the ratio low and stays quiet. No metric-absence arm (a DELTA counter emits points only on
+# completed runs, so absence cannot tell a stale deploy from an idle day on a single-user app).
+#
+# DEPLOY: orchestrator-run SCOPED apply only —
+#   terraform apply -target=google_monitoring_notification_channel.alert_email \
+#                   -target=google_monitoring_alert_policy.degrade_rate
+# NEVER a full apply (the known TF-drift gotcha). Log-based metrics/alerts do NOT backfill — the
+# policy evaluates from the first post-apply run.
+#
+# VERIFY (orchestrator, post-apply): `terraform validate`/`fmt` check HCL/schema shape only — they do
+# NOT exercise the MQL query string below. A valid-but-wrong ratio passes every static check yet
+# silently never fires (the exact false-negative this alert targets). After the scoped apply, confirm
+# the condition actually evaluates — inspect the policy's condition state in Cloud Monitoring, or
+# trigger a controlled degrade and confirm the email fires — before trusting it (issue #185 AC).
+
+resource "google_monitoring_notification_channel" "alert_email" {
+  display_name = "Topic Synthesis — degrade alerts (email)"
+  type         = "email"
+  labels = {
+    email_address = var.alert_email
+  }
+}
+
+resource "google_monitoring_alert_policy" "degrade_rate" {
+  display_name = "Topic Synthesis — sustained degrade rate"
+  combiner     = "OR" # single condition; OR is the GCP default for a one-condition policy.
+
+  # ONE condition = one metric reference ($0.35/mo once alerting billing starts ≥ Sep 1 2026; $0 today).
+  # MQL expresses the degrade RATIO + the ≥2-run guard in a single condition (a native threshold ratio
+  # cannot enforce the run-count floor in one condition). The query collapses the `run_outcome` counter
+  # to a global degraded vs. total count over a trailing 1h window and fires only when the ratio
+  # exceeds 0.5 AND there are at least 2 runs. The inner join drops to no rows when there are zero
+  # degraded runs (healthy → quiet) — the join's two label-less single series combine into one row only
+  # when both the degraded and total streams have data.
+  #
+  # The ratio is written as the cross-multiplication `degraded > total * 0.5` rather than
+  # `degraded / total > 0.5` ON PURPOSE: both sums are INT64, so a literal `/` risks INTEGER division
+  # (e.g. 3 degraded / 5 total = 0, silently never firing on a 60%-degrade window). The `* 0.5` form
+  # promotes to float comparison and also sidesteps divide-by-zero. Equivalent for total ≥ 2 > 0.
+  conditions {
+    display_name = "Degraded fraction of runs > 50% (≥2 runs, rolling 1h)"
+    condition_monitoring_query_language {
+      query    = <<-MQL
+        fetch cloud_run_job
+        | metric 'logging.googleapis.com/user/topic_synthesis/run_outcome'
+        | align delta(1h)
+        | every 1h
+        | {
+            filter metric.outcome == 'degraded'
+            | group_by [], [degraded: sum(val())]
+          ;
+            group_by [], [total: sum(val())]
+          }
+        | join
+        | condition degraded > total * 0.5 && total >= 2
+      MQL
+      duration = "0s" # fire on the first violating evaluation — email is ticket-class, bias to sensitivity.
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.alert_email.id]
+
+  alert_strategy {
+    auto_close = "1800s" # 30m — clear the incident once runs recover.
+  }
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = <<-DOC
+      **Sustained degrade rate** — over half of recent runs degraded to `'soon'` (≥2 runs, rolling 1h).
+
+      A degraded run ships a fallback page, so this is usually a *silent* quality regression or a bad
+      deploy that degrades every run (the stale-image incident).
+
+      Runbook:
+      1. Check for a recent deploy — a stale/rolled-back image degrades every run (`codeRev`, issue #184, stamps the running commit on each run event).
+      2. Inspect the pipeline Job's Cloud Logging for `run.failed` / stage errors.
+      3. Open the workflow-runs dashboard (run outcome + critic panels) for the degrade pattern.
+    DOC
+  }
+}
