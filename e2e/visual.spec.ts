@@ -135,13 +135,15 @@ test.describe('visual — generating (live-research, mid-run)', () => {
   // relocated to a full-width band below the graph. Captured DETERMINISTICALLY by intercepting the status
   // poll with a FIXED mid-run payload (e2e/generating-fixture.ts) — no live pipeline, no model spend. The
   // seeded in-flight run id (e2e/seed.ts SEED_GENERATING_RUN_ID) has a `run_owner` stamp but NO persisted
-  // curriculum, so page.tsx renders the generating branch for the owner (not a 404). DESIGN.md wins.
+  // curriculum (and deliberately NO topic meta), so page.tsx renders the generating branch for the owner
+  // (not a 404) and the header honestly degrades to a bare "Generating…". DESIGN.md wins.
   //
-  // TWO captures, because the SAME shared GeneratingView renders both entries with a different header
-  // contract: (1) the READER-ROUTE refresh path has no topic pre-persist → a bare "Generating…" (the
-  // honest degrade); (2) the CREATE-FORM path carries the typed topic → "Generating Photosynthesis…"
-  // with the topic span in --interactive (Figma 1:2's HEADLINE — the topic as the large H1). The second
-  // capture is what exercises the view's primary acceptance criterion; the first proves the degrade.
+  // This captures the reader-route refresh path's honest NO-TOPIC degrade (a run_owner with no recorded
+  // topic — e.g. a legacy dispatch). After consolidation there is ONE generating screen (run-lifecycle
+  // #225), so the TOPIC-BEARING header ("Generating <topic>…", Figma 1:2's headline) is the SAME screen
+  // with the run's `run_owner.topic` supplied via the poll's `meta`; it is exercised FUNCTIONALLY by the
+  // real create-flow spec (generating-create-flow.spec.ts) rather than a separate divergent in-place
+  // shell capture (the prior `generating-create.png` capture is retired with that shell).
 
   test('the live-research generating view matches the committed baseline', async ({
     page,
@@ -175,66 +177,6 @@ test.describe('visual — generating (live-research, mid-run)', () => {
     // static fixture data.
     const liveTimer = page.locator('.gen-pstep--running .gen-pstep__time, .gen-progress__caption');
     await expect(page).toHaveScreenshot('generating.png', {
-      fullPage: true,
-      mask: [liveTimer],
-    });
-  });
-
-  // The TOPIC-BEARING capture (Figma 1:2's headline: the topic as the large H1 in --interactive). The
-  // reader-route capture above degrades to a bare "Generating…" by design (no topic pre-persist on a
-  // refresh), so it can't exercise the view's primary acceptance criterion — the "Generating <topic>…"
-  // header. This second capture drives the CREATE-FORM path (the path that DOES carry the typed topic):
-  // submit a topic, intercept /api/generate to return the seeded in-flight run id (no real run), and
-  // intercept that run's status poll with the SAME mid-run payload — so the create-form's in-place
-  // generating shell renders the shared GeneratingView with `topic` set, showing "Generating
-  // Photosynthesis…" with the topic span in --interactive. REAL contract, only the run id + the poll
-  // data are pinned for determinism; no model spend, no real Cloud Run dispatch.
-  test('the live-research generating view shows the topic header (create-form path)', async ({
-    page,
-    context,
-    baseURL,
-  }) => {
-    await signInAsTestOwner(context, baseURL ?? '');
-
-    // Pin the generate POST to the seeded in-flight run id (so the run never actually executes — the stub
-    // pipeline would otherwise persist and navigate away) and pin that run's status poll to the fixed
-    // mid-run research+steps payload. The view stays in the generating state with the topic showing.
-    await page.route('**/api/generate', async (route) => {
-      await route.fulfill({
-        status: 202,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID }),
-      });
-    });
-    await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...GENERATING_STATUS_PAYLOAD }),
-      });
-    });
-
-    await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-
-    // Open the create form (the +New card grows into the intake form — instant under forced reduced
-    // motion), type the topic, and submit. On the 202 the form recedes and the shared GeneratingView
-    // renders in place with `topic` set (the create-form path's whole point — the typed topic lands in
-    // the header). The status poll then fills the node-graph + the LIVE RESEARCH panel.
-    await page.getByRole('button', { name: /new lesson/i }).click();
-    await page.getByRole('textbox').first().fill('Photosynthesis');
-    await page.getByRole('button', { name: /generate/i }).click();
-
-    // The headline: "Generating Photosynthesis…" — the topic in a --interactive span (the acceptance
-    // criterion the reader-route capture can't exercise). Then wait for the mid-run feed to land.
-    const h1 = page.getByRole('heading', { level: 1 });
-    await expect(h1).toContainText(/generating/i);
-    await expect(h1.locator('.gen-topic__topic')).toHaveText('Photosynthesis');
-    await expect(page.getByText('Where does a plant’s mass come from?')).toBeVisible();
-    await expect(page.getByText(/2 \/ 3 extracted/)).toBeVisible();
-
-    const liveTimer = page.locator('.gen-pstep--running .gen-pstep__time, .gen-progress__caption');
-    await expect(page).toHaveScreenshot('generating-create.png', {
       fullPage: true,
       mask: [liveTimer],
     });

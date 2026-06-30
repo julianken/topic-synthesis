@@ -184,8 +184,10 @@ test.describe('step-through A — the full flow (auth gate → library → creat
     await depth.fill('5');
     await expect(depth).toHaveValue('5');
 
-    // Pin /api/generate to the seeded in-flight run id so the run never executes (the generating shell stays
-    // up with the typed topic); capture the POST to assert the exact body shape.
+    // Pin /api/generate to the seeded in-flight run id so the run never executes (the generating screen
+    // stays up); capture the POST to assert the exact body shape. The status poll carries the run's `meta`
+    // (run-lifecycle #225) so the SINGLE generating screen at /lesson/[id] shows the typed topic + settings
+    // SERVER-side (the create form no longer passes them from an in-place shell — it NAVIGATES here).
     const postBody = page
       .waitForRequest((r) => r.url().endsWith('/api/generate') && r.method() === 'POST')
       .then((r) => r.postDataJSON() as Record<string, unknown>);
@@ -196,12 +198,17 @@ test.describe('step-through A — the full flow (auth gate → library → creat
         body: JSON.stringify({ id: SEED_GENERATING_RUN_ID }),
       });
     });
-    // Keep the generating shell quiet (no phase advance) — serve the first scripted snapshot once.
+    // Keep the generating screen quiet (no phase advance) — serve the first scripted snapshot + the run's
+    // typed topic/settings meta (so the header reads "Generating Fourier transforms…" + the sub-line).
     await page.route(`**/api/lesson/${SEED_GENERATING_RUN_ID}/status`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ id: SEED_GENERATING_RUN_ID, ...STEP_SEQUENCE[0]!.payload }),
+        body: JSON.stringify({
+          id: SEED_GENERATING_RUN_ID,
+          ...STEP_SEQUENCE[0]!.payload,
+          meta: { topic: 'Fourier transforms', level: 'advanced', depth: 5 },
+        }),
       });
     });
 
@@ -214,13 +221,16 @@ test.describe('step-through A — the full flow (auth gate → library → creat
     expect(body.depth).toBe(5);
     expect(body).toHaveProperty('audience');
 
-    // The submit transition runs (under reduced motion it advances SYNCHRONOUSLY): the in-place generating
-    // shell appears with the typed topic in the header.
+    // On the 202 the create form NAVIGATES to the SINGLE generating screen at /lesson/[id] (run-lifecycle
+    // #225 — no in-place shell). The destination renders the shared GeneratingView with the typed topic +
+    // settings from the run's owner-gated `meta`.
+    await expect(page).toHaveURL(new RegExp(`/lesson/${SEED_GENERATING_RUN_ID}$`));
     const h1 = page.getByRole('heading', { level: 1 });
     await expect(h1).toContainText(/generating/i);
     await expect(h1.locator('.gen-topic__topic')).toHaveText('Fourier transforms');
+    await expect(page.locator('.gen-topic__settings')).toContainText('advanced · depth 5');
     await expect(page.getByTestId('gen-research-band')).toBeVisible();
-    await filmShot(page, 'A4-generating-shell');
+    await filmShot(page, 'A4-generating-screen');
   });
 });
 

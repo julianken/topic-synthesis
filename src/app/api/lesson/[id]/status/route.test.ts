@@ -1,18 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CodeProgress, ResearchEvent, StepEvent } from '../../../../../store/repo';
+import type { CodeProgress, ResearchEvent, RunMeta, StepEvent } from '../../../../../store/repo';
 
-// Mock the auth gate + the store reads. The route's ready-vs-steps-vs-research-vs-code split (issue #61 +
-// live-research generating Stage 1 + the live code-phase bar PR-4/#180) is the contract under test:
-// `ready` ⇐ getLesson, `steps` ⇐ ownsRun + getStepEvents, `research` ⇐ the SAME ownsRun + getResearchEvents,
-// `code` ⇐ the SAME ownsRun + getCodeProgress — ONE owner gate (`ownsRun`) computed once + reused for all.
+// Mock the auth gate + the store reads. The route's ready-vs-steps-vs-research-vs-code-vs-meta split (issue
+// #61 + live-research generating Stage 1 + the live code-phase bar PR-4/#180 + run-lifecycle #225) is the
+// contract under test: `ready` ⇐ getLesson, `steps` ⇐ ownsRun + getStepEvents, `research` ⇐ the SAME
+// ownsRun + getResearchEvents, `code` ⇐ the SAME ownsRun + getCodeProgress, `meta` ⇐ the SAME ownsRun +
+// getRunMeta — ONE owner gate (`ownsRun`) computed once + reused for all the owner-scoped reads.
 const getSessionIdentity = vi.hoisted(() => vi.fn());
 const getLesson = vi.hoisted(() => vi.fn());
 const ownsRun = vi.hoisted(() => vi.fn());
 const getStepEvents = vi.hoisted(() => vi.fn());
 const getResearchEvents = vi.hoisted(() => vi.fn());
 const getCodeProgress = vi.hoisted(() => vi.fn());
+const getRunMeta = vi.hoisted(() => vi.fn());
 vi.mock('../../../../auth/require-session', () => ({ getSessionIdentity }));
-vi.mock('../../../../../store/repo', () => ({ getLesson, ownsRun, getStepEvents, getResearchEvents, getCodeProgress }));
+vi.mock('../../../../../store/repo', () => ({
+  getLesson,
+  ownsRun,
+  getStepEvents,
+  getResearchEvents,
+  getCodeProgress,
+  getRunMeta,
+}));
 
 import { GET } from './route';
 
@@ -48,8 +57,15 @@ const sampleResearch: ResearchEvent[] = [
 ];
 
 const sampleCode: CodeProgress = { fraction: 0.42, elapsedMs: 12000 };
+const sampleMeta: RunMeta = { topic: 'Fourier transforms', level: 'advanced', depth: 5 };
 
-type Body = { ready: boolean; steps: StepEvent[]; research: ResearchEvent[]; code: CodeProgress | null };
+type Body = {
+  ready: boolean;
+  steps: StepEvent[];
+  research: ResearchEvent[];
+  code: CodeProgress | null;
+  meta: RunMeta | null;
+};
 
 beforeEach(() => {
   getSessionIdentity.mockReset();
@@ -58,6 +74,7 @@ beforeEach(() => {
   getStepEvents.mockReset().mockResolvedValue([]);
   getResearchEvents.mockReset().mockResolvedValue([]);
   getCodeProgress.mockReset().mockResolvedValue(null);
+  getRunMeta.mockReset().mockResolvedValue(null);
 });
 
 describe('GET /api/lesson/[id]/status — the live timeline + research poll (issue #61 + live-research Stage 1)', () => {
@@ -69,15 +86,18 @@ describe('GET /api/lesson/[id]/status — the live timeline + research poll (iss
     getStepEvents.mockResolvedValue(sampleSteps);
     getResearchEvents.mockResolvedValue(sampleResearch);
     getCodeProgress.mockResolvedValue(sampleCode);
+    getRunMeta.mockResolvedValue(sampleMeta);
     const body = (await (await get('run-1')).json()) as Body;
     expect(body.ready).toBe(false);
     expect(body.steps).toEqual(sampleSteps);
     expect(body.research).toEqual(sampleResearch);
     expect(body.code).toEqual(sampleCode);
+    expect(body.meta).toEqual(sampleMeta);
     expect(getStepEvents).toHaveBeenCalledWith('run-1');
     expect(getResearchEvents).toHaveBeenCalledWith('run-1');
     expect(getCodeProgress).toHaveBeenCalledWith('run-1');
-    // ownsRun computed ONCE and reused for ALL three owner-gated reads (not called three times).
+    expect(getRunMeta).toHaveBeenCalledWith('run-1', 'owner-1');
+    // ownsRun computed ONCE and reused for ALL owner-gated reads (not called once per read).
     expect(ownsRun).toHaveBeenCalledTimes(1);
   });
 
@@ -89,22 +109,26 @@ describe('GET /api/lesson/[id]/status — the live timeline + research poll (iss
     expect(body.steps).toEqual([]);
     expect(body.research).toEqual([]);
     expect(body.code).toBeNull();
+    expect(body.meta).toBeNull();
     expect(getStepEvents).not.toHaveBeenCalled();
     expect(getResearchEvents).not.toHaveBeenCalled();
     expect(getCodeProgress).not.toHaveBeenCalled();
+    expect(getRunMeta).not.toHaveBeenCalled();
   });
 
-  it('returns [] / null for steps AND research AND code for an unauthenticated caller (no session → no feed)', async () => {
+  it('returns [] / null for steps AND research AND code AND meta for an unauthenticated caller (no session → no feed)', async () => {
     getSessionIdentity.mockResolvedValue(null);
     const body = (await (await get('run-1')).json()) as Body;
     expect(body.ready).toBe(false);
     expect(body.steps).toEqual([]);
     expect(body.research).toEqual([]);
     expect(body.code).toBeNull();
+    expect(body.meta).toBeNull();
     expect(ownsRun).not.toHaveBeenCalled();
     expect(getStepEvents).not.toHaveBeenCalled();
     expect(getResearchEvents).not.toHaveBeenCalled();
     expect(getCodeProgress).not.toHaveBeenCalled();
+    expect(getRunMeta).not.toHaveBeenCalled();
   });
 
   it('reports ready (from getLesson) AND steps AND research AND code once the run has persisted — the gates are independent', async () => {
@@ -114,10 +138,12 @@ describe('GET /api/lesson/[id]/status — the live timeline + research poll (iss
     getStepEvents.mockResolvedValue(sampleSteps);
     getResearchEvents.mockResolvedValue(sampleResearch);
     getCodeProgress.mockResolvedValue(sampleCode);
+    getRunMeta.mockResolvedValue(sampleMeta);
     const body = (await (await get('run-1')).json()) as Body;
     expect(body.ready).toBe(true);
     expect(body.steps).toEqual(sampleSteps);
     expect(body.research).toEqual(sampleResearch);
     expect(body.code).toEqual(sampleCode);
+    expect(body.meta).toEqual(sampleMeta);
   });
 });

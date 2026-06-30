@@ -116,11 +116,17 @@ export function prefersReducedMotion(
  * cannot drift. Its gate mirrors `decideMorph` (capability → reduced-motion → box presence; `reader-
  * morph-guard.test.ts` pins them identical), inlined because a head-time script cannot import modules.
  *
- * It reads the destination box from the LIVE DOM (`document.getElementById('readerPanel')`) rather than
- * a React-supplied branch claim, so it is a genuine receiver-guarantee on EITHER reader branch: the
- * `built` shell renders `#readerPanel` (→ morph), the degraded `soon`/`text` state does not (→ skip,
- * AC4). Box-only per the TS-5b verdict: it calls the VT's own `skipTransition()` to drop the geometry
- * tween; it NEVER reads or mutates the opaque-origin iframe, its sandbox, or `ARTIFACT_CSP`.
+ * It reads the destination endpoint from the LIVE DOM rather than a React-supplied branch claim, so it is
+ * a genuine receiver-guarantee on EITHER morph destination:
+ *   - the reader's `#readerPanel.morph-box` (the card→reader box morph): the `built` shell renders it
+ *     (→ morph), the degraded `soon`/`text` state does not (→ skip, AC4); OR
+ *   - the generating view's `#genTopic` topic header (the create-form→generating TOPIC morph, run-
+ *     lifecycle #225): the `.gen` generating page renders NO `#readerPanel`, so WITHOUT this second branch
+ *     the reader gate alone would always `skipTransition()` and kill the topic morph. The id is present
+ *     only when the run's typed topic is known (server-rendered from `run_owner`), so an unknown-topic
+ *     generating page has no endpoint → a clean instant-swap, never a half-morph.
+ * Box/text-only per the TS-5b verdict: it calls the VT's own `skipTransition()` to drop the geometry tween;
+ * it NEVER reads or mutates the opaque-origin iframe, its sandbox, or `ARTIFACT_CSP`.
  */
 export function handleReaderPageReveal(
   event: { viewTransition?: { skipTransition?: () => void } | null },
@@ -141,13 +147,20 @@ export function handleReaderPageReveal(
     win.CSS.supports('view-transition-name', 'none');
   // Preference gate (AC5): honor prefers-reduced-motion: reduce (false when matchMedia is unavailable).
   const reducedMotion = typeof win.matchMedia === 'function' && win.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // Receiver gate (AC4): the destination box must actually be in the LIVE DOM — not a branch's claim.
-  const boxPresent = typeof doc?.getElementById === 'function' && doc.getElementById('readerPanel') !== null;
+  // Receiver gate (AC4): a morph endpoint must actually be in the LIVE DOM — not a branch's claim. TWO
+  // destinations: the reader panel (card→reader box morph) OR the generating topic header (create-form→
+  // generating topic morph, run-lifecycle #225). Either present ⇒ a morph target exists.
+  const readerBoxPresent =
+    typeof doc?.getElementById === 'function' && doc.getElementById('readerPanel') !== null;
+  const genTopicPresent =
+    typeof doc?.getElementById === 'function' && doc.getElementById('genTopic') !== null;
+  const destinationPresent = readerBoxPresent || genTopicPresent;
 
-  // Same rule as decideMorph (pinned identical in the tests): morph only when ALL three hold; any falsy
-  // input → instant-swap. INSTANT-SWAP cancels the morph's box pairing so the navigation is a clean
-  // no-animation swap — the page is already the destination, we just drop the geometry tween (AC2/4/5).
-  if (!supported || reducedMotion || !boxPresent) viewTransition.skipTransition();
+  // Same rule as decideMorph (pinned identical in the tests, `destinationBoxPresent` = either endpoint):
+  // morph only when ALL three hold; any falsy input → instant-swap. INSTANT-SWAP cancels the morph's
+  // pairing so the navigation is a clean no-animation swap — the page is already the destination, we just
+  // drop the geometry tween (AC2/4/5), never a half-applied/broken morph.
+  if (!supported || reducedMotion || !destinationPresent) viewTransition.skipTransition();
 }
 
 /**

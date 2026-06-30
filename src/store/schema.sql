@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS run_owner (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- run-lifecycle #225: run_owner ALSO carries the typed topic + settings, stamped at DISPATCH. The
+-- create-form path no longer hosts an in-place generating shell that passes the topic CLIENT-side; it now
+-- NAVIGATES to the SINGLE generating screen at /lesson/[id], so the typed topic must reach that
+-- destination SERVER-side to show "Generating <topic>…" + the "<level> · depth <n>" sub-line instead of a
+-- bare "Generating…". Read owner-gated via `getRunMeta` (the status route's `meta` field + the page's
+-- generating branch SSR). Additive + NULLABLE: a legacy run_owner row with no topic reads back as null →
+-- the honest "Generating…" degrade (no fabrication). Pruned with the rest of run_owner at persist.
+ALTER TABLE run_owner ADD COLUMN IF NOT EXISTS topic TEXT;
+ALTER TABLE run_owner ADD COLUMN IF NOT EXISTS level TEXT;
+ALTER TABLE run_owner ADD COLUMN IF NOT EXISTS depth INTEGER;
+
 -- RETAINED(v1-persistence — ADR-0003): the `curriculum_page` table NAME is a code identifier (the
 -- curriculum<->page JOIN) — the seam that lets one page belong to many curricula once sharing/the
 -- wrapper milestone is enabled. Rename is DEFERRED with the `curriculum` table — see ADR-0003.

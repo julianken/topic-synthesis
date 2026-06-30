@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { displayName } from '../../auth/session-nav';
-import { getLesson, ownsRun } from '../../../store/repo';
+import { getLesson, getRunMeta, ownsRun } from '../../../store/repo';
 import type { LessonDisposition } from './build-summary';
 import { BuildSummary } from './build-summary-view';
 import { GeneratingPoller } from './generating';
@@ -24,12 +24,16 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   if (!view) {
     if (!(await ownsRun(id, identity.sub))) notFound();
     // The SHARED live-research generating view (the B view — Figma 1:2) renders its own header + the
-    // research node-graph + the LIVE RESEARCH panel + the rail, driven by the status poll. No topic is
-    // available pre-persist on this reader-route path (the run isn't persisted; run_owner carries no
-    // topic), so the view degrades to a bare "Generating…" header — honest, never fabricated.
+    // research node-graph + the LIVE RESEARCH panel + the rail, driven by the status poll. This is now the
+    // SINGLE generating screen (run-lifecycle #225): the create-form NAVIGATES here on submit. The typed
+    // topic + settings come from `run_owner` (getRunMeta, already owner-scoped — we hold ownsRun above),
+    // rendered SSR so the header shows "Generating <topic>…" + the "<level> · depth <n>" sub-line AND the
+    // `specimen-topic` morph target is present at first paint for the create-form→generating topic morph.
+    // A legacy run_owner with no recorded topic → null → the honest bare "Generating…" degrade.
+    const meta = await getRunMeta(id, identity.sub);
     return (
       <main className="wrap wrap--gen">
-        <GeneratingPoller id={id} />
+        <GeneratingPoller id={id} topic={meta?.topic} level={meta?.level} depth={meta?.depth} />
       </main>
     );
   }

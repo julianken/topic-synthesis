@@ -1,52 +1,42 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
-import {
-  BEGIN_GENERATE_TYPE,
-  NEW_SURFACE_NAME,
-  runViewTransition,
-  SPECIMEN_TOPIC_NAME,
-  vtOff,
-} from './library-morph';
-import { GeneratingView } from './lesson/[id]/generating-view';
-import type { StepEvent } from './lesson/[id]/stage-rail';
-import type { ResearchEvent } from '../store/repo';
+import { NEW_SURFACE_NAME, runViewTransition, SPECIMEN_TOPIC_NAME, vtOff } from './library-morph';
 
 /**
  * The library home's LIBRARY + CREATE client island (the create-form flow). It wraps the server-rendered
  * owner-scoped lesson cards (passed as `children` so the `listLessons` fetch stays behind the session gate
- * on the server) and owns the three-view state machine:
+ * on the server) and owns the two-view state machine + the submit-handoff NAVIGATION:
  *
- *   index      — the card grid: a dashed `+ New lesson` cell FIRST, then the library cards.
- *   form       — clicking `+New` GROWS that cell in place into the intake form (a same-document
- *                container-transform; the card box FLIPs into the form via the shared `new-surface`
- *                view-transition-name + `.morph-box`, then the fields stagger in). Esc / Cancel collapses.
- *   generating — on a successful submit (`202 {id}`) the form RECEDES and the typed topic text LIFTS into
- *                the generating shell's header (the `begin-generate` typed transition + the `specimen-topic`
- *                shared element); the in-place generating shell polls status and navigates to
- *                `/lesson/[id]` once the run lands.
+ *   index — the card grid: a dashed `+ New lesson` cell FIRST, then the library cards.
+ *   form  — clicking `+New` GROWS that cell in place into the intake form (a same-document
+ *           container-transform; the card box FLIPs into the form via the shared `new-surface`
+ *           view-transition-name + `.morph-box`, then the fields stagger in). Esc / Cancel collapses.
+ *
+ * On a successful submit (`202 {id}`) the island NAVIGATES to the SINGLE generating screen at
+ * `/lesson/[id]` (run-lifecycle #225 — the divergence-prone in-place generating shell is GONE; the typed
+ * topic now reaches that destination server-side via `run_owner`). The typed topic text MORPHS form →
+ * generating-header across the route change via the CROSS-DOCUMENT View-Transition the app already runs for
+ * card→reader (`@view-transition { navigation: auto }` in `globals.css`), paired by the shared
+ * `specimen-topic` name: the form's topic value (OLD side, a positioned text-twin span) and the generating
+ * view's `#genTopic` header (NEW side). A generating-destination branch in the morph receiver guard
+ * (`reader-morph-guard.ts`) keeps the cross-doc VT from skipping on the `.gen` page (it has no
+ * `#readerPanel`). Under reduced motion / no VT API ({@link vtOff}) it is a plain instant navigation.
  *
  * The four fields + the POST contract are UNCHANGED from the prior `intake-form.tsx`: topic / level /
  * depth(1..5) / optional audience → `POST /api/generate { topic, level, depth, audience }` → `202 {id}`,
  * surfacing 400/401/403/502 as the error text. The redesign changes only the framing + the motion.
  *
- * Every scripted `document.startViewTransition` is gated by {@link vtOff} (capability + reduced-motion): on
- * a fail the swap is SYNCHRONOUS / instant — no morph, no recede — and the global `prefers-reduced-motion`
- * rule in `globals.css` zeroes the staggered fields + eased borders. The opaque-origin lesson iframe and
- * its trust boundary are never touched here; this flow lives entirely on the library `/` chrome.
+ * Every scripted same-document `document.startViewTransition` (the `+New` card ↔ form morph) is gated by
+ * {@link vtOff} (capability + reduced-motion): on a fail the swap is SYNCHRONOUS / instant — no morph — and
+ * the global `prefers-reduced-motion` rule in `globals.css` zeroes the staggered fields + eased borders.
+ * The opaque-origin lesson iframe and its trust boundary are never touched here.
  */
 
-type View = 'index' | 'form' | 'generating';
-
-const POLL_MS = 2500;
-const MAX_ATTEMPTS = 160; // ~6-7 min, then stop polling and surface a hint (mirrors generating.tsx)
+type View = 'index' | 'form';
 
 export function LibraryCreate({ head, children }: { head: ReactNode; children: ReactNode }) {
-  const router = useRouter();
   const [view, setView] = useState<View>('index');
-  // The in-flight run id (set on a 202) — drives the in-place generating shell's status poll.
-  const [runId, setRunId] = useState<string | null>(null);
 
   // The four controlled form fields + submit state — RELOCATED VERBATIM from intake-form.tsx.
   const [topic, setTopic] = useState('');
@@ -103,7 +93,7 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
     });
   }, []);
 
-  // ── SUBMIT: the form's POST contract is UNCHANGED; on 202 → the chrome-to-chrome handoff ─────────────
+  // ── SUBMIT: the form's POST contract is UNCHANGED; on 202 → NAVIGATE to /lesson/[id] (run-lifecycle #225) ──
   const submit = useCallback(async () => {
     if (!topic.trim() || submitting) return;
     setSubmitting(true);
@@ -123,16 +113,18 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
       return;
     }
 
-    // SUCCESS (202 {id}): the chrome-to-chrome handoff. The topic text MORPHS form → generating header via
-    // the shared `specimen-topic` name and the form root RECEDES (the `begin-generate` typed transition,
-    // keyed in globals.css). An <input>'s value can't be a VT shared element across a value→text change, so
-    // we morph a positioned text-TWIN span echoing the typed topic (the scratch prototype's technique).
-    const morphing = !vtOff();
-    let twin: HTMLSpanElement | null = null;
+    // SUCCESS (202 {id}): NAVIGATE to the SINGLE generating screen at /lesson/[id]. When motion is allowed
+    // ({@link vtOff} false), stamp the OLD-side morph endpoint BEFORE the navigation snapshot so the typed
+    // topic MORPHS form → generating-header across the route change (the shared `specimen-topic` name,
+    // paired with the generating view's `#genTopic` header on the new document). An <input>'s value can't
+    // be a VT shared element across a value→text change, so we morph a positioned text-TWIN span echoing
+    // the typed topic (the prior same-document handoff's technique); the document unloads on navigation, so
+    // the twin needs no cleanup.
+    const href = `/lesson/${encodeURIComponent(id)}`;
     const input = topicInputRef.current;
-    if (morphing && input) {
+    if (!vtOff() && input) {
       const rect = input.getBoundingClientRect();
-      twin = document.createElement('span');
+      const twin = document.createElement('span');
       twin.textContent = topic.trim();
       Object.assign(twin.style, {
         position: 'fixed',
@@ -151,58 +143,11 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
       input.style.color = 'transparent';
     }
 
-    setRunId(id);
-    void runViewTransition(() => {
-      setView('generating');
-    }, [BEGIN_GENERATE_TYPE]).then(() => {
-      twin?.remove();
-    });
+    // A full CROSS-DOCUMENT navigation (NOT router.push — a soft client-side nav would NOT trigger the
+    // cross-doc `@view-transition` transport or the `pagereveal` receiver guard) — the same reason
+    // page.tsx's card→reader link is a plain <a>, never next/link. Under `vtOff` it is a plain instant nav.
+    window.location.assign(href);
   }, [topic, level, depth, audience, submitting]);
-
-  // ── In-place generating shell: poll status, navigate to /lesson/[id] on ready ───────────────────────
-  // Reuses the generating.tsx poller PATTERN (the same status endpoint + the same pure stage-rail core)
-  // but, because the generating shell renders in-place on `/`, it NAVIGATES (router.replace) to the reader
-  // route when the run lands rather than router.refresh()ing the library.
-  const [steps, setSteps] = useState<StepEvent[]>([]);
-  const [research, setResearch] = useState<ResearchEvent[]>([]);
-  const [stalled, setStalled] = useState(false);
-  useEffect(() => {
-    if (view !== 'generating' || !runId) return;
-    let active = true;
-    let attempts = 0;
-    const timer = setInterval(async () => {
-      attempts += 1;
-      if (attempts > MAX_ATTEMPTS) {
-        clearInterval(timer);
-        if (active) setStalled(true);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/lesson/${encodeURIComponent(runId)}/status`, {
-          cache: 'no-store',
-        });
-        if (!res.ok) return;
-        const body = (await res.json()) as {
-          ready?: boolean;
-          steps?: StepEvent[];
-          research?: ResearchEvent[];
-        };
-        if (!active) return;
-        if (body.steps) setSteps(body.steps);
-        if (body.research) setResearch(body.research);
-        if (body.ready) {
-          clearInterval(timer);
-          router.replace(`/lesson/${encodeURIComponent(runId)}`);
-        }
-      } catch {
-        // transient network error — keep polling
-      }
-    }, POLL_MS);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [view, runId, router]);
 
   // Esc closes the form; `n` opens it from the index (the global shortcuts the spec names).
   useEffect(() => {
@@ -223,27 +168,6 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [view, openForm, closeForm]);
-
-  // GENERATING is a clean, focused screen — the library header (the "Lessons" title + the tap hint) is
-  // DROPPED here (matching the prototype + SPEC §3c/§4), so no stale "Tap a built lesson" copy sits above
-  // a lesson that is mid-generation. The head only renders in the index/form views below. The SHARED
-  // live-research view (the B view — Figma 1:2) renders the research node-graph + the LIVE RESEARCH panel
-  // + the rail; the typed topic LANDED here via the `specimen-topic` shared element (GeneratingView puts
-  // that name on its topic span), so the submit handoff morph still has its destination.
-  if (view === 'generating') {
-    return (
-      <section className="generating-shell">
-        <GeneratingView
-          topic={topic.trim()}
-          level={level}
-          depth={depth}
-          steps={steps}
-          research={research}
-          stalled={stalled}
-        />
-      </section>
-    );
-  }
 
   return (
     <>

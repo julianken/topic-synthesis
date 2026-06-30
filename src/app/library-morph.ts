@@ -27,21 +27,15 @@
 export const NEW_SURFACE_NAME = 'new-surface';
 
 /**
- * The shared `view-transition-name` the typed topic TEXT carries across the submit handoff: the form's
- * topic value (OLD side, a positioned text-twin span) and the in-place generating shell's header (NEW
- * side) both carry it, so the user's typed topic is a single continuous element bridging the two screens
- * — it morphs from the field into "what is being built" rather than cross-fading. Set inline on both
- * endpoints around the `begin-generate` transition, then cleared.
+ * The shared `view-transition-name` the typed topic TEXT carries across the submit handoff (run-lifecycle
+ * #225 — now a CROSS-document route change, not the prior same-document recede): the form's topic value
+ * (OLD side, a positioned text-twin span set just before `window.location.assign`) and the generating
+ * view's `#genTopic` header (NEW side, server-rendered from `run_owner.topic`) both carry it, so the
+ * user's typed topic is a single continuous element bridging the two screens — it morphs from the field
+ * into "what is being built" rather than cross-fading. The `::view-transition-group(specimen-topic)` timing
+ * in `globals.css` tweens it at the `--dur-slow` cohesion tier so it outlasts the root cross-fade.
  */
 export const SPECIMEN_TOPIC_NAME = 'specimen-topic';
-
-/**
- * The typed View-Transition `type` for the submit handoff. The typed-root CSS in `globals.css`
- * (`html:active-view-transition-type(begin-generate) ::view-transition-old(root){animation:vt-recede}`)
- * keys the form-recedes choreography to this type, so it runs ONLY on the submit handoff — not on the
- * open/close card↔form morph.
- */
-export const BEGIN_GENERATE_TYPE = 'begin-generate';
 
 /** The minimal `window`-shaped capability surface this module probes (so it stubs cleanly in node). */
 export interface ViewTransitionCapability {

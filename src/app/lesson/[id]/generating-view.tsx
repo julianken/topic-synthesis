@@ -63,14 +63,15 @@ export function GeneratingView({
   codeProgress,
   stalled,
 }: {
-  topic?: string;
-  /** The run's level (intro/intermediate/advanced), where known — create-form path only. */
-  level?: string;
-  /** The run's depth (1..5), where known — create-form path only. */
-  depth?: number;
+  topic?: string | undefined;
+  /** The run's level (intro/intermediate/advanced), where known — from `run_owner` via the status poll's
+   *  `meta` (run-lifecycle #225) or the page's SSR props. */
+  level?: string | undefined;
+  /** The run's depth (1..5), where known — from `run_owner` (the status poll's `meta` / SSR props). */
+  depth?: number | undefined;
   /** The REAL subject category (e.g. BIOLOGY), where truthfully known. Classified at the run TAIL, so it
    *  is NOT in the live poll — omitted (not fabricated) on every live path today. */
-  category?: string;
+  category?: string | undefined;
   steps: StepEvent[];
   research: ResearchEvent[];
   /** The live code-phase progress (PR-4 / #180): a learner-safe `{ fraction, elapsedMs }` (or null when
@@ -126,7 +127,13 @@ export function GeneratingView({
           {topic ? (
             <>
               {' '}
+              {/* `id="genTopic"` is the receiver hook the cross-document morph guard reads (run-lifecycle
+                  #225): on the `.gen` generating destination there is NO `#readerPanel`, so the morph
+                  receiver targets THIS element instead, letting the create-form→generating topic morph run
+                  (it pairs with the form's `specimen-topic` text-twin). Absent when the topic is unknown →
+                  the receiver finds no destination → a clean instant-swap, never a half-morph. */}
               <span
+                id="genTopic"
                 className="gen-topic__topic"
                 style={{ viewTransitionName: SPECIMEN_TOPIC_NAME } as CSSProperties}
               >

@@ -47,11 +47,25 @@ describe('create-form flow — the four fields + the POST contract are UNCHANGED
     expect(ISLAND).toContain('`Generation request failed (${res.status}).`');
   });
 
-  it('reads the 202 body as { id } and lands on /lesson/[id] (the redirect contract)', () => {
+  it('reads the 202 body as { id } and NAVIGATES cross-document to /lesson/[id] (run-lifecycle #225)', () => {
     expect(ISLAND).toContain('as { id: string }');
-    // The handoff navigates to the reader route once the run lands (router.replace from the in-place
-    // generating shell — the same /lesson/[id] target the prior router.push used).
-    expect(ISLAND).toContain('/lesson/${encodeURIComponent(runId)}');
+    // The consolidated flow NAVIGATES to the single generating screen with a FULL cross-document
+    // navigation (`window.location.assign`, NOT router.push — a soft client-side nav would never fire the
+    // cross-doc `@view-transition` transport or the pagereveal receiver guard; the same reason the
+    // card→reader link is a plain <a>).
+    expect(ISLAND).toContain('window.location.assign');
+    expect(ISLAND).toContain('/lesson/${encodeURIComponent(id)}');
+  });
+
+  it('consolidates to ONE generating screen — the in-place shell is GONE (AC1/AC2)', () => {
+    // AC2: the in-place `<GeneratingView>` consumer is removed from this island — exactly one consumer
+    // remains, the /lesson/[id] route's generating.tsx. AC1: no runId state, no status poll, no
+    // router.replace-on-ready. These source byte-pins keep the divergence class from creeping back.
+    expect(ISLAND).not.toContain('GeneratingView');
+    expect(ISLAND).not.toContain('setRunId');
+    expect(ISLAND).not.toContain('router.replace');
+    expect(ISLAND).not.toContain('useRouter');
+    expect(ISLAND).not.toContain('/status'); // no in-place status poll
   });
 
   it('guards submit on a non-empty topic + not-already-submitting (unchanged validation)', () => {
@@ -78,13 +92,16 @@ describe('create-form flow — no static view-transition-name leaks into CSS (na
     expect(ISLAND).toContain('viewTransitionName: SPECIMEN_TOPIC_NAME');
   });
 
-  it('the typed-root VT choreography is keyed by pseudo-element/type, not a static name (additive)', () => {
-    // The CSS keys the morph by `::view-transition-group(.morph-box)` + `(specimen-topic)` and the
-    // submit recede by the `begin-generate` type — declarative selectors over the inline names, NO
-    // `view-transition-name:` property and NO new §0 token.
+  it('the VT choreography is keyed by pseudo-element group, not a static name (additive)', () => {
+    // The CSS keys the morphs by `::view-transition-group(.morph-box)` (the +New card ↔ form box) +
+    // `(specimen-topic)` (the cross-document create-form → generating topic morph, run-lifecycle #225) —
+    // declarative selectors over the inline names, NO `view-transition-name:` property and NO new §0 token.
     expect(CSS).toContain('::view-transition-group(.morph-box)');
     expect(CSS).toContain('::view-transition-group(specimen-topic)');
-    expect(CSS).toContain('html:active-view-transition-type(begin-generate)');
+    // The prior same-document submit recede (`begin-generate` type + `vt-recede` keyframe) is RETIRED with
+    // the in-place shell — the submit handoff is now a cross-document route change, so no orphaned rule.
+    expect(CSS).not.toContain('begin-generate');
+    expect(CSS).not.toContain('vt-recede');
   });
 });
 

@@ -16,6 +16,7 @@ import {
   getOwnedDeletedLesson,
   getOwnedPage,
   getResearchEvents,
+  getRunMeta,
   getStepEvents,
   listDeletedLessons,
   listLessons,
@@ -431,11 +432,45 @@ describe('getLesson / getOwnedPage (fake pool, owner-scoped)', () => {
 
   it('recordRunOwner stamps + ownsRun checks run ownership (pre-persist window)', async () => {
     const { deps, client } = fakePool();
-    await recordRunOwner('run-1', 'owner-1', deps);
+    await recordRunOwner('run-1', 'owner-1', undefined, deps);
     expect(sqlsOf(client.query).some((s) => s.includes('INTO run_owner'))).toBe(true);
     const owns = fakePool([{ match: 'FROM run_owner', rows: [{ ok: 1 }] }]);
     expect(await ownsRun('run-1', 'owner-1', owns.deps)).toBe(true);
     expect(await ownsRun('run-1', 'owner-9', fakePool().deps)).toBe(false);
+  });
+
+  it('recordRunOwner records the typed topic + settings (run-lifecycle #225) when meta is supplied', async () => {
+    const { deps, client } = fakePool();
+    await recordRunOwner('run-2', 'owner-1', { topic: 'Fourier transforms', level: 'advanced', depth: 5 }, deps);
+    // The five-column INSERT carries the topic + settings as BOUND params (never interpolated into SQL).
+    expect(sqlsOf(client.query).some((s) => s.includes('INTO run_owner') && s.includes('topic'))).toBe(true);
+    expect(paramsOf(client.query, 'INTO run_owner')).toEqual([
+      'run-2',
+      'owner-1',
+      'Fourier transforms',
+      'advanced',
+      5,
+    ]);
+  });
+
+  it('getRunMeta returns the owner-scoped topic + settings; null on a no-topic/legacy/foreign row (no oracle)', async () => {
+    const hit = fakePool([
+      { match: 'FROM run_owner', rows: [{ topic: 'Photosynthesis', level: 'intro', depth: 2 }] },
+    ]);
+    expect(await getRunMeta('run-3', 'owner-1', hit.deps)).toEqual({
+      topic: 'Photosynthesis',
+      level: 'intro',
+      depth: 2,
+    });
+    // The SELECT is owner-scoped (owner_sub = $2) — a foreign id never resolves another owner's meta.
+    expect(sqlsOf(hit.client.query).some((s) => s.includes('owner_sub = $2'))).toBe(true);
+    // A legacy run_owner row with no recorded topic → null (identical to a foreign/absent id — no oracle).
+    const noTopic = fakePool([
+      { match: 'FROM run_owner', rows: [{ topic: null, level: null, depth: null }] },
+    ]);
+    expect(await getRunMeta('run-3', 'owner-1', noTopic.deps)).toBeNull();
+    // A foreign/absent id (zero rows) → null.
+    expect(await getRunMeta('run-9', 'owner-1', fakePool().deps)).toBeNull();
   });
 });
 
