@@ -49,6 +49,7 @@ Plan review (acting as @julianken-bot, fresh-context) — anti-slop rubric appli
 - **Citations checked:** <each line/path claim from the issue — pass or fail>
 - **GitHub-side facts confirmed:** <labels, collaborators, rulesets — only if the issue claims them>
 - **External claims spot-checked:** <only load-bearing URLs/docs the issue cites>
+- **Figma design confirmed (frontend issues):** <the frame node-id(s) the issue cites + the pre-code Figma gate verdict, or the carve-out / grandfathered-pre-#226 note>
 
 ## Assessment
 
@@ -92,6 +93,7 @@ Verdict: APPROVE | REQUEST_CHANGES
 - Acceptance criteria are atomic — one verifiable fact each.
 - **Approach** section present; Depends/Blocks use explicit dependency IDs.
 - Shape matches `.claude/skills/issue-authoring/SKILL.md`.
+- **(Frontend issues authored after the #226 amendment merges) Figma design present + pre-code-gated.** The §1a Figma design section names the matching frame node-id(s) in file `upjG7gfzlkdojb8LLOwu6T` and records a passing pre-code Figma gate (`reviewing-figma-designs` verdict APPROVE), authored design-first at the issue stage. The gate **accepts** any of three carve-outs in lieu of a frame — `N/A — non-visual`, `N/A — de-minimis, no perceptible delta`, or `Figma update deferred — no MCP write access` (+ a `drift:docs` follow-up) — so a legitimately non-visual, de-minimis, or capability-gap-deferred issue is **NOT** REQUEST_CHANGES. **Forward-looking:** this gate applies ONLY to issues authored after #226 merges; issues already open at merge (e.g. #225 and the lesson-deletion epic #201–#205) are grandfathered under #222 and judged by its PR-time-authoring rule, not this gate. A *post-merge-authored* frontend issue citing no frame, an un-gated frame, AND no valid carve-out is REQUEST_CHANGES — the PR would have no design to implement to.
 
 **Skip PR-only rules:** inline `file:line` REST review API, mermaid render check, R13–R16.
 
@@ -117,6 +119,7 @@ Never `export` the token. Never post a plan-review APPROVE from the main session
 - **Never trust the dispatcher's summary** of the issue — read `gh issue view` yourself.
 - **Never rubber-stamp** to satisfy "post approval when done" — verified review is the deliverable.
 - **REQUEST_CHANGES** when cited paths don't exist, ACs are untestable, or scope contradicts AGENTS.md/GAPS.
+- **REQUEST_CHANGES a post-#226-authored frontend issue with no cited Figma frame, no passing pre-code Figma gate, AND no valid carve-out** (`N/A — non-visual` / `N/A — de-minimis, no perceptible delta` / `Figma update deferred — no MCP write access` + `drift:docs`) — there is no design for the PR to implement to. A grandfathered (pre-#226) or legitimately-deferred/non-visual issue is **NOT** REQUEST_CHANGES.
 
 ## Return format (to dispatcher)
 

@@ -38,10 +38,12 @@ and survive branch deletion. Do NOT commit PNGs to the repo and do NOT use
       (or marked `N/A — not UI`)
 - [ ] Matches the design language in `DESIGN.md` — tokens, spacing, type, and
       motion as specified (or marked `N/A — not UI`)
-- [ ] (UI only) Updated the **Figma design SoT** frame(s) for every surface this PR
-      changes — in this PR, via the Figma MCP write tools — or `No Figma update needed`
-      (name the surface + why no visible delta). Figma is the design source of truth, kept
-      in lockstep with the build (`AGENTS.md` → "Design source of truth").
+- [ ] (UI only) **Implemented to the issue's Figma frame(s)** for every surface this PR
+      changes (authored design-first + pre-code-gated at the issue stage), and **reconciled any
+      divergence** the build introduced back into Figma in this PR via the MCP write tools —
+      issue-less PR: authored/updated the frame here (the #222 fallback) — or `No Figma update
+      needed` (name the surface + why no visible delta). Figma is the design source of truth,
+      kept in lockstep with the build (`AGENTS.md` → "Design source of truth").
 
 ## Test plan
 
@@ -59,7 +61,7 @@ then run whatever checks the change actually has (e.g.
 - [ ] `npm run build` (not configured — pre-code) — clean production build, or `N/A — pre-code`
 - [ ] Updated every drift-prone doc this change affects — `AGENTS.md` /
       `CLAUDE.md` / `README.md` / `SECURITY.md` / `DESIGN.md` / the **Figma design
-      SoT frame(s)** (UI changes) / this template / specs — or `N/A — <reason>`.
+      SoT frame(s)** (UI changes — implemented to the issue's frame + reconciled any divergence) / this template / specs — or `N/A — <reason>`.
       (If `CLAUDE.md` or `AGENTS.md` changed: `scripts/check-claude-shim.sh` passes.)
 - [ ] (UI only) Playwright MCP smoke — ran `npm run dev` (not configured —
       pre-code; mark `N/A — pre-code` until a `package.json` lands), drove the
