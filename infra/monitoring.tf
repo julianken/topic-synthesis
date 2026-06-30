@@ -672,7 +672,7 @@ resource "google_monitoring_dashboard" "workflow_runs" {
 # Channel = EMAIL = ticket-class, never a page. On a single-user app the real risk is a FALSE NEGATIVE
 # (a stale-deploy/all-degrade or a failure storm going unseen), so the condition biases toward
 # sensitivity: a RATIO, not an absolute count (SRE doctrine: low-traffic services alert on a rate, not
-# a single event). It fires when the non-complete fraction over a rolling 1h window exceeds 0.5,
+# a single event). It fires when the non-complete fraction over a 1h tumbling window exceeds 0.5,
 # guarded by a ≥2-run minimum so a single isolated bad run does not trip it — a stale deploy or a
 # failure storm pushes the fraction to ~1.0 and trips with as few as 2 runs, while a lone bad run amid
 # healthy completes keeps the fraction low and stays quiet. No metric-absence arm (a DELTA counter
@@ -722,16 +722,17 @@ resource "google_monitoring_alert_policy" "degrade_rate" {
   # silently never firing on a 60%-bad window). The `* 0.5` form promotes to float comparison and also
   # sidesteps divide-by-zero. Equivalent for total ≥ 2 > 0.
   conditions {
-    display_name = "Non-complete (degraded|failed) fraction > 50% (≥2 runs, rolling 1h)"
+    display_name = "Non-complete (degraded|failed) fraction > 50% (≥2 runs, 1h tumbling)"
     condition_monitoring_query_language {
-      # Rolling 1h window: `align delta(1h)` is the window width; `every 5m` evaluates it every 5
-      # minutes (output period < window = SLIDING), so a bad streak straddling an hour boundary still
-      # trips — not a tumbling hourly bucket.
+      # 1h TUMBLING window evaluated hourly: `align delta(1h)` sets BOTH the window width and the output
+      # period to 1h. Do NOT add `| every 5m` — the `delta` aligner REQUIRES window == period, and GCP
+      # REJECTS the policy at apply time ("alignment window of 1h differs from the alignment period of
+      # 5m"). `terraform validate` does NOT catch this — only the live apply does. A true sliding window
+      # would need a `group_by` over `sliding(1h)`, not `delta + every`; an hourly bucket is sufficient.
       query    = <<-MQL
         fetch cloud_run_job
         | metric 'logging.googleapis.com/user/topic_synthesis/run_outcome'
         | align delta(1h)
-        | every 5m
         | {
             filter metric.outcome != 'complete'
             | group_by [], [bad: sum(val())]
@@ -758,7 +759,7 @@ resource "google_monitoring_alert_policy" "degrade_rate" {
     mime_type = "text/markdown"
     content   = <<-DOC
       **Sustained non-complete run rate** — over half of recent runs did NOT produce a built lesson
-      (degraded to `'soon'` OR failed outright) over a rolling 1h window (≥2 runs).
+      (degraded to `'soon'` OR failed outright) over a 1h tumbling window (≥2 runs).
 
       The product has effectively stopped shipping built lessons. Common causes: a stale/rolled-back
       deploy that degrades every run, a quality regression, or a persist/pipeline failure storm
