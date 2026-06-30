@@ -62,3 +62,5 @@ Generate an interactive, scaffolded lesson from a topic.
 | **Storyboards** | `9:5` | Card→reader morph `30:6` · Predict-then-reveal `30:7` · Generating→reveal `30:8` |
 | **Journeys, Stories & Motion** | `9:6` | Motion system `35:2` |
 | **App Flow (End-to-End)** | `9:7` | Click-through prototype; flow start `42:6` |
+
+**Pending human Figma action — lesson-deletion affordances (flagged by [#207](https://github.com/julianken/topic-synthesis/issues/207)).** The lesson-deletion epic adds deletion + recovery surfaces the Figma file does not yet contain: a delete affordance on the **Library** frame `6:2` and the **Lesson workspace** frame `3:2` (both on the **Feature Screens** page `0:1`), plus a **new Recently-deleted (recovery shelf)** frame. A **human** will add these to the Figma file and record the new node-ids in the page/node map above once they exist — **agents never write the Figma file** (read tools only, per the authority note above). No node-id is listed for them here yet: these are pending-human frames, so the map carries no invented id for them.
