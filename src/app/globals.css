@@ -1302,6 +1302,43 @@ body.has-ws-topbar > .appbar {
   outline-offset: 2px;
 }
 
+/* The BUILT-reader "See the full build" affordance (run-lifecycle 4/4 — issue #233) — the prominent
+   counterpart to the degraded `.build-summary__workflow-link`. A quiet escalation sitting in `.reader-head`
+   directly after the "How this was built" disclosure, linking to the frozen `/lesson/[id]/workflow` page.
+   Implemented to Figma `3:2` sub-node `111:9`: Inter Medium 13px label in `--fog-50` + a `--accent` cyan
+   arrow. The 13px size is a READER-HEAD FINE-PRINT size OFF the §0 scale (`--fs-small` 14px / `--fs-caption`
+   12.5px straddle it) — kept as a component-local literal MATCHING the sibling disclosure rather than
+   retoken §0 (documented in DESIGN.md §Components → Build details). Component-local — NO §0 retoken. The
+   colour eases on hover via the §0 catalog `--tr-color` primitive (zeroed under reduced motion by the
+   global guard); the `:focus-visible` ring is the §Accessibility ring (instant, not eased). */
+.reader-build-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 0.8125rem; /* 13px — reader-head fine-print, off the §0 scale; see DESIGN.md §Build details */
+  color: var(--fog-50);
+  text-decoration: none;
+  transition: var(--tr-color);
+}
+.reader-build-link__arrow {
+  color: var(--accent);
+  transition: var(--tr-color);
+}
+.reader-build-link:hover {
+  color: var(--accent);
+}
+.reader-build-link:hover .reader-build-link__arrow {
+  color: var(--accent-dim);
+}
+.reader-build-link:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
 .build-summary__summary {
   display: flex;
   flex-wrap: wrap;

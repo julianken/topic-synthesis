@@ -260,6 +260,23 @@ export function ReaderShell({
             to the [read] spine via `.reader-head`. A server-rendered node (passed from page.tsx so it
             inherits the owner gate); null for a legacy lesson with no recorded timeline. */}
         {buildSummary}
+        {/* "See the full build" affordance (run-lifecycle 4/4 — issue #233). A quiet escalation, directly
+            after the disclosure, to the preserved completed-build page (run-lifecycle 3/4's owner-only
+            `/lesson/[id]/workflow` route). A PLAIN cross-document <a> (matching `.ws-topbar__back`, NOT
+            next/link) whose href is built from the `id` prop this shell already holds — so it needs no new
+            prop and no page.tsx change. It renders ONLY here, inside ReaderShell, which page.tsx mounts ONLY
+            on the owner-scoped BUILT branch (a foreign id 404s at getLesson before the reader renders), so
+            it inherits #175's "owner-gated for free by co-location" — no new gate, no existence oracle. Copy
+            is user-facing build voice with NO dev-speak (never "workflow"/"pipeline"/the route segment): the
+            `/workflow` path is a code path, only the label is chrome copy. The `→` is decorative (aria-hidden)
+            so the accessible name stays "See the full build". Resting/hover/:focus-visible + reduced-motion-
+            safe are in globals.css (`.reader-build-link`, component-local — NO §0 retoken). */}
+        <a className="reader-build-link" href={`/lesson/${id}/workflow`}>
+          See the full build
+          <span className="reader-build-link__arrow" aria-hidden="true">
+            →
+          </span>
+        </a>
       </div>
 
       {/*
