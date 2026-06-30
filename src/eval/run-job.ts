@@ -86,6 +86,12 @@ export function runCompleteEvent(
     // #184: stamp the running commit so the dashboard can attribute the run to its exact bytes. Optional
     // — omitted (not `codeRev: undefined`) off a built image, so existing 2-arg callers are byte-identical.
     ...(codeRev ? { codeRev } : {}),
+    // #214: the operator-only degrade REASON, computed at the runLesson degrade site (run.degrade). The
+    // low-cardinality `code` becomes the `degrade_reason` metric label; the bounded `detail` rides as the
+    // operator-only `degradeDetail` (NEVER a label). BOTH omitted (not `undefined`) on a built run — the
+    // codeRev spread pattern — so `criticPassed:false` is now disambiguated by which degradeCode appears.
+    ...(run.degrade ? { degradeCode: run.degrade.code } : {}),
+    ...(run.degrade?.detail ? { degradeDetail: run.degrade.detail } : {}),
   };
 }
 

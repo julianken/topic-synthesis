@@ -181,6 +181,32 @@ resource "google_logging_metric" "critic_pass" {
   }
 }
 
+# Degrade reason (counter, issue #214) — WHY a run routed away from `built`, keyed by the low-cardinality
+# `degradeCode` (critic_rejected | synthesis_error). The triad records the verdict BIT (criticPassed,
+# outcome) but had no channel for the REASON; this gives the reject rate + reason distribution a queryable
+# label so "is the critic over-rejecting, and why?" is answerable. STANDALONE — NOT a relabel of
+# run_outcome / critic_pass (recreating an existing metric trips the scoped-apply / no-backfill rule).
+# Only run.complete carries `degradeCode`, and ONLY on a degraded run (a built run omits it → it yields no
+# point), so no stage/eventType conditional is needed. `degradeDetail` (the operator-only critique/error
+# string) is DELIBERATELY NOT a label — it is unbounded-cardinality free text, read in the log entry, never
+# a metric dimension. Log-based metrics don't backfill: this evaluates from the first post-apply run.
+resource "google_logging_metric" "degrade_reason" {
+  name   = "topic_synthesis/degrade_reason"
+  filter = "${local.ts_job_log_filter} AND jsonPayload.eventType=\"run.complete\""
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "INT64"
+    display_name = "Degrade reason"
+    labels {
+      key        = "code"
+      value_type = "STRING"
+    }
+  }
+  label_extractors = {
+    "code" = "EXTRACT(jsonPayload.degradeCode)"
+  }
+}
+
 # ── Code-phase deep-dive metrics (PR-2, issue #178) ───────────────────────────────────────────
 # PR-1 (#176, deployed) made the `code` phase STREAM and enriched its `llm.call` event with per-call
 # timing/size — ttftMs/genMs/tokensPerSec/maxTokens/outputBytes (the pinned #166 envelope). These
@@ -393,6 +419,7 @@ resource "google_logging_metric" "code_output_tokens" {
 locals {
   ts_user_metric = { for k in [
     "stage_latency_ms", "stage_cost_usd", "llm_calls", "run_cost_usd", "run_latency_ms", "run_outcome", "critic_pass",
+    "degrade_reason",
     "code_ttft_ms", "code_gen_ms", "code_tokens_per_sec", "code_output_bytes", "code_max_tokens", "code_output_tokens",
   ] : k => "${local.ts_metric_prefix}/topic_synthesis/${k}" }
 }
@@ -646,6 +673,23 @@ resource "google_monitoring_dashboard" "workflow_runs" {
                 timeSeriesQuery = { timeSeriesFilter = {
                   filter      = "metric.type=\"${local.ts_user_metric["code_output_bytes"]}\" resource.type=\"cloud_run_job\""
                   aggregation = { alignmentPeriod = "300s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_PERCENTILE_95" }
+                } }
+              }]
+            }
+          }
+        },
+        # ── Degrade reason (issue #214) — WHY a run degraded, by low-cardinality code. Sits below the
+        # code-phase band; pairs with the run-outcome / critic panels above (yPos 12) conceptually.
+        {
+          xPos = 0, yPos = 28, width = 6, height = 4
+          widget = {
+            title = "Degrade reason (critic_rejected / synthesis_error)"
+            xyChart = {
+              dataSets = [{
+                plotType = "STACKED_BAR"
+                timeSeriesQuery = { timeSeriesFilter = {
+                  filter      = "metric.type=\"${local.ts_user_metric["degrade_reason"]}\" resource.type=\"cloud_run_job\""
+                  aggregation = { alignmentPeriod = "3600s", perSeriesAligner = "ALIGN_DELTA", crossSeriesReducer = "REDUCE_SUM", groupByFields = ["metric.label.\"code\""] }
                 } }
               }]
             }

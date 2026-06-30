@@ -9,14 +9,18 @@
  *
  * Fence-clean by construction (imports only a type) so it rides into the compiled Job bundle.
  */
+import type { DegradeCode } from '../domain/degrade';
 import type { Stage } from '../llm/models';
 
 /**
  * Bumped when the emitted envelope/field shape changes, so #167's metric extractors can evolve.
  * v3 (#184): the additive optional `codeRev` on `run.complete`/`run.failed` — the commit each run
  * executed (the metrics filter on `eventType` only, so the dashboard survives the bump untouched).
+ * v4 (#214): the additive optional `degradeCode` (low-cardinality enum — the `degrade_reason` metric
+ * label) + `degradeDetail` (bounded, operator-only free text — NEVER a label) on `run.complete`, the
+ * gate-reason channel. Additive on the same precedent: the metrics filter on `eventType` only.
  */
-export const EVENT_SCHEMA_VERSION = 3;
+export const EVENT_SCHEMA_VERSION = 4;
 
 /**
  * The canonical `stage` label — the engine step-name vocabulary, which is ALSO the `step_event` /
@@ -72,6 +76,12 @@ export type WorkflowEvent =
       // built image (local `npm run job`). Lets prod telemetry attribute a run to its exact bytes, so a
       // stale-deploy regression (a job image cache-frozen under a fresh SHA tag) is visible after the fact.
       codeRev?: string;
+      // #214: the operator-only degrade REASON, present ONLY on a degraded run (omitted when built).
+      // `degradeCode` is the low-cardinality enum (SAFE as the `degrade_reason` metric label, disambiguating
+      // a graceful critic reject from a synthesis exception — both read `criticPassed:false` otherwise);
+      // `degradeDetail` is the bounded critique/error string (OPERATOR-ONLY — NEVER a metric label).
+      degradeCode?: DegradeCode;
+      degradeDetail?: string;
     }
   | { eventType: 'run.failed'; outcome: 'failed'; errorKind?: string; codeRev?: string };
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EVENT_SCHEMA_VERSION } from './events';
 import { StdoutEventSink } from './stdout-sink';
 
 describe('StdoutEventSink', () => {
@@ -11,7 +12,7 @@ describe('StdoutEventSink', () => {
     expect(JSON.parse(lines[0] as string)).toMatchObject({
       runId: 'run1',
       seq: 0,
-      schemaVersion: 3,
+      schemaVersion: EVENT_SCHEMA_VERSION, // the envelope stamps the current version (asserted == 4 in events.test.ts)
       severity: 'INFO',
       eventType: 'step.finish',
       stage: 'code',
