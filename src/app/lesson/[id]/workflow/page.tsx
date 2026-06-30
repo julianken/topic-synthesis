@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * (they coexist; the degraded reader page links here).
  *
  * OWNER GATE — the load-bearing subtlety. It gates on `getSessionIdentity()` → `getLesson(id, sub)`
- * (DURABLE `curriculum`, owner-scoped) → `notFound()` when null. It MUST NOT gate on `ownsRun` — that
+ * (DURABLE `curriculum`, owner-scoped) → `notFound()` when null. It MUST NOT gate on `ownsRun` — that concept-drift-ok: names the RETAINED `curriculum` table (ADR-0003 — DB rename still deferred)
  * reads `run_owner`, which `persistRun` PRUNES at persist, so an `ownsRun` gate would 404 *every* completed
  * run. `getLesson`'s `WHERE owner_sub = $2 AND deleted_at IS NULL` makes a foreign / absent / soft-deleted
  * id a uniform 404 (no existence oracle) — the SAME gate #175's disclosure already relies on.
@@ -40,7 +40,7 @@ export default async function WorkflowPage({ params }: { params: Promise<{ id: s
   // the read layer, so the gate must precede them — it does).
   const [steps, research] = await Promise.all([getStepEvents(id), getResearchEvents(id)]);
 
-  // The lone page of the single-lesson curriculum → the SHARED disposition source (issue #232), so the
+  // The lone page of the single-lesson curriculum → the SHARED disposition source (issue #232), so the concept-drift-ok: names the RETAINED `curriculum` data structure (ADR-0003 — DB rename still deferred)
   // frozen chip and the reader page can't drift (page.tsx reads the same `deriveDisposition`).
   const page = view.hub.tiers
     .flatMap((tier) => tier.categories.flatMap((category) => category.pages))
