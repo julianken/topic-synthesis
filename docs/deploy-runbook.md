@@ -46,7 +46,11 @@ gcloud builds submit \
 ```
 
 (`_FIREBASE_PROJECT_ID` / `_FIREBASE_AUTH_DOMAIN` default to the prod values in `cloudbuild.yaml`; override
-them too if the project changes.)
+them too if the project changes.) **`_FIREBASE_API_KEY` has no default** — these `NEXT_PUBLIC_FIREBASE_*`
+values are inlined into the client bundle at `next build`, and a blank key would silently break Google
+sign-in **while still passing the `/version` verify gate** (which checks only the gitSha). The build
+**fails fast** if it's missing (Cloud Build's strict substitution match) or empty (the first build step,
+`assert-firebase-config`), so the bundle is never built with a blank key — don't bypass that guard.
 
 Then resolve the **immutable digests** that the SHA tag now points at — deploy by these, never by the
 mutable tag:

@@ -20,6 +20,23 @@
 # passed explicitly as the _GIT_SHA substitution. See docs/deploy-runbook.md for the full deploy flow.
 
 steps:
+  # ── Fail BEFORE building (issue #184) if the Firebase client config is missing/empty. The
+  #    NEXT_PUBLIC_FIREBASE_* values are inlined into the CLIENT bundle at `next build`; a BLANK one
+  #    silently breaks Google sign-in for every user — and it would still PASS the /version verify-gate,
+  #    which checks only the gitSha, not that auth works. So assert the config up front: the build never
+  #    reaches build-app with a blank key. (_FIREBASE_API_KEY also has NO default below, so a forgotten
+  #    --substitutions fails Cloud Build's strict substitution match before this step even runs.) ──
+  - id: assert-firebase-config
+    name: 'bash'
+    entrypoint: 'bash'
+    args:
+      - '-euc'
+      - |
+        test -n "${_FIREBASE_API_KEY}"     || { echo "FATAL: _FIREBASE_API_KEY is empty — pass it via --substitutions (terraform -chdir=infra output -raw auth_web_api_key). It is inlined into the client bundle at next build; a blank value silently breaks Google sign-in. See docs/deploy-runbook.md."; exit 1; }
+        test -n "${_FIREBASE_AUTH_DOMAIN}" || { echo "FATAL: _FIREBASE_AUTH_DOMAIN is empty — see docs/deploy-runbook.md."; exit 1; }
+        test -n "${_FIREBASE_PROJECT_ID}"  || { echo "FATAL: _FIREBASE_PROJECT_ID is empty — see docs/deploy-runbook.md."; exit 1; }
+        echo "firebase client config present (api key + auth domain + project id)"
+
   # ── Job image (pipeline + migrate). Recompiles dist/job/run-job.js from source on every build. ──
   - id: build-job
     name: 'gcr.io/cloud-builders/docker'
@@ -76,6 +93,8 @@ substitutions:
   # The Artifact Registry Docker repo (infra/outputs.tf `registry_repo`).
   _AR: us-central1-docker.pkg.dev/topic-synthesis-prod/topic-synthesis
   # Identity Platform web config for the client SDK — from `terraform output` (api_key is public/browser-shipped).
+  # PROJECT_ID / AUTH_DOMAIN are stable prod values, so they default here. _FIREBASE_API_KEY has NO default
+  # ON PURPOSE: a missing --substitutions then fails Cloud Build's strict match, and an empty one is caught
+  # by the assert-firebase-config step above — never silently inlined into the client bundle (issue #184).
   _FIREBASE_PROJECT_ID: topic-synthesis-prod
   _FIREBASE_AUTH_DOMAIN: topic-synthesis-prod.firebaseapp.com
-  _FIREBASE_API_KEY: ''

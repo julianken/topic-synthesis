@@ -96,4 +96,14 @@ describe('cloudbuild.yaml — codified clean build (issue #184)', () => {
     expect(CLOUDBUILD).toContain('GIT_SHA=${_GIT_SHA}');
     expect(CLOUDBUILD).toContain('_GIT_SHA');
   });
+
+  // #184 review: a blank Firebase client key inlines silently at `next build` and breaks Google sign-in for
+  // every user — yet still PASSES the gitSha-only /version verify-gate. The build must fail-fast instead.
+  it('fails the build fast on a missing/empty Firebase client key (never a silent empty inline)', () => {
+    // No empty-string default that would let an absent key fall through to `next build`:
+    expect(CLOUDBUILD).not.toMatch(/_FIREBASE_API_KEY:\s*(''|"")/);
+    // An explicit early guard step asserts the client config is present before the app image is built:
+    expect(CLOUDBUILD).toContain('assert-firebase-config');
+    expect(CLOUDBUILD).toMatch(/test -n "\$\{_FIREBASE_API_KEY\}"/);
+  });
 });
