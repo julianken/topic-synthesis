@@ -1,20 +1,84 @@
 'use client';
 
+import { useCallback, useRef } from 'react';
 import type { PageStatus } from '../domain/sitemap';
+import { deleteLabel } from './library-delete';
+import { useLibrary } from './library-provider';
+import { TrashMark } from './poster-mark';
 
 /**
- * The poster card's control slot — a SIBLING of the server-rendered `<a>` morph origin (issue #200).
+ * The poster card's control slot — a SIBLING of the server-rendered `<a>` morph origin (scaffolded #200).
  *
- * This is the architecture-only seam the lesson-deletion epic's per-card SELECT checkbox / DELETE chip /
- * `TrashMark`/`CheckMark` icons render into (#201 single-delete, #203 bulk multi-select). #200 paints
- * NOTHING — it returns `null` so the rendered DOM (and the committed visual baselines) stay byte-identical
- * to `main`. The `lessonId` / `title` / `status` props are plumbed now so #201/#203 need no signature
- * churn, but are inert this issue.
+ * #201 gives it the DELETE chip: a quiet `<button>` in the card's 104px top wash (top-right, where the
+ * node-graph motif leaves the corners free), carrying the monoline `<TrashMark>` (never an emoji glyph)
+ * and the `deleteLabel(title)` accessible name. Activating it starts the deferred delete (the provider's
+ * 6s Undo window — no network at t=0) and moves focus to a logical neighbor so focus never falls to
+ * `<body>`. The per-card SELECT checkbox + selection mode are #203 (the `status` prop is plumbed for it).
  */
-export function PosterControls(_props: {
+export function PosterControls({
+  lessonId,
+  title,
+}: {
   lessonId: string;
   title: string;
   status: PageStatus;
-}): null {
+}) {
+  const { scheduleDelete } = useLibrary();
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const onDelete = useCallback(() => {
+    const li = btnRef.current?.closest('.library-poster') as HTMLElement | null;
+    // Capture the focus neighbor BEFORE the card collapses, so focus never lands on <body> (AC #30):
+    // next card → previous card → the +New cell → (last resort) the section header.
+    const target = li ? nextFocusTarget(li) : null;
+    scheduleDelete(lessonId, title);
+    // Move focus after the collapse render so the neighbor is mounted + focusable.
+    requestAnimationFrame(() => target?.focus());
+  }, [lessonId, title, scheduleDelete]);
+
+  return (
+    <button
+      ref={btnRef}
+      type="button"
+      className="library-poster__delete"
+      aria-label={deleteLabel(title)}
+      onClick={onDelete}
+    >
+      <TrashMark />
+    </button>
+  );
+}
+
+/** The card anchor of the next/previous NON-pending poster, else the +New create cell, else the section
+ *  header — the logical focus destination after a delete (never `<body>`). DOM-only (covered by #206 e2e). */
+function nextFocusTarget(li: HTMLElement): HTMLElement | null {
+  const cardAnchor = (el: Element): HTMLElement | null =>
+    el.querySelector<HTMLElement>('.library-poster__card');
+  const isLivePoster = (el: Element): boolean =>
+    el.classList.contains('library-poster') && !el.classList.contains('library-poster--pending');
+
+  for (let sib = li.nextElementSibling; sib; sib = sib.nextElementSibling) {
+    if (isLivePoster(sib)) {
+      const a = cardAnchor(sib);
+      if (a) return a;
+    }
+  }
+  for (let prev = li.previousElementSibling; prev; prev = prev.previousElementSibling) {
+    if (isLivePoster(prev)) {
+      const a = cardAnchor(prev);
+      if (a) return a;
+    }
+    const newCard = prev.querySelector<HTMLElement>('.newcard');
+    if (newCard) return newCard;
+  }
+  const grid = li.closest('.lessons-grid');
+  const newCard = grid?.querySelector<HTMLElement>('.newcard');
+  if (newCard) return newCard;
+  // Last resort: the section title — make it programmatically focusable so focus never falls to <body>.
+  const title = document.querySelector<HTMLElement>('.library__title');
+  if (title) {
+    if (!title.hasAttribute('tabindex')) title.setAttribute('tabindex', '-1');
+    return title;
+  }
   return null;
 }

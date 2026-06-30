@@ -1,41 +1,49 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import {
+  DeferredDeleteController,
+  emptySnapshot,
+  type DeleteSnapshot,
+} from './library-delete';
+import { LibrarySnackbar } from './library-snackbar';
 
 /**
  * The library home's shared selection / pending-delete context + the ONE standing ARIA live region — the
- * architecture-only seam the lesson-deletion epic hangs its interactive pieces on (issue #200).
+ * seam the lesson-deletion epic hangs its interactive pieces on (scaffolded in #200, given behavior here
+ * in #201 single-delete).
  *
- * Three things the delete UI needs that `main` doesn't have:
- *   1. a client context the poster cards AND a future bottom action bar (#203 — NOT a card descendant)
- *      both read selection / pending-delete / selection-mode from, without prop-drilling through
- *      `LibraryCreate`. The undo window outlives a React transition (it's paused on focus), so
- *      `useOptimistic` is the wrong primitive — this is plain shared state instead.
- *   2. ONE pre-mounted, visually-hidden, polite live region `announce()` writes into. It must be STANDING
- *      (in the DOM on first render) — assistive tech does not reliably announce a region that mounts at
- *      the same time as its first message, which is exactly why the announcement channel is a single
- *      region here rather than a freshly-mounted snackbar region.
- *
- * #200 establishes the seam with ZERO user-facing behavior: the sets are empty, `selectionMode` is false,
- * and NO code path mutates them (the setters land with the behavior in #201 single-delete / #203 bulk).
- * `announce` is wired to the standing region but no handler calls it yet.
+ * #201 keeps this a THIN React wrapper: the race-prone deferred-commit lifecycle lives in the pure,
+ * node-tested {@link DeferredDeleteController} (`library-delete.ts`); this file only WIRES it to React
+ * state, the real `setTimeout` clock, the real same-origin keepalive `fetch`, `router.refresh()`, the
+ * `pagehide` flush, and the `Ctrl/Cmd+Z` chord — plus it renders the single bottom Undo snackbar + the
+ * recoverable error chip and writes the standing live region. (Bulk multi-select state + the action bar
+ * are #203; the reader delete is #202.)
  */
 interface LibraryContextValue {
   /** Ids of the cards currently selected (bulk multi-select — #203). Empty until a setter is wired. */
   selection: Set<string>;
-  /** Ids in the deferred-commit "pending delete" collapse window (#201/#203). Empty until wired. */
+  /** Ids in the deferred-commit "pending delete" collapse window (#201) — drives the card collapse +
+   *  `inert`. */
   pendingDeleted: Set<string>;
   /** Whether the grid is in multi-select mode (#203). False until a setter is wired. */
   selectionMode: boolean;
   /** Write a message into the ONE standing polite live region (the sole announcement channel). */
   announce: (message: string) => void;
+  /** Start a deferred delete for a card (the chip handler): collapse + 6s Undo, no network at t=0. */
+  scheduleDelete: (id: string, title: string) => void;
+  /** Cancel a pending delete (Undo) — cancels the client timer, re-expands the card, sends no `DELETE`. */
+  undoDelete: (id: string) => void;
 }
 
 const LibraryContext = createContext<LibraryContextValue | null>(null);
@@ -48,32 +56,138 @@ export function useLibrary(): LibraryContextValue {
 }
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
-  // The selection / pending-delete / selection-mode state. Held as React state so #201/#203 can add the
-  // setters they need; #200 reads the values but wires NO setter, so they never change (sets stay empty,
-  // mode stays false) — zero user-facing behavior, baselines byte-unchanged.
+  const router = useRouter();
+
+  // Bulk-select state (#203): read but no setter wired here, so it never changes this issue.
   const [selection] = useState<Set<string>>(() => new Set());
-  const [pendingDeleted] = useState<Set<string>>(() => new Set());
   const [selectionMode] = useState(false);
 
-  // The single standing live region's message. Updating it re-renders only the region's text content —
-  // the region element itself never unmounts, so AT announces reliably. Deliberately NOT part of the
-  // memoized context value, so an announcement never re-renders the card consumers.
-  const [message, setMessage] = useState('');
-  const announce = useCallback((msg: string) => setMessage(msg), []);
+  // The deferred-delete machine's view, mirrored into React state by the controller's onChange.
+  const [snapshot, setSnapshot] = useState<DeleteSnapshot>(emptySnapshot);
+
+  // The single standing live region. Re-announce-safe (CARRIED SUGGESTION from #200): a {message, nonce}
+  // so an IDENTICAL consecutive message still re-renders the region — assistive tech only announces a
+  // CONTENT CHANGE, so two deletes in a row would otherwise speak only once. The nonce keys an inner span
+  // (reset-then-set via remount), guaranteeing a DOM change even when the text repeats.
+  const [live, setLive] = useState<{ message: string; nonce: number }>({ message: '', nonce: 0 });
+  const announce = useCallback((message: string) => {
+    setLive((prev) => ({ message, nonce: prev.nonce + 1 }));
+  }, []);
+
+  // The controller — created ONCE, wired to the live clock + the real keepalive fetch + router.refresh.
+  // `announce` is read through a ref so the controller never has to be recreated when its identity changes
+  // (it never does — `useCallback([])` — but the ref keeps the wiring honest).
+  const announceRef = useRef(announce);
+  announceRef.current = announce;
+  const reconcileRef = useRef<() => void>(() => router.refresh());
+  reconcileRef.current = () => router.refresh();
+
+  const controllerRef = useRef<DeferredDeleteController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = new DeferredDeleteController({
+      clock: {
+        setTimeout: (fn, ms) => setTimeout(fn, ms),
+        clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+        now: () => Date.now(),
+      },
+      // The same-origin, credentialed soft-delete (#199). A same-origin fetch carries the session cookie
+      // and passes the route's same-origin check; `keepalive` lets the unload-time DELETE survive. Never
+      // rejects — a thrown/!ok result resolves false so the state machine rolls the card back.
+      commit: async (id, { keepalive }) => {
+        try {
+          const res = await fetch(`/api/lesson/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            keepalive,
+          });
+          return res.ok;
+        } catch {
+          return false;
+        }
+      },
+      onChange: setSnapshot,
+      announce: (msg) => announceRef.current(msg),
+      onReconcile: () => reconcileRef.current(),
+      dwellMs: 6000,
+    });
+  }
+  const controller = controllerRef.current;
+
+  // pagehide → commit every still-pending id exactly once via the keepalive DELETE (routed through the
+  // controller's once-guard, so the expiry-vs-pagehide race can never double-commit).
+  useEffect(() => {
+    const onPageHide = () => controller.flushPending();
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [controller]);
+
+  // Ctrl/Cmd+Z → Undo the most recent pending delete (only swallowed when there is something to undo).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
+        if (controller.hasPending()) {
+          e.preventDefault();
+          controller.undoMostRecent();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [controller]);
+
+  const pendingDeleted = useMemo(
+    () => new Set(snapshot.pending.map((p) => p.id)),
+    [snapshot.pending],
+  );
+
+  const scheduleDelete = useCallback(
+    (id: string, title: string) => controller.schedule(id, title),
+    [controller],
+  );
+  const undoDelete = useCallback((id: string) => controller.undo(id), [controller]);
 
   const value = useMemo<LibraryContextValue>(
-    () => ({ selection, pendingDeleted, selectionMode, announce }),
-    [selection, pendingDeleted, selectionMode, announce],
+    () => ({ selection, pendingDeleted, selectionMode, announce, scheduleDelete, undoDelete }),
+    [selection, pendingDeleted, selectionMode, announce, scheduleDelete, undoDelete],
   );
 
   return (
     <LibraryContext.Provider value={value}>
       {children}
-      {/* The ONE standing, visually-hidden polite live region. Mounted unconditionally on first render
-          (never lazily alongside its first message) and clipped to 1px so it occupies no layout space and
-          cannot shift the card grid (mirrors `.gen-sr` / `.build-summary__sr`). */}
+
+      {/* The single bottom Undo snackbar — mounts only while a delete is undoable (panel-reveal in). It
+          carries NO aria-live of its own (the standing region below is the sole announcement channel). */}
+      <LibrarySnackbar
+        surfaced={snapshot.surfaced}
+        paused={snapshot.paused}
+        dwellMs={6000}
+        onUndo={() => controller.undoMostRecent()}
+        onDismiss={() => controller.dismissSurfaced()}
+        onPauseChange={(paused) => controller.setSurfacedPaused(paused)}
+      />
+
+      {/* The recoverable failure surface — a scoped role="alert" error chip (status by `!` icon + --err
+          text/outline, never a fill). Shows only after a commit fails (the card has re-expanded). */}
+      {snapshot.failed ? (
+        <div className="library-errchip" role="alert" aria-live="assertive">
+          <span className="library-errchip__icon" aria-hidden="true">
+            !
+          </span>
+          <span className="library-errchip__text">Couldn&rsquo;t delete — try again</span>
+          <button
+            type="button"
+            className="library-errchip__dismiss"
+            aria-label="Dismiss"
+            onClick={() => controller.dismissFailed()}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {/* The ONE standing, visually-hidden polite live region (clipped to 1px, no layout footprint). The
+          nonce-keyed inner span makes a repeated message a real DOM change so AT re-announces it. */}
       <div className="library-live" role="status" aria-live="polite" aria-atomic="true">
-        {message}
+        <span key={live.nonce}>{live.message}</span>
       </div>
     </LibraryContext.Provider>
   );
