@@ -23,10 +23,13 @@ import {
   buildRequest,
   dumpPages,
   formatSummary,
+  formatSweep,
+  loadSweepInputs,
   persistInput,
   reduceRunTrace,
   runSkeleton,
 } from './run-skeleton';
+import type { BatchedJudgeResult } from './judge-sweep';
 
 const mkRec = () => ({
   providerModel: 'anthropic:claude-opus-4-8',
@@ -312,6 +315,49 @@ describe('reduceRunTrace (CLI trace wiring — issue #51)', () => {
     expect(judge).not.toHaveBeenCalled();
     expect(run.metrics?.costUsd).toBeCloseTo(0.02); // only the planner span; no judge cost
     expect(rows.find((r) => r.rowKey === ANALYSIS_ROW_KEY)?.output).toEqual({ phase: 'analysis' });
+  });
+});
+
+describe('--judge-sweep input loading (issue #188)', () => {
+  const briefJson = {
+    learningGoal: 'understand the DFT',
+    keyPoints: ['frequency domain'],
+    findings: [{ claim: 'sin and cos are orthogonal', source: { url: 'https://x', title: 'X' } }],
+    audience: 'a self-taught dev',
+  };
+
+  it('parses a JSON array of {customId, brief}, validating each brief', () => {
+    const inputs = loadSweepInputs(JSON.stringify([{ customId: 'topic-a', brief: briefJson }]));
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]?.customId).toBe('topic-a');
+    expect(inputs[0]?.brief.learningGoal).toBe('understand the DFT');
+  });
+
+  it('rejects a non-array document and a malformed brief (fail loud before any spend)', () => {
+    expect(() => loadSweepInputs('{"not":"an array"}')).toThrow(/must be a JSON array/);
+    expect(() => loadSweepInputs(JSON.stringify([{ customId: 'a', brief: { learningGoal: 'x' } }]))).toThrow();
+    expect(() => loadSweepInputs(JSON.stringify([{ brief: briefJson }]))).toThrow(/customId/);
+  });
+});
+
+describe('formatSweep', () => {
+  it('renders verdicts, errors, and the total batch-rate cost', () => {
+    const results = new Map<string, BatchedJudgeResult>([
+      [
+        'topic-a',
+        {
+          customId: 'topic-a',
+          ok: true,
+          result: { scores: { groundedness: 0.9, goalClarity: 0.8, audienceFit: 0.7 }, record: { ...mkRec(), costUsd: 0.0123 } },
+        },
+      ],
+      ['topic-b', { customId: 'topic-b', ok: false, error: 'expired' }],
+    ]);
+    const out = formatSweep(results);
+    expect(out).toMatch(/\[ok\]\s+topic-a/);
+    expect(out).toMatch(/groundedness 0\.90/);
+    expect(out).toMatch(/\[fail\]\s+topic-b: expired/);
+    expect(out).toMatch(/Total \(Batch API, 50% off\): \$0\.012300/);
   });
 });
 

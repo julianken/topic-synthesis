@@ -35,7 +35,9 @@ export const JudgeVerdictSchema = z.object({
 });
 export type JudgeVerdict = z.infer<typeof JudgeVerdictSchema>;
 
-function judgePrompt(brief: LessonBrief): string {
+/** The per-brief judge user prompt. Exported so the OFFLINE batched judge sweep (`src/eval/judge-sweep.ts`,
+ *  issue #188) reuses the EXACT same prompt the synchronous judge sends, differing only in transport. */
+export function judgePrompt(brief: LessonBrief): string {
   const findings = brief.findings
     .map((f) => `  - ${f.claim}  [${f.source.title} — ${f.source.url}]`)
     .join('\n');
