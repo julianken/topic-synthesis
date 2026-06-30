@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { getSessionIdentity } from './auth/require-session';
 import { listLessons } from '../store/repo';
 import { LibraryCreate } from './library-create';
+import { LibraryProvider } from './library-provider';
+import { PosterCard } from './poster-card';
 import { PosterMark } from './poster-mark';
 import {
   badgeClass,
@@ -55,65 +57,80 @@ export default async function Library() {
 
   return (
     <main className="library">
-      {/* The section title row is passed as the `head` prop so the create island can DROP it in the
-          in-place generating view (a clean, focused screen — no stale "Tap a built lesson" copy above a
-          mid-generation lesson); it renders only in the index/form views. */}
-      <LibraryCreate
-        head={
-          <div className="library__head">
-            <h1 className="library__title">Lessons</h1>
-            <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
-          </div>
-        }
-      >
-        {lessons.map((lesson) => {
-          const meta = metaLine(lesson.level, lesson.depth, lesson.createdAt);
-          // Dense-card rows — both REAL stored data, both re-validated on the read side. A null result
-          // (old row / classifier miss / blank summary) OMITS that row (show nothing > guess/leak).
-          const eyebrow = categoryEyebrow(lesson.category);
-          const description = cardDescription(lesson.summary);
-          return (
-            <li key={lesson.id} className="library-poster">
-              {/* Each card links CROSS-DOCUMENT to the reader via a PLAIN <a> anchor — deliberately NOT
-                  next/link. next/link does a CLIENT-SIDE soft navigation (RSC payload swap, no document
-                  unload/load), and `@view-transition { navigation: auto }` is a cross-document mechanism
-                  that only activates on a real document navigation — so a soft nav would never fire the
-                  morph. A plain anchor is a genuine full-document navigation App Router does not intercept,
-                  so the cross-document View-Transition transport in `globals.css` activates and pairs this
-                  card's `view-transition-name` endpoint (morphName, id-scoped) with the reader's box. */}
-              <a
-                className="library-poster__card"
-                href={`/lesson/${encodeURIComponent(lesson.id)}`}
-                style={{ viewTransitionName: morphName(lesson.id) }}
+      {/* LibraryProvider stands up the deletion epic's shared selection / pending-delete context AND the
+          ONE pre-mounted polite live region (issue #200) above the whole create island, so the PosterCard
+          wrappers resolve the context and the future action bar (#203, not a card descendant) can read it.
+          #200 adds the seam only — zero behavior, so the rendered DOM is byte-identical to before. */}
+      <LibraryProvider>
+        {/* The section title row is passed as the `head` prop so the create island can DROP it in the
+            in-place generating view (a clean, focused screen — no stale "Tap a built lesson" copy above a
+            mid-generation lesson); it renders only in the index/form views. */}
+        <LibraryCreate
+          head={
+            <div className="library__head">
+              <h1 className="library__title">Lessons</h1>
+              <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
+            </div>
+          }
+        >
+          {lessons.map((lesson) => {
+            const meta = metaLine(lesson.level, lesson.depth, lesson.createdAt);
+            // Dense-card rows — both REAL stored data, both re-validated on the read side. A null result
+            // (old row / classifier miss / blank summary) OMITS that row (show nothing > guess/leak).
+            const eyebrow = categoryEyebrow(lesson.category);
+            const description = cardDescription(lesson.summary);
+            // The `<li className="library-poster">` is now produced by the client `<PosterCard>` wrapper
+            // (#200), which owns the reactive selection layer + a `<PosterControls>` sibling. The server
+            // `<a>` morph-origin subtree below is passed through as `children` BYTE-UNCHANGED — its class,
+            // href, and inline `view-transition-name` stay ONLY on the anchor, never the wrapper.
+            return (
+              <PosterCard
+                key={lesson.id}
+                lessonId={lesson.id}
+                title={lesson.title}
+                status={lesson.status}
               >
-                <span className="library-poster__wash" aria-hidden="true">
-                  <PosterMark />
-                </span>
-                <span className="library-poster__body">
-                  <span className="library-poster__head">
-                    {/* Subject eyebrow (Figma 6:41) — omitted entirely when null, no empty band. */}
-                    {eyebrow ? <span className="library-poster__eyebrow">{eyebrow}</span> : null}
-                    <span className="library-poster__title">{lesson.title}</span>
-                    {/* One-line description (Figma 6:47) — omitted when null. */}
-                    {description ? (
-                      <span className="library-poster__desc">{description}</span>
-                    ) : null}
+                {/* Each card links CROSS-DOCUMENT to the reader via a PLAIN <a> anchor — deliberately NOT
+                    next/link. next/link does a CLIENT-SIDE soft navigation (RSC payload swap, no document
+                    unload/load), and `@view-transition { navigation: auto }` is a cross-document mechanism
+                    that only activates on a real document navigation — so a soft nav would never fire the
+                    morph. A plain anchor is a genuine full-document navigation App Router does not intercept,
+                    so the cross-document View-Transition transport in `globals.css` activates and pairs this
+                    card's `view-transition-name` endpoint (morphName, id-scoped) with the reader's box. */}
+                <a
+                  className="library-poster__card"
+                  href={`/lesson/${encodeURIComponent(lesson.id)}`}
+                  style={{ viewTransitionName: morphName(lesson.id) }}
+                >
+                  <span className="library-poster__wash" aria-hidden="true">
+                    <PosterMark />
                   </span>
-                  <span className="library-poster__foot">
-                    <span className={badgeClass(lesson.status)}>
-                      <span className="badge__icon" aria-hidden="true">
-                        {STATUS_ICON[lesson.status]}
-                      </span>{' '}
-                      {STATUS_LABEL[lesson.status]}
+                  <span className="library-poster__body">
+                    <span className="library-poster__head">
+                      {/* Subject eyebrow (Figma 6:41) — omitted entirely when null, no empty band. */}
+                      {eyebrow ? <span className="library-poster__eyebrow">{eyebrow}</span> : null}
+                      <span className="library-poster__title">{lesson.title}</span>
+                      {/* One-line description (Figma 6:47) — omitted when null. */}
+                      {description ? (
+                        <span className="library-poster__desc">{description}</span>
+                      ) : null}
                     </span>
-                    <span className="library-poster__meta">{meta}</span>
+                    <span className="library-poster__foot">
+                      <span className={badgeClass(lesson.status)}>
+                        <span className="badge__icon" aria-hidden="true">
+                          {STATUS_ICON[lesson.status]}
+                        </span>{' '}
+                        {STATUS_LABEL[lesson.status]}
+                      </span>
+                      <span className="library-poster__meta">{meta}</span>
+                    </span>
                   </span>
-                </span>
-              </a>
-            </li>
-          );
-        })}
-      </LibraryCreate>
+                </a>
+              </PosterCard>
+            );
+          })}
+        </LibraryCreate>
+      </LibraryProvider>
     </main>
   );
 }
