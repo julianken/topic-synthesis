@@ -808,6 +808,77 @@ export async function listLessons(
   }));
 }
 
+/** One IN-FLIGHT library tile descriptor (run-lifecycle 2/4, #231) — a run that has been DISPATCHED
+ *  (a `run_owner` stamp exists) but whose curriculum has not yet persisted, so it has no `concept_page`/
+ *  `title`/`status`/`category`/`summary` a `LessonCard` could carry. A SEPARATE thin read-model rather
+ *  than a UNION into `listLessons` (forcing it through `LessonCard` would fabricate those fields). `id`
+ *  is the run/curriculum id — the tile's `/lesson/[id]` href target (the #225 single generating screen).
+ *  `level`/`depth` are NON-NULL by contract: the query guards all three meta columns non-null (mirroring
+ *  `getRunMeta`), so a hand-edited/partial `run_owner` row never yields a partial card. */
+export interface InFlightCard {
+  /** The run/curriculum id — the tile's href target, `/lesson/[id]` (the generating screen). */
+  id: string;
+  /** The run's typed topic (the tile's serif title), from `run_owner.topic`. */
+  topic: string;
+  /** The request's level (`run_owner.level`, a raw TEXT string — never a typed `Level` here). */
+  level: string;
+  /** The request's depth (1..5), from `run_owner.depth`. */
+  depth: number;
+  /** ISO string from `run_owner.created_at`, for newest-first ordering. */
+  createdAt: string;
+}
+
+/** List one IN-FLIGHT tile per run the caller has DISPATCHED but not yet persisted, newest-first —
+ *  run-lifecycle 2/4 (#231). The companion to `listLessons`: the library home renders these in-flight
+ *  tiles immediately (the moment `recordRunOwner` stamps `run_owner` at dispatch), then they are REPLACED
+ *  by the run's normal poster once `persistRun` lands the curriculum — a consequence of the persist-time
+ *  `run_owner` prune + the next server render, not a live in-place flip (the library stays a zero-JS
+ *  server component). Reads `run_owner` directly — there is no `curriculum` row to join yet.
+ *
+ *  THREE load-bearing predicates:
+ *   - `owner_sub = $1` — OWNER-SCOPED (ADR 0002 §5): a foreign/unknown owner AND a caller with no
+ *     in-flight runs both get `[]` (no existence oracle), the same discipline as `getRunMeta`/`listLessons`.
+ *   - `LEFT JOIN curriculum c ON c.id = ro.run_id … c.id IS NULL` — DEDUP: exclude any run whose curriculum
+ *     already persisted, so a persisted run never appears as in-flight (belt-and-suspenders past the
+ *     persist-time `run_owner` prune at `persistRun` — the `run_id` = `curriculum.id` identity is the one
+ *     `persistRun` establishes). With the prune, a persisted run's `run_owner` row is already gone; this
+ *     join is the second guard so a straggler can never resurrect a dedup'd tile.
+ *   - `topic IS NOT NULL AND level IS NOT NULL AND depth IS NOT NULL` — only #225-meta'd rows become titled
+ *     tiles (mirrors `getRunMeta`'s all-three-non-null guard at line ~352, so the read contract enforces
+ *     the `InFlightCard` non-null `level`/`depth` shape rather than leaning on downstream null-tolerance);
+ *     it ALSO keeps a meta-less dispatch (a legacy/seed `run_owner` with NULL meta) off the library grid. */
+export async function listInFlightRuns(
+  ownerSub: string,
+  deps: StoreDeps = { pool: getPool() },
+): Promise<InFlightCard[]> {
+  const res = await deps.pool.query<{
+    run_id: string;
+    topic: string;
+    level: string;
+    depth: number;
+    created_at: string | Date;
+  }>(
+    `SELECT ro.run_id, ro.topic, ro.level, ro.depth, ro.created_at
+       FROM run_owner ro
+       LEFT JOIN curriculum c ON c.id = ro.run_id
+      WHERE ro.owner_sub = $1
+        AND c.id IS NULL
+        AND ro.topic IS NOT NULL
+        AND ro.level IS NOT NULL
+        AND ro.depth IS NOT NULL
+      ORDER BY ro.created_at DESC`,
+    [ownerSub],
+  );
+  return res.rows.map((r) => ({
+    id: r.run_id,
+    topic: r.topic,
+    level: r.level,
+    depth: r.depth,
+    // pg returns TIMESTAMPTZ as a Date; normalize to an ISO string (same as listLessons.createdAt).
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
 // ── soft-delete data layer (lesson-deletion epic, #198) ───────────────────────────────────────────
 // Recoverable deletion as one nullable `curriculum.deleted_at` stamp (schema.sql). Deletion is "absent
 // at the read layer" — the three reads above each carry `deleted_at IS NULL`. softDelete/restore are

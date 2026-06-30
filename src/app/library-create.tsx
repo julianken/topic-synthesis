@@ -35,7 +35,19 @@ import { NEW_SURFACE_NAME, runViewTransition, SPECIMEN_TOPIC_NAME, vtOff } from 
 
 type View = 'index' | 'form';
 
-export function LibraryCreate({ head, children }: { head: ReactNode; children: ReactNode }) {
+export function LibraryCreate({
+  head,
+  inFlightCards,
+  children,
+}: {
+  head: ReactNode;
+  /** IN-FLIGHT tiles (run-lifecycle 2/4, #231) — server-rendered `<InFlightCard>` `<li>`s for the owner's
+   *  dispatched-but-not-yet-persisted runs, rendered in THIS grid BETWEEN the `+ New lesson` cell and the
+   *  persisted posters. They are NOT `<PosterCard>`s and don't consume the selection context, so the
+   *  selection layer never targets a non-persisted run id (#231 AC10). Defaults to nothing. */
+  inFlightCards?: ReactNode;
+  children: ReactNode;
+}) {
   const [view, setView] = useState<View>('index');
 
   // The four controlled form fields + submit state — RELOCATED VERBATIM from intake-form.tsx.
@@ -208,6 +220,9 @@ export function LibraryCreate({ head, children }: { head: ReactNode; children: R
             </button>
           )}
         </li>
+        {/* IN-FLIGHT tiles (#231): between the create cell and the persisted posters, inside the SAME
+            `lessons-grid` `<ul>` so each occupies one grid cell. Empty/absent when no run is in flight. */}
+        {inFlightCards}
         {children}
       </ul>
     </>

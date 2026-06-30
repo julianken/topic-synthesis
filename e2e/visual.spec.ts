@@ -4,11 +4,14 @@ import {
   SEED_DEGRADED_RUN_ID,
   SEED_GENERATING_RUN_ID,
   SEED_HELD_RUN_ID,
+  SEED_INFLIGHT_RUN_ID,
   SEED_RUN_ID,
   clearDegradedLesson,
   clearHeldLesson,
+  clearInFlightCard,
   seedDegradedLesson,
   seedHeldLesson,
+  seedInFlightCard,
 } from './seed';
 import { GENERATING_STATUS_PAYLOAD, GENERATING_STATUS_PAYLOAD_CODE } from './generating-fixture';
 
@@ -125,6 +128,32 @@ test.describe('visual — library (authed)', () => {
     // Cancel collapses the form back to the +New card (the morph in reverse).
     await intake.getByRole('button', { name: /cancel/i }).click();
     await expect(page.getByRole('button', { name: /new lesson/i })).toBeVisible();
+  });
+});
+
+// The IN-FLIGHT library tile (run-lifecycle 2/4, #231 — Figma node 98:2): a dispatched-but-not-yet-
+// persisted run shown as a distinct "Generating" card. ELEMENT-scoped (just the tile, not the whole grid)
+// so the capture is deterministic regardless of the owner's other cards. Seeded describe-scoped (a 2nd
+// owner card would regress the one-card library-dense-card baseline above) and cleared after. The tile's
+// meta is TIME-FREE (`intermediate · d1`) and the wash pulse / badge spin are zeroed by the forced reduced
+// motion (config `animations: 'disabled'`), so the tile is byte-stable — no masking needed.
+test.describe('visual — library in-flight tile (#231)', () => {
+  test.beforeAll(seedInFlightCard);
+  test.afterAll(clearInFlightCard);
+
+  test('the in-flight (generating) library tile matches the committed baseline', async ({ page, context, baseURL }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+    const tile = page.locator(
+      `li.library-poster--inflight:has(a.library-poster__card[href$="/lesson/${SEED_INFLIGHT_RUN_ID}"])`,
+    );
+    await expect(tile).toBeVisible();
+    // Assert the distinguishing rows are present (the Generating badge + the time-free meta), then grade it.
+    await expect(tile.locator('.badge--inflight')).toContainText(/generating/i);
+    await expect(tile.locator('.library-poster__meta')).toHaveText('intermediate · d1');
+    await expect(tile).toHaveScreenshot('library-inflight-card.png');
   });
 });
 
