@@ -81,6 +81,31 @@ export function metaLine(level: Level, depth: number, createdAtIso: string, now:
 }
 
 /**
+ * The IN-FLIGHT library tile (run-lifecycle 2/4, #231) — a run that has been dispatched but not yet
+ * persisted, shown as a distinct generating card. A variant of the dense poster (Figma node `98:2`): the
+ * topic is the title, a distinct **Generating** badge replaces the `PageStatus` badge, and there is NO
+ * subject eyebrow / description (an in-flight run has neither yet). The badge is label + icon (the ⟳
+ * glyph), never color alone (DESIGN.md §Color & contrast) — mirroring the status badges.
+ */
+export const INFLIGHT_BADGE_LABEL = 'Generating';
+export const INFLIGHT_BADGE_ICON = '⟳';
+/** The in-flight badge modifier class — accent-cyan text/icon over a neutral §0 border (globals.css). */
+export const INFLIGHT_BADGE_CLASS = 'badge badge--inflight';
+
+/**
+ * The in-flight tile's footer-meta line — `level · d{depth}` (e.g. "intermediate · d1"), matching the
+ * Figma `98:2` footer. Deliberately TIME-FREE: the wider Generating badge carries the "now" signal, and
+ * the timestamp ("· just now") overflows the fixed footer at the longest level ("intermediate · d1 · just
+ * now" ≈ 168px vs the ~153px meta slot once the ~100px badge is placed), so the design drops it (the
+ * badge IS the recency cue). `level` is a raw `run_owner.level` TEXT string (NOT a typed `Level`), so a
+ * value outside the enum falls back to its own raw value rather than the map's `undefined`. Pure.
+ */
+export function inflightMetaLine(level: string, depth: number): string {
+  const parts = [LEVEL_LABEL[level as Level] ?? level, Number.isFinite(depth) ? `d${depth}` : ''];
+  return parts.filter(Boolean).join(' · ');
+}
+
+/**
  * The Figma `6:2` dense-card EYEBROW (node `6:41`) text — the stored subject category, presented as the
  * uppercase shelf label the frame shows (BIOLOGY / MATHEMATICS / …). The classifier already validated +
  * uppercased it at the run tail; this is a defense-in-depth re-check on the READ side so a hand-edited /

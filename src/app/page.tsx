@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSessionIdentity } from './auth/require-session';
-import { listLessons } from '../store/repo';
+import { listInFlightRuns, listLessons } from '../store/repo';
+import { InFlightCard } from './inflight-card';
 import { LibraryCreate } from './library-create';
 import { LibraryProvider } from './library-provider';
 import { PosterCard } from './poster-card';
@@ -53,7 +54,15 @@ export default async function Library() {
   const identity = await getSessionIdentity();
   if (!identity) redirect('/sign-in');
 
-  const lessons = await listLessons(identity.sub);
+  // The owner's PERSISTED posters (newest-first) AND the owner's IN-FLIGHT tiles (run-lifecycle 2/4,
+  // #231) — runs dispatched but not yet persisted, read owner-scoped from `run_owner`. The in-flight
+  // tiles render in the grid the instant a run starts (so the user can navigate INTO the workflow) and
+  // are REPLACED by the run's poster once it persists (the `run_owner` prune + the dedup join guarantee
+  // exactly one card per id — never both). Both reads are behind the session gate (server component).
+  const [lessons, inFlight] = await Promise.all([
+    listLessons(identity.sub),
+    listInFlightRuns(identity.sub),
+  ]);
 
   return (
     <main className="library">
@@ -72,6 +81,12 @@ export default async function Library() {
               <p className="library__hint">Tap a built lesson — the card opens into the workspace.</p>
             </div>
           }
+          // The IN-FLIGHT tiles (#231) render BETWEEN the `+ New lesson` cell and the persisted posters,
+          // inside the same `lessons-grid`. Each is a plain `<InFlightCard>` — NOT a `<PosterCard>`, and it
+          // does not consume the selection context — so a non-persisted run is never selectable / deletable.
+          inFlightCards={inFlight.map((card) => (
+            <InFlightCard key={card.id} card={card} />
+          ))}
         >
           {lessons.map((lesson) => {
             const meta = metaLine(lesson.level, lesson.depth, lesson.createdAt);

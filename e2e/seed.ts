@@ -560,3 +560,106 @@ export async function clearForeignLesson(): Promise<void> {
     await pool.end();
   }
 }
+
+// ── run-lifecycle 2/4 (#231) IN-FLIGHT TILE fixture: a run_owner stamped WITH meta (topic/level/depth) but
+// NO persisted curriculum, so `listInFlightRuns` surfaces it as a distinct "Generating" library tile for the
+// e2e owner. Distinct from SEED_GENERATING_RUN_ID (stamped meta-LESS for the reader-route generating
+// capture). Kept OUT of the global seed — a 2nd owner card would regress the one-card library-snapshot
+// baseline — so the in-flight spec seeds it describe-scoped and clears it after (like the degraded/held
+// fixtures). A `persistInFlightRun` helper persists the SAME id for the dedup-on-persist assertion.
+
+/** A FIXED IN-FLIGHT run id (run-lifecycle 2/4, #231): a `run_owner` stamp WITH meta, no curriculum. */
+export const SEED_INFLIGHT_RUN_ID = 'e2e-seed-inflight';
+
+/** The in-flight run's typed meta — `intermediate · d1` matches the Figma `98:2` footer; the topic is the
+ *  tile's serif title. Deterministic, so the in-flight visual baseline is byte-stable. */
+const SEED_INFLIGHT_META = { topic: 'Neural networks', level: 'intermediate', depth: 1 };
+
+const SEED_INFLIGHT_REQUEST: TopicRequest = {
+  topic: SEED_INFLIGHT_META.topic,
+  settings: { level: 'intermediate', depth: 1, audience: 'a self-taught learner' },
+};
+
+/** A built single-lesson result for the dedup-on-persist assertion — once persisted, the run leaves the
+ *  in-flight feed (run_owner pruned + a curriculum row exists) and surfaces as a normal poster instead. */
+const SEED_INFLIGHT_RESULT: PipelineResult = {
+  hub: {
+    tiers: [
+      {
+        tier: 'Tier 1',
+        categories: [
+          {
+            name: 'Lesson',
+            pages: [{ slug: 'neural-networks', title: 'Neural networks', status: 'built', built: true, hasHtml: true, href: '' }],
+          },
+        ],
+      },
+    ],
+  },
+  pages: [
+    {
+      nodeSlug: 'neural-networks',
+      html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Neural networks</title></head><body><main><h1>Neural networks</h1><p>A lesson body.</p></main></body></html>`,
+      learningGoal: 'A short introduction to neural networks.',
+      spec: { nodeSlug: 'neural-networks', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      passed: true,
+      critique: 'ok',
+    },
+  ],
+};
+
+/** Delete every row that could exist for the in-flight id — the run_owner stamp AND (if the dedup test
+ *  persisted it) the curriculum + its cascade pages + the step_event timeline. Idempotent. */
+async function clearInFlight(pool: Pool): Promise<void> {
+  await pool.query(`DELETE FROM step_event WHERE run_id = $1`, [SEED_INFLIGHT_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum_page WHERE curriculum_id = $1`, [SEED_INFLIGHT_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum WHERE id = $1`, [SEED_INFLIGHT_RUN_ID]);
+  await pool.query(`DELETE FROM run_owner WHERE run_id = $1`, [SEED_INFLIGHT_RUN_ID]);
+}
+
+/** Seed (idempotently) ONLY the in-flight tile (#231): a `run_owner` stamped WITH meta for the e2e owner
+ *  and NO persisted curriculum, so `listInFlightRuns` surfaces it as a generating card on the library home.
+ *  Clears any prior state for the id first (so a re-seed after a dedup persist returns it to in-flight). */
+export async function seedInFlightCard(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearInFlight(pool);
+    await recordRunOwner(SEED_INFLIGHT_RUN_ID, E2E_OWNER_SUB, SEED_INFLIGHT_META, { pool });
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Persist the in-flight run (#231 dedup assertion): the REAL `persistRun` for SEED_INFLIGHT_RUN_ID — so
+ *  `persistRun` PRUNES its `run_owner` stamp and a `curriculum` row lands. The library then shows exactly
+ *  ONE card for the id (the poster), never the in-flight tile too. Mirrors the dispatched run completing. */
+export async function persistInFlightRun(): Promise<void> {
+  const pool = makePool();
+  try {
+    await persistRun(
+      {
+        runId: SEED_INFLIGHT_RUN_ID,
+        request: SEED_INFLIGHT_REQUEST,
+        result: SEED_INFLIGHT_RESULT,
+        costUsd: 0,
+        modelSnapshots: STAGE_MODELS,
+        ownerSub: E2E_OWNER_SUB,
+        summary: 'A short introduction to neural networks.',
+      },
+      { pool },
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Remove the in-flight tile + any persisted curriculum for its id (the afterAll counterpart to
+ *  seedInFlightCard), so the library home returns to exactly the one seeded dense card. */
+export async function clearInFlightCard(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearInFlight(pool);
+  } finally {
+    await pool.end();
+  }
+}

@@ -18,7 +18,9 @@ import {
   getResearchEvents,
   getRunMeta,
   getStepEvents,
+  type InFlightCard,
   listDeletedLessons,
+  listInFlightRuns,
   listLessons,
   ownsRun,
   persistRun,
@@ -923,6 +925,74 @@ describe('listLessons (TS-16 — owner-scoped, mixed-arm tolerant)', () => {
   });
 });
 
+describe('listInFlightRuns (#231 — in-flight library tile, fakePool SQL shape + mapping)', () => {
+  // The run_owner row shape the SQL `SELECT ro.run_id, ro.topic, ro.level, ro.depth, ro.created_at` projects.
+  const inflightRow = (over: Partial<Record<string, unknown>> = {}) => ({
+    run_id: 'run-1',
+    topic: 'Fourier transforms',
+    level: 'advanced',
+    depth: 5,
+    created_at: new Date('2026-06-21T00:00:00.000Z'),
+    ...over,
+  });
+
+  it('is owner-scoped: filters owner_sub = $1; a foreign/unknown owner gets [] (no existence oracle)', async () => {
+    const owned = fakePool([{ match: 'FROM run_owner ro', rows: [inflightRow()] }]);
+    const cards = await listInFlightRuns('owner-1', owned.deps);
+    expect(cards).toHaveLength(1);
+    const sql = sqlsOf(owned.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
+    expect(sql).toContain('ro.owner_sub = $1');
+    expect(paramsOf(owned.client.query, 'FROM run_owner ro')).toEqual(['owner-1']);
+    // a foreign/unknown owner matches no rows → [] (same empty result as having zero in-flight runs)
+    expect(await listInFlightRuns('someone-else', fakePool().deps)).toEqual([]);
+  });
+
+  it('excludes any run whose curriculum already persisted: LEFT JOIN curriculum … c.id IS NULL (dedup)', async () => {
+    // The dedup guard — a persisted run never appears as in-flight (belt-and-suspenders past the
+    // persist-time run_owner prune). The fake can't run the JOIN; assert the query carries the predicate.
+    const fp = fakePool([{ match: 'FROM run_owner ro', rows: [inflightRow()] }]);
+    await listInFlightRuns('owner-1', fp.deps);
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
+    expect(sql).toContain('LEFT JOIN curriculum c ON c.id = ro.run_id');
+    expect(sql).toContain('c.id IS NULL');
+  });
+
+  it('guards ALL THREE meta columns non-null (topic + level + depth), matching getRunMeta', async () => {
+    // Mirrors getRunMeta's all-three-non-null guard so the read contract enforces the InFlightCard
+    // non-null level/depth shape — a meta-less (legacy/seed) run_owner row never becomes a partial tile.
+    const fp = fakePool([{ match: 'FROM run_owner ro', rows: [inflightRow()] }]);
+    await listInFlightRuns('owner-1', fp.deps);
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
+    expect(sql).toContain('ro.topic IS NOT NULL');
+    expect(sql).toContain('ro.level IS NOT NULL');
+    expect(sql).toContain('ro.depth IS NOT NULL');
+  });
+
+  it('orders newest-first by run_owner.created_at DESC', async () => {
+    const fp = fakePool([{ match: 'FROM run_owner ro', rows: [inflightRow()] }]);
+    await listInFlightRuns('owner-1', fp.deps);
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
+    expect(sql).toContain('ORDER BY ro.created_at DESC');
+  });
+
+  it('maps run_owner rows to the InFlightCard shape, normalizing created_at (Date | string) to an ISO string', async () => {
+    const fp = fakePool([
+      {
+        match: 'FROM run_owner ro',
+        rows: [
+          inflightRow({ run_id: 'a', created_at: new Date('2026-06-21T12:00:00.000Z') }),
+          inflightRow({ run_id: 'b', topic: 'Tides', level: 'intro', depth: 1, created_at: '2026-06-20T09:00:00.000Z' }),
+        ],
+      },
+    ]);
+    const cards = await listInFlightRuns('owner-1', fp.deps);
+    expect(cards).toEqual<InFlightCard[]>([
+      { id: 'a', topic: 'Fourier transforms', level: 'advanced', depth: 5, createdAt: '2026-06-21T12:00:00.000Z' },
+      { id: 'b', topic: 'Tides', level: 'intro', depth: 1, createdAt: '2026-06-20T09:00:00.000Z' },
+    ]);
+  });
+});
+
 // ── soft-delete data layer (#198) — fakePool arm: SQL shape + bound params only ───────────────────
 // The fake matches canned rows by SQL substring and CANNOT execute a WHERE — so it proves statement
 // shape + bound params here, never owner-scope or idempotency behavior. Those guards are proven by the
@@ -1173,5 +1243,52 @@ describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', 
     await softDelete([runId], ownerSub, deps);
     expect(await getOwnedDeletedLesson(runId, ownerSub, deps)).toEqual({ id: runId, topic: 'Fourier' });
     expect(await getOwnedDeletedLesson(runId, otherSub, deps)).toBeNull(); // foreign owner → null (no oracle)
+  });
+
+  // ── in-flight library tile (#231) — the owner-scope + dedup-on-persist + meta filter + ordering the
+  // fakePool can't run (it matches by SQL substring, never executes a WHERE / JOIN / prune). ────────────
+  it('listInFlightRuns surfaces a dispatched (meta-stamped) run for its owner; a foreign owner reads []', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await recordRunOwner(runId, ownerSub, { topic: 'Fourier', level: 'advanced', depth: 5 }, deps);
+    const card = (await listInFlightRuns(ownerSub, deps)).find((c) => c.id === runId);
+    expect(card).toEqual({ id: runId, topic: 'Fourier', level: 'advanced', depth: 5, createdAt: expect.any(String) });
+    // a foreign owner can't see it → no existence oracle
+    expect((await listInFlightRuns(`owner-${randomUUID()}`, deps)).some((c) => c.id === runId)).toBe(false);
+  });
+
+  it('dedup-on-persist: once the run persists, it LEAVES listInFlightRuns and APPEARS in listLessons (never both)', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await recordRunOwner(runId, ownerSub, { topic: 'Fourier', level: 'intermediate', depth: 3 }, deps);
+    expect((await listInFlightRuns(ownerSub, deps)).some((c) => c.id === runId)).toBe(true); // in-flight tile
+    expect((await listLessons(ownerSub, deps)).some((c) => c.id === runId)).toBe(false); // not yet a poster
+
+    await persistRun({ runId, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+
+    // persistRun PRUNES run_owner AND a curriculum row now exists (the c.id IS NULL dedup excludes it) —
+    // so exactly ONE card shows for the id (the poster), never two.
+    expect((await listInFlightRuns(ownerSub, deps)).some((c) => c.id === runId)).toBe(false); // gone from in-flight
+    expect((await listLessons(ownerSub, deps)).some((c) => c.id === runId)).toBe(true); // now the poster
+  });
+
+  it('excludes a meta-less (legacy/seed) dispatch: a run_owner with NULL topic is owned but never a tile', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await recordRunOwner(runId, ownerSub, undefined, deps); // no meta → topic/level/depth NULL
+    expect(await ownsRun(runId, ownerSub, deps)).toBe(true); // the row exists (owner can poll)…
+    expect((await listInFlightRuns(ownerSub, deps)).some((c) => c.id === runId)).toBe(false); // …but no tile (no oracle)
+  });
+
+  it('orders in-flight tiles newest-first by created_at DESC', async () => {
+    const ownerSub = `owner-${randomUUID()}`;
+    const older = `itest-${randomUUID()}`;
+    const newer = `itest-${randomUUID()}`;
+    await recordRunOwner(older, ownerSub, { topic: 'Older', level: 'intro', depth: 1 }, deps);
+    await recordRunOwner(newer, ownerSub, { topic: 'Newer', level: 'advanced', depth: 5 }, deps);
+    // Force `older` strictly older so the order is deterministic regardless of insert-timing granularity.
+    await pool.query(`UPDATE run_owner SET created_at = now() - interval '1 hour' WHERE run_id = $1`, [older]);
+    const ids = (await listInFlightRuns(ownerSub, deps)).map((c) => c.id);
+    expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
   });
 });
