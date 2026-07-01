@@ -3650,6 +3650,36 @@ body.has-ws-topbar > .appbar {
   text-overflow: ellipsis;
 }
 
+/* #221-review title-clamp fix — root cause: `.library-poster__body`'s flex column (shared with the
+   built library-home card) has ZERO spare slack even on a fine pointer — measured, it fills its fixed
+   262px card exactly (head + the `--sp-3` MINIMUM gap + foot = the body's full content box, no give).
+   `@media (hover: none)` below (the SAME condition that already widens `.shelf-restore` to its 44px
+   SC-2.5.5 touch target) makes THIS card's footer ~17px taller than the home card's badge+meta foot
+   ever gets — home's foot is DPR/pointer-stable, so home never hits this. With no slack to absorb that
+   growth, the body's default flex-shrink squeezed `.library-poster__head` — and, inside it,
+   proportionally squeezed `.library-poster__title`'s 2-line clamp box to LESS than one line-height,
+   slicing the descender off a title mid-glyph ("Photosynthesis" → "Photovnthesis" — #221 review repro,
+   measured 21.83px line-height vs a starved ~17px box on a 390×844 / DPR 2.625 Pixel-7 render).
+   `-webkit-line-clamp` only ever hides whole lines cleanly — the slice only happens when something
+   ELSE (flex-shrink) forces the box shorter than a whole number of lines. So the fix is to stop that
+   external force, not to touch the clamp: freeze `.library-poster__head` to its natural,
+   un-shrunk size (`flex-shrink: 0` — title/eyebrow/description all render at exactly the whole-line
+   height their own content needs, never a fractional slice) and free the ~17px the taller touch foot
+   needs from the one part of the head that can safely give it up in a whole, non-fractional step — the
+   OPTIONAL description drops from its normal 2-line clamp to 1 (still real, still legible, just a
+   shorter preview) instead of the title losing space it can't safely lose. Scoped to `.shelf-poster__card`
+   AND `(hover: none)` only: a fine-pointer shelf render and the shipped `.library-poster__card` (library
+   home, no touch-driven foot growth) are BOTH byte-unchanged. */
+@media (hover: none) {
+  .shelf-poster__card .library-poster__head {
+    flex-shrink: 0;
+  }
+  .shelf-poster__card .library-poster__desc {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+}
+
 /* The Restore control — POSITIVE / interactive, never destructive: an arrow glyph + the word "Restore",
    BOTH in --accent (affordance by label + icon, never color alone — §Accessibility). The hit target is
    ≥24px tall (SC 2.5.8), widening to ≥44px on touch (SC 2.5.5). */
