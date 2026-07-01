@@ -16,6 +16,18 @@ locals {
 }
 
 resource "google_cloud_run_v2_service" "app" {
+  # Fail-LOUD guard (2026-06-30 incident): a deploy-time `terraform apply` that does not carry the live
+  # allowlist would set AUTH_ALLOWLIST="" from the var's empty default and lock out EVERY user (the
+  # fail-closed spend gate, ADR 0002 §5). Refuse the apply instead of silently wiping it. Every Service
+  # apply must pass -var "auth_allowlist=<owner sub[,...]>" carrying the CURRENT live value (sourced in
+  # docs/deploy-runbook.md §Terraform reconciliation). A deliberate no-users bootstrap sets it explicitly.
+  lifecycle {
+    precondition {
+      condition     = trimspace(var.auth_allowlist) != ""
+      error_message = "auth_allowlist is empty — applying would set AUTH_ALLOWLIST=\"\" and lock out ALL users (fail-closed spend gate, ADR 0002 §5). Pass -var \"auth_allowlist=<owner sub[,...]>\" carrying the live value; see docs/deploy-runbook.md."
+    }
+  }
+
   name                = "topic-synthesis-app"
   location            = var.region
   deletion_protection = false
