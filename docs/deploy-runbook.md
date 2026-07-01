@@ -134,7 +134,7 @@ RUNNING="$(curl -fsS "$TAG_URL/version" | jq -r .gitSha)"
 ```
 
 **Job** — run a cheap smoke execution and assert its boot log + telemetry report the deployed commit and
-the streaming (`schemaVersion: 3`) code path:
+the streaming (`schemaVersion: 4`, was `3` before #214's additive `degradeCode`/`degradeDetail` fields) code path:
 
 ```sh
 gcloud run jobs execute topic-synthesis-pipeline --region "$REGION" --wait \
@@ -144,13 +144,13 @@ gcloud run jobs execute topic-synthesis-pipeline --region "$REGION" --wait \
 gcloud logging read \
   'resource.type="cloud_run_job" AND jsonPayload.event="run-job.boot"' \
   --limit=1 --freshness=15m --format='value(jsonPayload.gitSha)'
-# and run.complete must carry schemaVersion 3 + codeRev == $GIT_SHA (the post-fix streaming telemetry):
+# and run.complete must carry schemaVersion 4 + codeRev == $GIT_SHA (the post-fix streaming telemetry):
 gcloud logging read \
   'resource.type="cloud_run_job" AND jsonPayload.eventType="run.complete"' \
   --limit=1 --freshness=15m --format='value(jsonPayload.schemaVersion, jsonPayload.codeRev)'
 ```
 
-If either value is not `$GIT_SHA` (or `schemaVersion` is not `3`), the running bytes are stale — **abort,
+If either value is not `$GIT_SHA` (or `schemaVersion` is not `4`), the running bytes are stale — **abort,
 do not promote traffic**, and rebuild (the build served a cached layer the clean config should have
 prevented).
 
@@ -170,12 +170,21 @@ consumed at `infra/cloud-run.tf:38` / `:104` / `:151`. A digest deployed out-of-
 this runbook exists to eliminate. So, after promoting:
 
 ```sh
+# CARRY THE LIVE ALLOWLIST (2026-06-30 incident): the Service apply MUST pass `auth_allowlist`, or the
+# var's empty default sets AUTH_ALLOWLIST="" and locks out EVERY user (fail-closed spend gate, ADR 0002 §5).
+# Source the LIVE value inline so the reconcile is non-destructive by construction; `cloud-run.tf`'s
+# precondition ALSO fails the apply loudly if it ends up empty. The live Service — not terraform state,
+# which may hold "" — is the source of truth (the allowlist is set out-of-band via `--update-env-vars`).
+export AUTH_ALLOWLIST_LIVE="$(gcloud run services describe topic-synthesis-app --region "$REGION" \
+  --format=json | jq -r '.spec.template.spec.containers[0].env[]|select(.name=="AUTH_ALLOWLIST").value')"
+test -n "$AUTH_ALLOWLIST_LIVE" || { echo "REFUSING: live AUTH_ALLOWLIST is empty — restore it before applying"; exit 1; }
 terraform -chdir=infra apply \
   -target=google_cloud_run_v2_service.app \
   -target=google_cloud_run_v2_job.pipeline \
   -target=google_cloud_run_v2_job.migrate \
   -var="app_image=$AR/app@$APP_DIGEST" \
-  -var="job_image=$AR/job@$JOB_DIGEST"
+  -var="job_image=$AR/job@$JOB_DIGEST" \
+  -var="auth_allowlist=$AUTH_ALLOWLIST_LIVE"
 ```
 
 **Standing rule — gcloud owns image deploys.** Terraform only *follows* by digest via scoped `-target`.
@@ -183,7 +192,10 @@ terraform -chdir=infra apply \
 pins — either one reverts the live revision to `:latest` and undoes the verify-gated immutable digest
 (this is the known TF-drift gotcha: always pin `-var <image>` to the live digest). Infra changes that are
 *not* image deploys (a new resource, an env tweak) still use `-target` to the specific resource and carry
-the current digests in their `-var` pins so the same revert can't happen as a side effect.
+the current digests **and the live `auth_allowlist`** in their `-var` pins so the same revert (image →
+`:latest`, or **the allowlist → empty, locking out every user** — the 2026-06-30 incident) can't happen as
+a side effect. `cloud-run.tf`'s `auth_allowlist != ""` precondition is the fail-loud backstop if a Service
+apply forgets it.
 
 ## 5. Artifact Registry cleanup policy (bound SHA-tag growth)
 

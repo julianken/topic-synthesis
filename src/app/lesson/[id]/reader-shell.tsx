@@ -258,25 +258,20 @@ export function ReaderShell({
         </p>
         {/* Owner-only "How this was built" disclosure (issue #175) — quiet, near the reader head, aligned
             to the [read] spine via `.reader-head`. A server-rendered node (passed from page.tsx so it
-            inherits the owner gate); null for a legacy lesson with no recorded timeline. */}
+            inherits the owner gate); null for a legacy lesson with no recorded timeline.
+            AS OF #239 this ONE slot also carries the run-lifecycle 4/4 (#233) "See the full build"
+            affordance: `BuildSummaryView` (`build-summary-view.tsx`) renders the disclosure AND the built-
+            reader link as TWO SIBLINGS inside the SAME async `BuildSummary` output, so `buildSummary` is a
+            single opaque unit that is either "both present" or "neither present" — there is no second,
+            independently-evaluated condition here that could drift out of sync with the disclosure.
+            (Earlier this file gated a SEPARATE, always-rendered affordance on `buildSummary && (…)` — a
+            JS truthiness check on the prop. That measurably failed for a timeline-less lesson: a Server
+            Component element crossing into a Client Component prop like this one arrives as a React "lazy
+            reference" object — always truthy in a synchronous check, even when it is about to render as
+            nothing — so the affordance kept showing after the disclosure had already gone. Moving the
+            affordance INTO the server-side `BuildSummaryView`, gated on the already-resolved `disposition`,
+            sidesteps that boundary: this component now just renders `{buildSummary}` and trusts it.) */}
         {buildSummary}
-        {/* "See the full build" affordance (run-lifecycle 4/4 — issue #233). A quiet escalation, directly
-            after the disclosure, to the preserved completed-build page (run-lifecycle 3/4's owner-only
-            `/lesson/[id]/workflow` route). A PLAIN cross-document <a> (matching `.ws-topbar__back`, NOT
-            next/link) whose href is built from the `id` prop this shell already holds — so it needs no new
-            prop and no page.tsx change. It renders ONLY here, inside ReaderShell, which page.tsx mounts ONLY
-            on the owner-scoped BUILT branch (a foreign id 404s at getLesson before the reader renders), so
-            it inherits #175's "owner-gated for free by co-location" — no new gate, no existence oracle. Copy
-            is user-facing build voice with NO dev-speak (never "workflow"/"pipeline"/the route segment): the
-            `/workflow` path is a code path, only the label is chrome copy. The `→` is decorative (aria-hidden)
-            so the accessible name stays "See the full build". Resting/hover/:focus-visible + reduced-motion-
-            safe are in globals.css (`.reader-build-link`, component-local — NO §0 retoken). */}
-        <a className="reader-build-link" href={`/lesson/${id}/workflow`}>
-          See the full build
-          <span className="reader-build-link__arrow" aria-hidden="true">
-            →
-          </span>
-        </a>
       </div>
 
       {/*
