@@ -43,3 +43,38 @@ export function PosterMark() {
     </svg>
   );
 }
+
+/**
+ * The library card's DELETE chip glyph (issue #201) — a monoline trash can, following the committed
+ * `PosterMark` precedent: drawn in `currentColor` with a ~1.4–1.6px stroke (NEVER a Unicode/emoji
+ * glyph), so the chip's `color` token drives it and the resting `--text-muted` → emphasis `--err` swap
+ * works through the `--tr-color` catalog primitive. Purely decorative (`aria-hidden`) — the chip's
+ * `<button aria-label>` carries the accessible name (`deleteLabel`). 24×24 viewBox so it centers cleanly
+ * in the 24px (≥SC 2.5.8) hit box.
+ */
+export function TrashMark() {
+  return (
+    <svg
+      className="library-poster__trash"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {/* lid line */}
+      <line x1="4.5" y1="6.5" x2="19.5" y2="6.5" />
+      {/* handle */}
+      <path d="M9.5 6.5V5.2a1.2 1.2 0 0 1 1.2-1.2h2.6a1.2 1.2 0 0 1 1.2 1.2v1.3" />
+      {/* can body */}
+      <path d="M6.3 6.5l0.9 12.1a1.4 1.4 0 0 0 1.4 1.3h6.8a1.4 1.4 0 0 0 1.4-1.3l0.9-12.1" />
+      {/* two inner strokes */}
+      <line x1="10.2" y1="10" x2="10.2" y2="16.5" />
+      <line x1="13.8" y1="10" x2="13.8" y2="16.5" />
+    </svg>
+  );
+}

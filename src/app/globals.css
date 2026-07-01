@@ -3187,3 +3187,302 @@ body.has-ws-topbar > .appbar {
     animation-timing-function: var(--ease);
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════
+   ── Card delete chip + deferred-commit collapse + Undo snackbar (#201) ──────────────────────────────
+   The library card single-delete: a quiet delete chip in the card wash, the zero-confirm deferred-commit
+   COLLAPSE on the `<li>` wrapper (the inner `<a>` morph endpoint is byte-untouched), the bottom Undo
+   snackbar (panel-reveal — no toast recipe), and the recoverable error chip. ADDITIVE only: motion rides
+   the §0 tiers/catalog BY NAME; the snackbar's enter offset is a COMPONENT-SCOPED `--panel-translate-y`
+   (NOT :root) and the dwell a component-scoped `--snackbar-dwell` — so NO §0 retoken, neither manifest
+   copy touched. `--err` appears on EMPHASIS only (chip hover/focus, error-chip text/outline) — never a
+   resting red fill. Reduced motion zeroes the motion (the global guard, §Motion) but keeps every
+   affordance. ════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* The poster `<li>` is the positioning context for the absolutely-placed chip AND the collapse animator
+   (extends the base `.library-poster { display:flex }` above). The transition is on the wrapper layer —
+   never the inner `<a>` (its view-transition-name stays byte-locked). */
+.library-poster {
+  position: relative;
+  /* Card-resize collapse at the §0 --dur-base/--ease tier (§Motion). On mobile (one card per row) the
+     max-height leg reflows the cards below smoothly; on the multi-column desktop grid the reflow snaps
+     when the settled card leaves layout (--collapsed → display:none), the +New cell staying first. */
+  transition:
+    opacity var(--dur-base) var(--ease),
+    transform var(--dur-base) var(--ease),
+    max-width var(--dur-base) var(--ease),
+    max-height var(--dur-base) var(--ease),
+    margin var(--dur-base) var(--ease);
+}
+
+/* COLLAPSE — the pending (deferred-commit) card shrinks + fades in place. */
+.library-poster--pending {
+  opacity: 0;
+  transform: scale(0.95);
+  max-width: 0;
+  max-height: 0;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* After the collapse settles, drop the card from grid flow so neighbors reflow up (display can't
+   transition — the collapse above already animated; this is the post-settle reflow). */
+.library-poster--collapsed {
+  display: none;
+}
+
+/* RESTORE (Undo) — the card re-enters the grid with the §0 catalog `rail-reveal` (reduced-motion-zeroed
+   by the global guard, which also zeroes the card-resize transition above). */
+.library-poster--restoring {
+  animation: rail-reveal var(--dur-base) var(--ease) both;
+}
+
+/* The DELETE chip — a quiet button in the card's 104px top wash, top-right (the node-graph motif is
+   centered, the corners free). It overlays the anchor (z-index) so it stays clickable; being
+   position:absolute it NEVER enlarges the card's outer layout box (AC #8) while still giving a ≥24×24
+   pointer/touch target (SC 2.5.8) via the transparent-padding ring around the 16px glyph (the
+   --ws-scrub-target technique, applied to an out-of-flow control). */
+.library-poster__delete {
+  position: absolute;
+  top: var(--sp-1);
+  right: var(--sp-1);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px; /* ≥24×24 hit target (SC 2.5.8 Target Size Minimum) */
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-muted); /* resting: neutral; --err only on emphasis below (no resting red fill) */
+  cursor: pointer;
+  /* Fine-pointer reveal: hidden at rest, fades in on card hover/focus at the §0 --dur-fast/--ease tier.
+     The global reduced-motion guard zeroes this (the chip then appears instantly — AC #31/#32). The color
+     leg composes the catalog --tr-color primitive (TS-24); opacity has no catalog primitive, so it stays
+     a literal --dur-fast/--ease leg. */
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    var(--tr-color);
+}
+.library-poster__delete svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+/* Revealed on card hover or any focus within the card (AC #4) — and unconditionally on keyboard focus of
+   the chip itself (focus-within covers it). */
+.library-poster:hover .library-poster__delete,
+.library-poster:focus-within .library-poster__delete {
+  opacity: 1;
+}
+/* EMPHASIS: --err text on hover/focus (status by emphasis, never a fill). */
+.library-poster__delete:hover,
+.library-poster__delete:focus-visible {
+  color: var(--err);
+}
+.library-poster__delete:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+/* Coarse pointers (no hover): the chip is ALWAYS shown (AC #5) at a ≥44px touch target (AC #7). */
+@media (hover: none) {
+  .library-poster__delete {
+    opacity: 1;
+    width: 44px;
+    height: 44px;
+  }
+}
+/* Selection mode (#203) shows the chip unconditionally (AC #5) — forward hook; the class is set by the
+   bulk-select work, inert until then. */
+.lessons-grid--selecting .library-poster__delete {
+  opacity: 1;
+}
+
+/* ── The bottom Undo snackbar — the panel-reveal toast (derived from the transitions-dev panel-reveal
+   recipe; NO toast library, NO new keyframe family). Mounts only while a delete is undoable. ────────── */
+.library-snackbar {
+  /* COMPONENT-SCOPED custom props (NOT :root / §0 — the shipped --ws- / --gen- component-prop pattern):
+     the panel-reveal enter offset and the dwell (set inline from the JS dwell). No §0 token, no copy edit. */
+  --panel-translate-y: var(--sp-5);
+  --snackbar-dwell: 6000ms;
+
+  position: fixed;
+  bottom: var(--sp-5);
+  left: 0;
+  right: 0;
+  margin-inline: auto; /* center without consuming `transform` (free for the panel-reveal translateY) */
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--sp-5));
+  z-index: 50;
+
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  /* Elevation = panel-strong + backdrop blur + a hairline border, NO drop shadow. */
+  background: var(--surface-panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow: hidden; /* clip the depleting hairline to the rounded edge */
+
+  /* ENTER: translateY from the component-scoped offset → 0 at the §0 --dur-base/--ease tier. The global
+     reduced-motion guard zeroes the duration (it then appears instantly — AC #31/#32). */
+  animation: library-snackbar-in var(--dur-base) var(--ease) both;
+}
+@keyframes library-snackbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--panel-translate-y));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* The depleting dwell hairline on --brand-gradient (decorative; the JS timer is authoritative). It runs
+   over the component-scoped --snackbar-dwell and PAUSES with the snackbar (hover/focus → [data-paused]);
+   the global reduced-motion guard zeroes its duration. Pinned to the snackbar's bottom edge. */
+.library-snackbar__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  transform-origin: left center;
+  background: var(--brand-gradient);
+  animation: library-snackbar-deplete var(--snackbar-dwell) linear both;
+}
+.library-snackbar[data-paused] .library-snackbar__progress {
+  animation-play-state: paused;
+}
+@keyframes library-snackbar-deplete {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.library-snackbar__label {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+}
+.library-snackbar__undo {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--fs-small);
+  color: var(--accent); /* the recovery action — brand accent, never a red fill */
+  cursor: pointer;
+  transition: var(--tr-color);
+}
+.library-snackbar__undo:hover,
+.library-snackbar__undo:focus-visible {
+  color: var(--interactive-hover);
+}
+.library-snackbar__undo:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+.library-snackbar__hint {
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-meta);
+  color: var(--text-muted);
+}
+.library-snackbar__dismiss {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  width: 24px; /* ≥24×24 target (SC 2.5.8) */
+  height: 24px;
+  margin-inline-start: var(--sp-1);
+  padding: 0;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-body);
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--tr-color);
+}
+.library-snackbar__dismiss:hover,
+.library-snackbar__dismiss:focus-visible {
+  color: var(--text);
+}
+.library-snackbar__dismiss:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+/* ── The recoverable failure surface — a scoped role="alert" error chip (status by `!` icon + --err
+   text/outline; NO --err background fill). Same bottom-center seat as the snackbar (they don't co-occur:
+   the error appears after the snackbar's window closes on a failed commit). ──────────────────────────── */
+.library-errchip {
+  position: fixed;
+  bottom: var(--sp-5);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--sp-5));
+  z-index: 50;
+
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--err); /* --err on the OUTLINE (emphasis), not a fill */
+  border-radius: var(--r-pill);
+  background: var(--surface-panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--err); /* --err on the TEXT (emphasis) */
+  font-size: var(--fs-small);
+}
+.library-errchip__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--err);
+  border-radius: var(--r-pill);
+  font-weight: 700;
+  line-height: 1;
+}
+.library-errchip__text {
+  font-weight: 600;
+}
+.library-errchip__dismiss {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-body);
+  line-height: 1;
+  color: var(--err);
+  cursor: pointer;
+}
+.library-errchip__dismiss:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
