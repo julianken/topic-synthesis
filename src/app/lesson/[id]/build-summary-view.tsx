@@ -50,9 +50,11 @@ export function BuildSummaryView({
   workflowHref,
 }: {
   model: BuildSummaryModel;
-  /** The frozen completed-workflow route (issue #232). Rendered as a single "See the full workflow" link
-   *  ONLY on the DEGRADED variant (the degraded reader page has no other entry to it); the BUILT branch
-   *  never renders it, so the built disclosure stays byte-unchanged. Omitted ⇒ no link. */
+  /** The frozen completed-workflow route (issue #232). Rendered on BOTH dispositions: the DEGRADED variant
+   *  shows a "See the full workflow" link (its only entry to the route); the BUILT variant shows the "See the
+   *  full build" reader affordance (issue #239 — co-located here, gated on the resolved `!degraded`, so it
+   *  appears in LOCKSTEP with the disclosure rather than being independently gated in the client shell where
+   *  a Server→Client prop is always-truthy). Omitted ⇒ no link on either branch. */
   workflowHref?: string;
 }) {
   // Render from the 3-way disposition (issue #215): `data-degraded` (held|failed) keeps the existing CSS
