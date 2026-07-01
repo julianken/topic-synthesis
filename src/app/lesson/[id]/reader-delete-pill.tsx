@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { runViewTransition, vtOff } from '../../library-morph';
+import { runViewTransition } from '../../library-morph';
 import { TrashMark } from '../../poster-mark';
 import { writeUndoHandoff } from '../../undo-handoff';
 import { performReaderDelete } from './reader-delete';
@@ -157,12 +157,19 @@ export function ReaderDeletePill({ id, scrollProgress }: { id: string; scrollPro
             {"You'll go back to your library — find it in Recently deleted."}
           </p>
           <div className="ws-topbar__confirm-actions">
+            {/* `aria-disabled`, NOT the native `disabled` attribute (#202-review FIX, mirroring #221's
+                `restore-controls.tsx` fix for the identical bug): disabling a FOCUSED element force-moves
+                `document.activeElement` to `<body>` the instant it's set, and both Cancel and Delete can be
+                focused (Cancel via the open-time AC12 autofocus, Delete via Tab) when a click sets
+                `deleting`. `aria-disabled` keeps each button focusable + in the a11y tree; the `deleting`
+                early-return already at the top of `requestClose`/`confirmDelete` is what actually blocks
+                re-entry (aria-disabled alone doesn't suppress clicks). */}
             <button
               ref={cancelRef}
               type="button"
               className="ws-topbar__confirm-cancel"
               onClick={requestClose}
-              disabled={deleting}
+              aria-disabled={deleting}
             >
               Cancel
             </button>
@@ -170,7 +177,7 @@ export function ReaderDeletePill({ id, scrollProgress }: { id: string; scrollPro
               type="button"
               className="btn btn--danger"
               onClick={() => void confirmDelete()}
-              disabled={deleting}
+              aria-disabled={deleting}
             >
               <TrashMark />
               Delete

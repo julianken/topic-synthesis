@@ -254,10 +254,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       {restoreOffer ? (
         <div className="library-snackbar">
           <span className="library-snackbar__label">Lesson deleted</span>
+          {/* `aria-disabled`, NOT the native `disabled` attribute (#202-review FIX, mirroring #221's
+              `restore-controls.tsx` fix for the identical bug): disabling a FOCUSED element force-moves
+              `document.activeElement` to `<body>` the instant it's set. `aria-disabled` keeps the button
+              focusable + in the a11y tree; the `restoring` early-return already at the top of
+              `undoRestore` is what actually blocks re-entry (aria-disabled alone doesn't suppress
+              clicks). On restore success `restoreOffer` clears and this whole snackbar unmounts — same
+              "not force-moved" precedent as the sibling #201 `LibrarySnackbar` Undo button. */}
           <button
             type="button"
             className="library-snackbar__undo"
-            disabled={restoring}
+            aria-disabled={restoring}
             onClick={() => void undoRestore()}
           >
             Undo

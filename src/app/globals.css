@@ -1010,9 +1010,15 @@ h1 {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
 }
-.ws-topbar__confirm-cancel:disabled {
+/* Busy state is conveyed via `aria-disabled`, never the native `disabled` attribute — a `disabled` button
+   drops out of the a11y tree AND force-moves focus to `<body>` when the currently-focused element is
+   disabled mid-interaction (the #202-review FIX, mirroring #221's `restore-controls.tsx` fix). `aria-
+   disabled` keeps the button focusable + in the tree; the click handler's own busy-guard
+   (`reader-delete-pill.tsx`) is what blocks re-entry, so `pointer-events` stays unset here (it would also
+   kill hover/focus affordances). */
+.ws-topbar__confirm-cancel[aria-disabled='true'] {
   opacity: 0.5;
-  cursor: not-allowed;
+  cursor: default;
 }
 /* The recoverable retry surface — a scoped role="alert" (status by text, not color alone); --err on TEXT
    only, no fill (§Color & contrast destructive-as-foreground rule). */
@@ -2028,9 +2034,13 @@ body.has-ws-topbar > .appbar {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
 }
-.btn--danger:disabled {
+/* Busy state is conveyed via `aria-disabled`, never the native `disabled` attribute — see the identical
+   note on `.ws-topbar__confirm-cancel[aria-disabled='true']` above (#202-review FIX, mirroring #221's
+   `restore-controls.tsx` fix); `pointer-events` stays unset (the handler's own busy-guard blocks re-entry,
+   and pointer-events:none would kill hover/focus). */
+.btn--danger[aria-disabled='true'] {
   opacity: 0.5;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .intake__error {
@@ -3581,6 +3591,15 @@ body.has-ws-topbar > .appbar {
 .library-snackbar__undo:focus-visible {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
+}
+/* The #202 restore-mode snackbar's Undo is the only `.library-snackbar__undo` instance that ever goes busy
+   (the #201 `LibrarySnackbar` Undo above never sets `aria-disabled`, so it's unaffected). Busy state is
+   `aria-disabled`, never the native `disabled` attribute — see the identical note on
+   `.ws-topbar__confirm-cancel[aria-disabled='true']`; `pointer-events` stays unset (the `library-
+   provider.tsx` handler's own busy-guard blocks re-entry). */
+.library-snackbar__undo[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
 }
 .library-snackbar__hint {
   font-family: var(--mono);
