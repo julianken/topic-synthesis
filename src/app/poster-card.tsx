@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type TransitionEvent } from 'react';
 import type { PageStatus } from '../domain/sitemap';
 import { useLibrary } from './library-provider';
+import { decideCardClick } from './poster-card-gesture';
 import { PosterControls } from './poster-controls';
 
 /**
@@ -31,7 +32,12 @@ import { PosterControls } from './poster-controls';
  *    the inner anchor's navigation and toggles selection — POINTER-only (a keyboard-activated click on the
  *    anchor carries `event.detail === 0`, the standard non-pointer-activation signal, and is left alone so
  *    the anchor's own keyboard behavior — Enter navigates — never changes, per the binding constraint that
- *    the inner `<a>`'s role/name/behavior stay untouched).
+ *    the inner `<a>`'s role/name/behavior stay untouched). The click decision itself is delegated to the
+ *    pure `decideCardClick` (`poster-card-gesture.ts`, unit-tested) — including the guard that swallows
+ *    the ONE browser-synthesized `click` that follows a fired long-press on `pointerup` (a stationary
+ *    tap-and-hold-then-release still dispatches a click), which would otherwise immediately deselect the
+ *    card the long-press just selected (`longPressFiredRef`, set when the 500ms timer fires, consumed by
+ *    the very next click decision).
  */
 export function PosterCard({
   lessonId,
@@ -101,6 +107,14 @@ export function PosterCard({
       longPressTimer.current = null;
     }
   };
+  // Review fix (#203): the browser dispatches its own synthetic `click` on the `pointerup` that follows a
+  // fired long-press (duration alone doesn't suppress it) — `longPressFiredRef` records that the timer
+  // fired so the NEXT click decision (`decideCardClick`, below) swallows exactly that one trailing click
+  // instead of re-toggling and deselecting the card the long-press just selected. Reset defensively at the
+  // start of every new press cycle too, so an interrupted cycle (e.g. a `pointercancel` that arrives after
+  // the timer already fired, with no click ever following) can't leave a stale `true` that swallows an
+  // unrelated future click.
+  const longPressFiredRef = useRef(false);
   useEffect(() => clearLongPress, []);
 
   const className = [
@@ -125,31 +139,25 @@ export function PosterCard({
       // never delayed.
       style={bulkIndex >= 0 ? ({ '--bulk-i': bulkIndex } as CSSProperties) : undefined}
       onClick={(e) => {
-        if (!selectionMode) return;
-        // A click that ORIGINATED on the checkbox — mouse OR keyboard Space/Enter on the focused
-        // `role="checkbox"` button — always toggles (AC4): the checkbox itself carries no onClick, so
-        // its click bubbles here, and Space/Enter activation also yields `detail === 0` (same as the
-        // anchor's own keyboard activation below), so it must be distinguished by TARGET, not detail.
-        const fromCheckbox = (e.target as HTMLElement).closest('.library-poster__select');
-        if (fromCheckbox) {
-          e.preventDefault();
-          toggleSelected(lessonId);
-          return;
-        }
-        // Whole-card click-to-toggle (AC5) is POINTER-only: a keyboard-activated click on the anchor
-        // itself (Enter) carries `detail === 0` and is left alone so the anchor's own keyboard behavior
-        // (Enter navigates) never changes — the binding constraint on the inner `<a>`.
-        if (e.detail !== 0) {
-          e.preventDefault();
-          toggleSelected(lessonId);
-        }
+        // A fired long-press swallows exactly the one trailing synthetic click the browser dispatches on
+        // `pointerup` — consumed here, BEFORE any of the selection-mode/checkbox/detail branches, so it
+        // takes priority regardless of how selection mode was entered (see `longPressFiredRef` above).
+        const longPressFired = longPressFiredRef.current;
+        longPressFiredRef.current = false;
+        const fromCheckbox = Boolean((e.target as HTMLElement).closest('.library-poster__select'));
+        const action = decideCardClick({ selectionMode, fromCheckbox, detail: e.detail, longPressFired });
+        if (action === 'ignore') return;
+        e.preventDefault();
+        toggleSelected(lessonId);
       }}
       onTransitionEnd={onTransitionEnd}
       onAnimationEnd={() => setRestoring(false)}
       onPointerDown={(e) => {
         if (e.pointerType !== 'touch' || selectionMode) return;
+        longPressFiredRef.current = false;
         longPressTimer.current = setTimeout(() => {
           longPressTimer.current = null;
+          longPressFiredRef.current = true;
           enterSelectionMode();
           toggleSelected(lessonId);
         }, 500);
@@ -157,6 +165,7 @@ export function PosterCard({
       onPointerUp={clearLongPress}
       onPointerCancel={clearLongPress}
       onPointerMove={clearLongPress}
+      onPointerLeave={clearLongPress}
     >
       {children}
       <PosterControls lessonId={lessonId} title={title} status={status} />
