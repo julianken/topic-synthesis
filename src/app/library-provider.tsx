@@ -14,7 +14,6 @@ import {
 import {
   DeferredDeleteController,
   emptySnapshot,
-  isConfirmedDelete,
   type DeleteSnapshot,
 } from './library-delete';
 import { LibrarySnackbar } from './library-snackbar';
@@ -93,29 +92,24 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       },
       // The same-origin, credentialed soft-delete (#199). A same-origin fetch carries the session cookie
       // and passes the route's same-origin check; `keepalive` lets the unload-time DELETE survive. Never
-      // rejects — a thrown/non-ok result resolves false so the state machine rolls the card back.
+      // rejects — a thrown/non-ok result resolves `false` so the state machine rolls the card back.
       //
-      // The route ALWAYS 200s with `{ deleted: string[] }` — empty on a no-op (already-deleted /
-      // not-owned) — precisely so the client can tell a confirmed delete apart from one that did nothing
-      // (`isConfirmedDelete`, the pure/tested half of this check — `library-delete.ts`). A no-op is NOT a
-      // commit failure (nothing to retry), so it still resolves `true` here (no recoverable-error chip,
-      // which is reserved for a genuine failed DELETE) — but we explicitly reconcile the grid to server
-      // truth ourselves rather than silently trusting the optimistic removal: the card stays gone if it
-      // really was deleted elsewhere, or reappears if it wasn't. This wrapper's fetch/parse/`router`
-      // closure is the impure half and isn't independently unit-tested (no RTL/jsdom harness in this repo
-      // yet) — `isConfirmedDelete`'s coverage in `library-delete.test.ts` is the seam that stands in.
+      // A non-ok status is a genuine failure → roll back. A 200 is a success, INCLUDING the route's
+      // idempotent no-op (`{ deleted: [] }` for an already-deleted / absent id): the card correctly stays
+      // collapsed, and the controller's single `onReconcile` (below) runs `router.refresh()` ONCE after
+      // the commit resolves — re-syncing the grid to server truth for a confirmed delete AND a no-op
+      // alike. We deliberately do NOT reconcile here as well: that double-fired `router.refresh()` on
+      // every no-op (the controller already covers it). Per-id confirmation lives in the pure, tested
+      // `isConfirmedDelete` (`library-delete.ts`) — the seam the BULK path (#203) needs to reconcile
+      // WHICH of many ids the server actually deleted; the single-card path converges via the one
+      // controller reconcile alone, so it doesn't parse the body.
       commit: async (id, { keepalive }) => {
         try {
           const res = await fetch(`/api/lesson/${encodeURIComponent(id)}`, {
             method: 'DELETE',
             keepalive,
           });
-          if (!res.ok) return false;
-          const body: unknown = await res.json().catch(() => null);
-          if (!isConfirmedDelete(id, body)) {
-            reconcileRef.current();
-          }
-          return true;
+          return res.ok;
         } catch {
           return false;
         }
