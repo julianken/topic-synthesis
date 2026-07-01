@@ -214,6 +214,25 @@ const pairs: Pair[] = [
     ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ACCENT), relativeLuminanceFromLinearRgb(SNACKBAR_BG))),
     expected: 11.09,
   },
+  // Bulk multi-select (#203) — the NEW controls' actual painted surfaces.
+  {
+    // `.btn--danger` (the bulk-delete confirm-modal Confirm button AND the action bar's "Delete {N}"
+    // trigger) — status-as-foreground: --err TEXT + OUTLINE, never a fill. BOTH surfaces it paints on
+    // (`.confirm-modal` and `.library-actionbar`) share the SAME `--surface-panel-strong` composited over
+    // `--bg-app` (SNACKBAR_BG above, reused — the identical composite, not a new one).
+    name: '{surface-panel-strong-over-bg-app} / {err} (.btn--danger — bulk-delete confirm + action bar)',
+    ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ERR), relativeLuminanceFromLinearRgb(SNACKBAR_BG))),
+    expected: 5.51,
+  },
+  {
+    // The per-card / master checkbox's CHECKED state (box outline + check/dash glyph) sits on the poster
+    // card's `--bg-surface` wash / the action bar's own panel — using the {bg-surface} proxy (its floor;
+    // the actual action-bar panel is the same translucent-over-canvas composite as the row above, higher
+    // contrast, so the opaque {bg-surface} figure is the conservative one to pin).
+    name: '{bg-surface} / {interactive} (checkbox checked — box + check glyph)',
+    ratio: toHundredth(contrastRatio(ACCENT, INK_900)),
+    expected: 10.7,
+  },
 ];
 
 // Tag the one documented exemption.
@@ -259,6 +278,6 @@ describe('DESIGN.md "## Color & contrast" pairs (computed from §0 OKLCH)', () =
   });
 
   it('asserts every documented pair (none silently dropped)', () => {
-    expect(pairs).toHaveLength(15);
+    expect(pairs).toHaveLength(17);
   });
 });

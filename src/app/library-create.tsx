@@ -1,6 +1,9 @@
 'use client';
 
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { Children, type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { ConfirmModal } from './confirm-modal';
+import { LibraryActionBar } from './library-actionbar';
+import { useLibrary } from './library-provider';
 import { NEW_SURFACE_NAME, runViewTransition, SPECIMEN_TOPIC_NAME, vtOff } from './library-morph';
 
 /**
@@ -181,10 +184,59 @@ export function LibraryCreate({
     return () => window.removeEventListener('keydown', onKey);
   }, [view, openForm, closeForm]);
 
+  // ── Bulk multi-select (#203): the header Select/Done toggle, the action bar's "Delete {N}" → the ONE
+  // true confirm modal → bulkDelete(). This component owns the modal's mount/unmount (React-idiomatic —
+  // it renders only while a confirmation is pending) and the POST-close focus restoration (AC30): the
+  // caller is the only place that knows what survives the close (the batch snackbar's Undo button, the
+  // first remaining card, or the header), since neither the action bar nor the modal has that context.
+  const { selectionMode, selection, enterSelectionMode, exitSelectionMode, bulkDelete } = useLibrary();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const deleteCount = selection.size;
+
+  const requestBulkDelete = useCallback(() => setConfirmOpen(true), []);
+
+  const cancelBulkDelete = useCallback(() => {
+    setConfirmOpen(false);
+    // Nothing changed — the action bar (and its "Delete {N}" trigger) is still mounted; return focus there.
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('.library-actionbar__delete')?.focus();
+    });
+  }, []);
+
+  const confirmBulkDelete = useCallback(() => {
+    setConfirmOpen(false);
+    // bulkDelete() exits selection mode + clears the selection as its FIRST synchronous step, so the
+    // action bar (and the "Delete {N}" trigger) is gone by the time it resolves — focus must land on a
+    // stable SURVIVOR (AC30), never that unmounted trigger. Waiting for the whole operation (including the
+    // reconcile + snackbar mount) to settle before choosing a target is what lets the "batch snackbar
+    // Undo button" branch actually apply when the delete succeeded.
+    void bulkDelete().then(() => {
+      requestAnimationFrame(focusAfterBulkDelete);
+    });
+  }, [bulkDelete]);
+
+  const hasLessons = Children.count(children) > 0;
+  const hasInFlight = Children.count(inFlightCards ?? null) > 0;
+  // AC34 (+ the binding amendment): the empty-library state is suppressed while ANY in-flight tile is
+  // present, even with zero persisted lessons — an in-flight run means the library is NOT actually empty,
+  // it's mid-generation.
+  const showEmptyState = !hasLessons && !hasInFlight;
+
   return (
     <>
-      {head}
-      <ul className={`lessons-grid${view === 'form' ? ' lessons-grid--form-open' : ''}`}>
+      <div className="library__headrow">
+        {head}
+        <button
+          type="button"
+          className="library__select-toggle"
+          onClick={selectionMode ? exitSelectionMode : enterSelectionMode}
+        >
+          {selectionMode ? 'Done' : 'Select'}
+        </button>
+      </div>
+      <ul
+        className={`lessons-grid${view === 'form' ? ' lessons-grid--form-open' : ''}${selectionMode ? ' lessons-grid--selecting' : ''}`}
+      >
         <li className="lessons-grid__create">
           {view === 'form' ? (
             <IntakeForm
@@ -224,9 +276,62 @@ export function LibraryCreate({
             `lessons-grid` `<ul>` so each occupies one grid cell. Empty/absent when no run is in flight. */}
         {inFlightCards}
         {children}
+        {/* Empty-library state (AC34) — a bulk delete (or batch restore) left the owner with ZERO
+            PERSISTED lessons AND zero in-flight tiles. The `+New` cell above stays the first grid cell
+            always; this is an ADDITIONAL cell spanning the remaining columns. Reuses the `.library-empty*`
+            CSS (already in globals.css, previously unused since the create-form flow superseded the old
+            first-run prompt — now activated for this bulk-delete-driven case). */}
+        {showEmptyState ? (
+          <li className="lessons-grid__empty">
+            <div className="library-empty">
+              <p className="library-empty__title">Your library is clear</p>
+              <p className="library-empty__hint">Start a new lesson to fill it back up.</p>
+            </div>
+          </li>
+        ) : null}
       </ul>
+
+      {/* The bulk-select action bar (#203) — mounts only while selection mode is on AND ≥1 card is
+          selected; the "Delete {N}" trigger only REQUESTS confirmation. */}
+      <LibraryActionBar onRequestDelete={requestBulkDelete} />
+
+      {/* The ONE true confirm modal (#203) — mounted ONLY while a bulk delete awaits confirmation. */}
+      {confirmOpen ? (
+        <ConfirmModal
+          title={deleteCount > 1 ? `Delete ${deleteCount} lessons?` : 'Delete this lesson?'}
+          body="They'll move to Recently deleted, where you can restore them."
+          confirmLabel={`Delete ${deleteCount}`}
+          danger
+          onConfirm={confirmBulkDelete}
+          onCancel={cancelBulkDelete}
+        />
+      ) : null}
     </>
   );
+}
+
+/** Post-bulk-delete focus restoration (AC30) — a stable survivor, in priority order: the batch snackbar's
+ *  Undo button (present when the delete succeeded and removed ≥1 lesson), else the first remaining poster
+ *  card, else the section header (made programmatically focusable, mirroring `poster-controls.tsx`'s own
+ *  `nextFocusTarget` last-resort). NEVER the unmounted "Delete {N}" trigger. DOM-only (covered by #206 e2e). */
+function focusAfterBulkDelete(): void {
+  const undoBtn = document.querySelector<HTMLElement>('.library-snackbar--batch .library-snackbar__undo');
+  if (undoBtn) {
+    undoBtn.focus();
+    return;
+  }
+  const firstCard = document.querySelector<HTMLElement>(
+    '.library-poster:not(.library-poster--pending):not(.library-poster--collapsed) .library-poster__card',
+  );
+  if (firstCard) {
+    firstCard.focus();
+    return;
+  }
+  const title = document.querySelector<HTMLElement>('.library__title');
+  if (title) {
+    if (!title.hasAttribute('tabindex')) title.setAttribute('tabindex', '-1');
+    title.focus();
+  }
 }
 
 /**
