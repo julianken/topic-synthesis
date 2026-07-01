@@ -3,6 +3,7 @@ import {
   badgeClass,
   cardDescription,
   categoryEyebrow,
+  deletedAgo,
   INFLIGHT_BADGE_CLASS,
   INFLIGHT_BADGE_ICON,
   INFLIGHT_BADGE_LABEL,
@@ -67,6 +68,28 @@ describe('library-card — relativeTime, the coarse recency string (deterministi
   it('never returns a negative/future bucket (clamps to just-now) and is empty on a bad date', () => {
     expect(relativeTime(ago(-5 * MIN), now)).toBe('just now'); // a future createdAt clamps
     expect(relativeTime('not-a-date', now)).toBe('');
+  });
+});
+
+describe('library-card — deletedAgo, the Recently-deleted shelf stamp (#204, pure)', () => {
+  const now = new Date('2026-06-26T12:00:00.000Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+  const SEC = 1000;
+  const DAY = 24 * 60 * 60 * SEC;
+
+  it('prefixes "Deleted " to relativeTime, never doubling the trailing "ago"', () => {
+    expect(deletedAgo(ago(3 * DAY), now)).toBe('Deleted 3 days ago');
+    expect(deletedAgo(ago(1 * DAY), now)).toBe('Deleted yesterday');
+  });
+
+  it('handles the just-now edge with no trailing "ago" (relativeTime already supplies the word)', () => {
+    expect(deletedAgo(ago(10 * SEC), now)).toBe('Deleted just now');
+    expect(deletedAgo(ago(10 * SEC), now)).not.toMatch(/ago$/);
+  });
+
+  it('degrades an unparseable timestamp to the bare word — never an empty stamp or a trailing space', () => {
+    expect(deletedAgo('not-a-date', now)).toBe('Deleted');
+    expect(deletedAgo('not-a-date', now)).not.toMatch(/ $/);
   });
 });
 

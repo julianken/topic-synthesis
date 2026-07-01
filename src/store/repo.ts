@@ -953,7 +953,10 @@ export type DeletedLessonCard = LessonCard & { deletedAt: string };
  *  AND filtered to `c.deleted_at IS NOT NULL`, so a foreign/unknown owner gets `[]` (no existence oracle),
  *  and a live (not-deleted) lesson never appears. REUSES the `listLessons` one-card-per-curriculum
  *  `DISTINCT ON (c.id)` projection (so a multi-page curriculum still emits ONE card), adding the
- *  `deleted_at` column and ordering by it DESC. Each card carries a `deletedAt` ISO string. (#198) */
+ *  `deleted_at` column and ordering by it DESC with a stable `id DESC` TIEBREAKER: a bulk delete stamps
+ *  every co-deleted row one identical `now()`, so without a tiebreaker those equal-`deleted_at` cards
+ *  would order arbitrarily (and could reshuffle between reads); `deleted_at DESC, id DESC` makes the shelf
+ *  order deterministic + stable. Each card carries a `deletedAt` ISO string. (#198/#204) */
 export async function listDeletedLessons(
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
@@ -971,7 +974,9 @@ export async function listDeletedLessons(
   }>(
     // Same one-card-per-curriculum shape as listLessons (inner DISTINCT ON (c.id) → lowest-ordinal
     // representative page), filtered to deleted rows and re-ordered newest-DELETED-first by the outer
-    // query (DISTINCT ON forces ORDER BY c.id first, so the deleted_at DESC sort lives in the outer query).
+    // query (DISTINCT ON forces ORDER BY c.id first, so the deleted_at sort lives in the outer query). The
+    // outer `id DESC` is a STABLE TIEBREAKER (#204): a bulk delete stamps every co-deleted row one identical
+    // now(), so deleted_at alone would order those cards arbitrarily — the tiebreaker makes it deterministic.
     `SELECT id, created_at, deleted_at, concept_slug, title, status, settings_json, category, summary
        FROM (
          SELECT DISTINCT ON (c.id)
@@ -983,7 +988,7 @@ export async function listDeletedLessons(
           WHERE c.owner_sub = $1 AND c.deleted_at IS NOT NULL
           ORDER BY c.id, cp.ordinal
        ) cards
-      ORDER BY deleted_at DESC`,
+      ORDER BY deleted_at DESC, id DESC`,
     [ownerSub],
   );
   return res.rows.map((r) => ({

@@ -39,6 +39,7 @@ const FOG_100: Oklch = [0.95, 0.008, 250]; // --text
 const FOG_450: Oklch = [0.74, 0.015, 250]; // --text-muted
 const FOG_550: Oklch = [0.65, 0.016, 250]; // --text-faint
 const ACCENT: Oklch = [0.82, 0.145, 215]; // --accent / --interactive
+const ACCENT_DIM: Oklch = [0.7, 0.11, 215]; // --accent-dim / --interactive-hover
 const OK: Oklch = [0.78, 0.15, 152]; // --ok / --status-built
 const WARN: Oklch = [0.82, 0.13, 80]; // --warn / --status-soon
 const ERR: Oklch = [0.66, 0.17, 25]; // --err / --status-error
@@ -214,6 +215,31 @@ const pairs: Pair[] = [
     ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ACCENT), relativeLuminanceFromLinearRgb(SNACKBAR_BG))),
     expected: 11.09,
   },
+  // Recovery affordance — Restore-as-foreground (§Color & contrast, #204). The shelf Restore control
+  // (label + `<UndoMark/>` icon, `.shelf-restore` in globals.css) paints `--accent` directly on the
+  // card surfaces it actually sits on — not a `{bg-app}`/`{interactive}` proxy — so these three pairs
+  // guard the ratios DESIGN.md "Recovery affordance" publishes.
+  {
+    // Restore label + icon at rest, AND the `:focus-visible` ring (`--interactive` = `--accent`) — both
+    // paint on the shelf card's resting `--bg-surface`.
+    name: '{bg-surface} / {accent} (shelf Restore label/icon + focus ring)',
+    ratio: toHundredth(contrastRatio(ACCENT, INK_900)),
+    expected: 10.7,
+  },
+  {
+    // Restore label + icon on :hover, when the control's own background swaps to `--bg-raised`
+    // (globals.css `.shelf-restore:hover`).
+    name: '{bg-raised} / {accent} (shelf Restore hover)',
+    ratio: toHundredth(contrastRatio(ACCENT, BG_RAISED)),
+    expected: 10.46,
+  },
+  {
+    // The hover border only (`.shelf-restore:hover { border-color: var(--accent-dim) }`) — non-text,
+    // so its floor is 3:1, not the 4.5:1 normal-text floor; it clears both.
+    name: '{bg-surface} / {accent-dim} (shelf Restore hover border, non-text)',
+    ratio: toHundredth(contrastRatio(ACCENT_DIM, INK_900)),
+    expected: 6.95,
+  },
 ];
 
 // Tag the one documented exemption.
@@ -259,6 +285,12 @@ describe('DESIGN.md "## Color & contrast" pairs (computed from §0 OKLCH)', () =
   });
 
   it('asserts every documented pair (none silently dropped)', () => {
-    expect(pairs).toHaveLength(15);
+    expect(pairs).toHaveLength(18);
+  });
+
+  it('the shelf Restore hover border (non-text) clears the WCAG AA non-text floor (3:1)', () => {
+    const border = pairs.find((p) => p.name === '{bg-surface} / {accent-dim} (shelf Restore hover border, non-text)');
+    const WCAG_NON_TEXT_FLOOR = 3;
+    expect(border?.ratio).toBeGreaterThanOrEqual(WCAG_NON_TEXT_FLOOR);
   });
 });

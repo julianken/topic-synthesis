@@ -1086,14 +1086,16 @@ describe('listDeletedLessons (#198 — fakePool scope/filter/order + deletedAt m
     ...over,
   });
 
-  it('is owner-scoped, filters deleted_at IS NOT NULL, orders by deleted_at DESC, reuses DISTINCT ON (c.id)', async () => {
+  it('is owner-scoped, filters deleted_at IS NOT NULL, orders by deleted_at DESC + a stable id tiebreaker, reuses DISTINCT ON (c.id)', async () => {
     const { deps, client } = fakePool([{ match: 'FROM curriculum c', rows: [deletedRow()] }]);
     const cards = await listDeletedLessons('owner-1', deps);
     expect(cards).toHaveLength(1);
     const sql = sqlsOf(client.query).find((s) => s.includes('FROM curriculum c')) ?? '';
     expect(sql).toContain('c.owner_sub = $1');
     expect(sql).toContain('c.deleted_at IS NOT NULL');
-    expect(sql).toContain('ORDER BY deleted_at DESC');
+    // #204 carried suggestion: the outer ORDER BY carries a STABLE id tiebreaker so co-deleted cards (a
+    // bulk delete stamps one identical now()) can't reshuffle between reads.
+    expect(sql).toContain('ORDER BY deleted_at DESC, id DESC');
     expect(sql).toContain('DISTINCT ON (c.id)'); // reuses the one-card-per-curriculum projection
     expect(paramsOf(client.query, 'FROM curriculum c')).toEqual(['owner-1']);
   });
@@ -1243,6 +1245,24 @@ describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', 
     expect(otherIds).toContain(foreign);
     expect(otherIds).not.toContain(a);
     expect(otherIds).not.toContain(b);
+  });
+
+  it('orders CO-deleted rows (equal deleted_at) deterministically + stably by the id tiebreaker (#204)', async () => {
+    // A bulk delete stamps every row in ONE softDelete call with the SAME now() (a statement-constant
+    // transaction time), so these two share an identical deleted_at — the case the carried suggestion
+    // targets. Without the `id DESC` tiebreaker their order would be arbitrary and could reshuffle.
+    const ownerSub = `owner-${randomUUID()}`;
+    const a = `itest-${randomUUID()}`;
+    const b = `itest-${randomUUID()}`;
+    await persistRun({ runId: a, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    await persistRun({ runId: b, request, result, costUsd: 0.1, modelSnapshots: STAGE_MODELS, ownerSub }, deps);
+    expect(await softDelete([a, b], ownerSub, deps)).toHaveLength(2); // ONE call → one shared deleted_at
+
+    const ids1 = (await listDeletedLessons(ownerSub, deps)).map((c) => c.id);
+    expect(ids1).toEqual([...ids1].sort((x, y) => (x < y ? 1 : -1))); // id DESC among the equal deleted_at
+    // STABLE: a second read returns the identical order (no arbitrary reshuffle between reads)
+    const ids2 = (await listDeletedLessons(ownerSub, deps)).map((c) => c.id);
+    expect(ids2).toEqual(ids1);
   });
 
   it('getOwnedDeletedLesson returns the owned deleted row ({id, topic}); null for a foreign owner or a live row', async () => {
