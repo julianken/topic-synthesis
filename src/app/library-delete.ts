@@ -57,6 +57,21 @@ export function isConfirmedDelete(id: string, body: unknown): boolean {
   return Array.isArray(deleted) && deleted.includes(id);
 }
 
+/**
+ * Whether a `POST /api/lessons/restore` response CONFIRMS `id` was actually restored, per the route's
+ * documented contract (`{ restored: string[] }`, ALWAYS 200 — empty on a no-op: already-restored,
+ * foreign-owner, or not-currently-deleted id; `restore()` in `src/store/repo.ts`). MIRRORS
+ * `isConfirmedDelete` above (same shape, same conservative false-on-malformed default) so the
+ * Recently-deleted shelf's `RestoreCard` (`src/app/recently-deleted/restore-controls.tsx`) can tell a
+ * genuine restore from a no-op it should reconcile against server truth, rather than trusting a bare
+ * `res.ok` (a 200 no-op is NOT a confirmed restore).
+ */
+export function isConfirmedRestore(id: string, body: unknown): boolean {
+  if (body === null || typeof body !== 'object') return false;
+  const restored = (body as { restored?: unknown }).restored;
+  return Array.isArray(restored) && restored.includes(id);
+}
+
 /** One card the user can still Undo (collapsed but recoverable). */
 export interface PendingDelete {
   id: string;

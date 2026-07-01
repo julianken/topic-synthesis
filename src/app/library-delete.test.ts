@@ -6,6 +6,7 @@ import {
   deleteLabel,
   emptySnapshot,
   isConfirmedDelete,
+  isConfirmedRestore,
   type DeleteClock,
   type DeleteSnapshot,
 } from './library-delete';
@@ -117,6 +118,29 @@ describe('isConfirmedDelete — the DELETE route contract (`{ deleted: string[] 
     expect(isConfirmedDelete('a', {})).toBe(false);
     expect(isConfirmedDelete('a', { deleted: 'a' })).toBe(false); // not an array
     expect(isConfirmedDelete('a', 'a')).toBe(false); // not an object
+  });
+});
+
+describe('isConfirmedRestore — the restore route contract (`{ restored: string[] }`, always 200)', () => {
+  it('confirms when the id is present in `restored[]`', () => {
+    expect(isConfirmedRestore('a', { restored: ['a'] })).toBe(true);
+    expect(isConfirmedRestore('a', { restored: ['x', 'a', 'y'] })).toBe(true);
+  });
+
+  it('does NOT confirm a no-op — an empty `restored[]` (already-restored / foreign / not-deleted)', () => {
+    expect(isConfirmedRestore('a', { restored: [] })).toBe(false);
+  });
+
+  it('does NOT confirm when the id is simply absent from a non-empty `restored[]`', () => {
+    expect(isConfirmedRestore('a', { restored: ['b', 'c'] })).toBe(false);
+  });
+
+  it('degrades to false (never throws) on a malformed or missing body', () => {
+    expect(isConfirmedRestore('a', null)).toBe(false);
+    expect(isConfirmedRestore('a', undefined)).toBe(false);
+    expect(isConfirmedRestore('a', {})).toBe(false);
+    expect(isConfirmedRestore('a', { restored: 'a' })).toBe(false); // not an array
+    expect(isConfirmedRestore('a', 'a')).toBe(false); // not an object
   });
 });
 
