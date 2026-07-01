@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signInAsTestOwner } from './auth';
-import { SEED_RUN_ID } from './seed';
+import { clearTimelinelessLesson, SEED_RUN_ID, SEED_TIMELINELESS_RUN_ID, seedTimelinelessLesson } from './seed';
 
 // lesson-workspace-viewbuild.spec — the BUILT-reader "See the full build" affordance (run-lifecycle 4/4,
 // issue #233): the quiet escalation in the reader head (`.reader-build-link`, slotted after the #175 "How
@@ -48,6 +48,11 @@ test.describe('lesson-workspace-viewbuild — the "See the full build" affordanc
     // degraded-only "See the full workflow" link never renders here (no double link — AC6).
     await expect(page.locator('.reader-build-link')).toHaveCount(1);
     await expect(page.locator('.build-summary__workflow-link')).toHaveCount(0);
+
+    // Lockstep (issue #239): SEED_RUN_ID carries a real step_event timeline, so the disclosure it drives
+    // and the affordance it gates BOTH render exactly once — the common-path counterpart to the
+    // timeline-less lockstep-absence case below.
+    await expect(page.locator('.build-summary')).toHaveCount(1);
   });
 
   test('keyboard focus reaches the affordance and it shows a :focus-visible ring (AC4,8)', async ({
@@ -140,5 +145,32 @@ test.describe('lesson-workspace-viewbuild — mobile fold geometry (≤640, AC10
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
     );
     expect(noHOverflow).toBe(true);
+  });
+});
+
+test.describe('lesson-workspace-viewbuild — the affordance is gated on the disclosure (issue #239)', () => {
+  // A BUILT lesson with ZERO step_event rows (a legacy build predating the #175 timeline). The disclosure
+  // self-hides on a timeline-less lesson (build-summary.ts: `ran.length === 0` → null); this proves the
+  // "See the full build" affordance now shares that SAME null and disappears with it — never linking to
+  // the frozen /workflow page's empty all-"didn't run" shell. Seeded describe-scoped so the library-card
+  // baseline (SEED_RUN_ID's single dense card) is untouched.
+  test.beforeAll(seedTimelinelessLesson);
+  test.afterAll(clearTimelinelessLesson);
+
+  test('a timeline-less built lesson renders the reader shell but shows NEITHER the disclosure NOR the affordance', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signInAsTestOwner(context, baseURL ?? '');
+    await page.goto(`/lesson/${SEED_TIMELINELESS_RUN_ID}`);
+
+    // The built reader shell still renders — a timeline-less lesson is a normal built lesson otherwise.
+    await expect(page.locator('.reader.reader--ws')).toBeVisible();
+
+    // Lockstep absence (issue #239): both the disclosure and the gated affordance are ABSENT, never one
+    // without the other — the affordance no longer links to the empty frozen /workflow shell.
+    await expect(page.locator('.build-summary')).toHaveCount(0);
+    await expect(page.locator('.reader-build-link')).toHaveCount(0);
   });
 });

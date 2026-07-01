@@ -18,6 +18,7 @@ import {
   getResearchEvents,
   getRunMeta,
   getStepEvents,
+  IN_FLIGHT_STALE_MINUTES,
   type InFlightCard,
   listDeletedLessons,
   listInFlightRuns,
@@ -942,7 +943,7 @@ describe('listInFlightRuns (#231 — in-flight library tile, fakePool SQL shape 
     expect(cards).toHaveLength(1);
     const sql = sqlsOf(owned.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
     expect(sql).toContain('ro.owner_sub = $1');
-    expect(paramsOf(owned.client.query, 'FROM run_owner ro')).toEqual(['owner-1']);
+    expect(paramsOf(owned.client.query, 'FROM run_owner ro')).toEqual(['owner-1', IN_FLIGHT_STALE_MINUTES]);
     // a foreign/unknown owner matches no rows → [] (same empty result as having zero in-flight runs)
     expect(await listInFlightRuns('someone-else', fakePool().deps)).toEqual([]);
   });
@@ -973,6 +974,16 @@ describe('listInFlightRuns (#231 — in-flight library tile, fakePool SQL shape 
     await listInFlightRuns('owner-1', fp.deps);
     const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
     expect(sql).toContain('ORDER BY ro.created_at DESC');
+  });
+
+  it('bounds recency via a parameterized interval using IN_FLIGHT_STALE_MINUTES (issue #237, Approach A)', async () => {
+    // The recency predicate is parameterized (never a magic number inlined in the SQL string) and bound to
+    // the named constant, so a never-persisting run's tile clears once its run_owner row goes stale.
+    const fp = fakePool([{ match: 'FROM run_owner ro', rows: [inflightRow()] }]);
+    await listInFlightRuns('owner-1', fp.deps);
+    const sql = sqlsOf(fp.client.query).find((s) => s.includes('FROM run_owner ro')) ?? '';
+    expect(sql).toContain("ro.created_at > now() - ($2 * interval '1 minute')");
+    expect(paramsOf(fp.client.query, 'FROM run_owner ro')).toEqual(['owner-1', IN_FLIGHT_STALE_MINUTES]);
   });
 
   it('maps run_owner rows to the InFlightCard shape, normalizing created_at (Date | string) to an ISO string', async () => {
@@ -1290,5 +1301,34 @@ describe.skipIf(!process.env.DATABASE_URL)('repo (integration: real Postgres)', 
     await pool.query(`UPDATE run_owner SET created_at = now() - interval '1 hour' WHERE run_id = $1`, [older]);
     const ids = (await listInFlightRuns(ownerSub, deps)).map((c) => c.id);
     expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
+  });
+
+  // ── recency bound (#237, Approach A) — a run that NEVER persists (crash/OOM/timeout/exhausted-retry)
+  // would otherwise leave a PERMANENT in-flight tile, since the only `DELETE FROM run_owner` is the
+  // persist-time prune. `IN_FLIGHT_STALE_MINUTES` pads above the Job's own two-attempt 7200s/120min
+  // retry envelope (infra/cloud-run.tf:95-96), so a stale-but-still-live run never loses its tile early.
+  it('excludes an in-flight run older than IN_FLIGHT_STALE_MINUTES (a never-persisting run stops rendering a tile)', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await recordRunOwner(runId, ownerSub, { topic: 'Stale', level: 'intro', depth: 1 }, deps);
+    // Backdate created_at to just past the recency bound (no persisted curriculum for this run either).
+    // Same `$2 * interval '1 minute'` shape as the query under test, so the offset arithmetic can't drift.
+    await pool.query(`UPDATE run_owner SET created_at = now() - ($2 * interval '1 minute') WHERE run_id = $1`, [
+      runId,
+      IN_FLIGHT_STALE_MINUTES + 1,
+    ]);
+    expect((await listInFlightRuns(ownerSub, deps)).some((c) => c.id === runId)).toBe(false);
+  });
+
+  it('includes an in-flight run within IN_FLIGHT_STALE_MINUTES (a normal in-progress run keeps its tile)', async () => {
+    const runId = `itest-${randomUUID()}`;
+    const ownerSub = `owner-${randomUUID()}`;
+    await recordRunOwner(runId, ownerSub, { topic: 'Fresh', level: 'intro', depth: 1 }, deps);
+    // Backdate created_at to just inside the recency bound — still well within the window.
+    await pool.query(`UPDATE run_owner SET created_at = now() - ($2 * interval '1 minute') WHERE run_id = $1`, [
+      runId,
+      IN_FLIGHT_STALE_MINUTES - 1,
+    ]);
+    expect((await listInFlightRuns(ownerSub, deps)).some((c) => c.id === runId)).toBe(true);
   });
 });
