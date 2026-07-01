@@ -1,34 +1,45 @@
 'use client';
 
 import { useCallback, useRef, type CSSProperties } from 'react';
-import type { PendingDelete } from './library-delete';
 
 /**
- * The library's bottom Undo snackbar (issue #201) — the panel-reveal toast for a deferred card delete.
- * Derived from the transitions-dev **panel-reveal** recipe (NOT a toast library, no new keyframe family):
- * it enters via a translateY from a COMPONENT-SCOPED `--panel-translate-y` custom property → 0 at
- * `--dur-base`/`--ease`, and a depleting hairline on `--brand-gradient` tracks the 6s dwell via the §0
- * catalog `--tr-progress` tier — all reduced-motion-zeroed by the global guard.
+ * The library's bottom Undo snackbar (issue #201; generalized in #203 for the batch delete case) — the
+ * panel-reveal toast for a deferred/committed card delete. Derived from the transitions-dev
+ * **panel-reveal** recipe (NOT a toast library, no new keyframe family): it enters via a translateY from a
+ * COMPONENT-SCOPED `--panel-translate-y` custom property → 0 at `--dur-base`/`--ease`, and a depleting
+ * hairline on `--brand-gradient` tracks the dwell via the §0 catalog `--tr-progress` tier — all
+ * reduced-motion-zeroed by the global guard.
  *
  * It carries NO `aria-live`/`role="status"` of its own — the provider's ONE standing live region is the
  * sole announcement channel (a freshly-mounted live region is not reliably announced). The dwell PAUSES
- * while the snackbar is hovered or keyboard-focused (the controller owns the timer; this only reports the
+ * while the snackbar is hovered or keyboard-focused (the CALLER owns the timer; this only reports the
  * hover/focus edges). Focus is NOT force-moved here — the Undo button is simply the next focus stop.
  *
- * The single snackbar reflects the MOST-RECENT undoable pending delete (`surfaced`); keying the root on
- * its id restarts the panel-reveal + the depleting hairline when a newer delete supersedes it.
+ * #203 generalizes the label/hint copy + adds a `variant` modifier class so the SAME component (and CSS)
+ * serves BOTH the single-card snackbar (#201's default "Lesson deleted" / "Find it in Recently deleted")
+ * and the bulk-delete batch snackbar ("{N} lessons deleted" / "Find them in Recently deleted", a longer
+ * ~9s dwell) — `LibraryProvider` mounts two independent instances, one per flow, keyed off each flow's own
+ * `surfaced` value so the newer of the two restarts its own panel-reveal + hairline independently.
  */
 export function LibrarySnackbar({
   surfaced,
   paused,
   dwellMs,
+  label = 'Lesson deleted',
+  hint = 'Find it in Recently deleted',
+  variant = 'single',
   onUndo,
   onDismiss,
   onPauseChange,
 }: {
-  surfaced: PendingDelete | null;
+  surfaced: { id: string } | null;
   paused: boolean;
   dwellMs: number;
+  label?: string;
+  hint?: string;
+  /** `'batch'` adds the `library-snackbar--batch` modifier class (a distinct selector for focus
+   *  restoration — AC30 — and any batch-specific styling; the shared visual treatment is unchanged). */
+  variant?: 'single' | 'batch';
   onUndo: () => void;
   onDismiss: () => void;
   onPauseChange: (paused: boolean) => void;
@@ -50,7 +61,7 @@ export function LibrarySnackbar({
   return (
     <div
       key={surfaced.id}
-      className="library-snackbar"
+      className={variant === 'batch' ? 'library-snackbar library-snackbar--batch' : 'library-snackbar'}
       data-paused={paused ? '' : undefined}
       style={{ '--snackbar-dwell': `${dwellMs}ms` } as CSSProperties}
       onMouseEnter={() => {
@@ -78,11 +89,11 @@ export function LibrarySnackbar({
           zeroes the animation (the affordance + timer stay intact). */}
       <span className="library-snackbar__progress" aria-hidden="true" />
 
-      <span className="library-snackbar__label">Lesson deleted</span>
+      <span className="library-snackbar__label">{label}</span>
       <button type="button" className="library-snackbar__undo" onClick={onUndo}>
         Undo
       </button>
-      <span className="library-snackbar__hint">Find it in Recently deleted</span>
+      <span className="library-snackbar__hint">{hint}</span>
       <button
         type="button"
         className="library-snackbar__dismiss"

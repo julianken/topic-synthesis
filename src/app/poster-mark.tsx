@@ -78,3 +78,60 @@ export function TrashMark() {
     </svg>
   );
 }
+
+/**
+ * The bulk multi-select checkbox glyph (issue #203) — a monoline box outline with a cross-fading
+ * check/dash overlay, following the `TrashMark` precedent: `currentColor`, ~1.5px stroke, never a
+ * Unicode/emoji glyph. Serves BOTH the per-card checkbox (AC3/AC6, two states: unchecked ↔ checked, i.e.
+ * `'none'` ↔ `'all'`) and the action bar's master tri-state checkbox (AC11, all three states). The three
+ * overlays are stacked in the SAME SVG grid cell and cross-faded by `data-state` on the wrapper (the
+ * icon-swap recipe — `transitions-dev` §09 — extended from 2 states to 3), driven by the §0 `--dur-fast`/
+ * `--ease` catalog tokens BY NAME (no new duration/easing literal, per AGENTS.md); the CSS lives in
+ * `globals.css` under `.library-checkbox__icon`. Purely decorative (`aria-hidden`) — the enclosing
+ * `role="checkbox"` button carries `aria-checked` + the accessible name.
+ */
+export function CheckboxGlyph({ state }: { state: 'none' | 'mixed' | 'all' }) {
+  return (
+    <span className="library-checkbox__glyph" data-state={state} aria-hidden="true">
+      <svg
+        className="library-checkbox__icon"
+        data-icon="box"
+        viewBox="0 0 16 16"
+        xmlns="http://www.w3.org/2000/svg"
+        focusable="false"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
+        <rect x="1.25" y="1.25" width="13.5" height="13.5" rx="3" />
+      </svg>
+      <svg
+        className="library-checkbox__icon"
+        data-icon="check"
+        viewBox="0 0 16 16"
+        xmlns="http://www.w3.org/2000/svg"
+        focusable="false"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3.8 8.4l2.7 2.7 5.7-5.9" />
+      </svg>
+      <svg
+        className="library-checkbox__icon"
+        data-icon="dash"
+        viewBox="0 0 16 16"
+        xmlns="http://www.w3.org/2000/svg"
+        focusable="false"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      >
+        <line x1="4" y1="8" x2="12" y2="8" />
+      </svg>
+    </span>
+  );
+}

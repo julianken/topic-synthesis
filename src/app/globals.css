@@ -237,6 +237,16 @@ h1 {
   ::view-transition-new(*) {
     animation-duration: 0.01ms !important;
   }
+
+  /* #203's bulk-collapse per-card stagger reads `--bulk-i` into a `transition-delay` (below,
+     `.library-poster--pending`) — a property the `*` reset above does NOT zero (only *-duration and
+     animation-delay are covered). Without this, a staggered card would still WAIT out its delay at full
+     length before an otherwise-instant (0.01ms) collapse fires, so a large batch would visibly trickle
+     away over ~1s even under reduced motion. Zeroing it here makes the whole collapse instant, matching
+     every other motion in the app under this preference (AC36). */
+  .library-poster {
+    transition-delay: 0ms !important;
+  }
 }
 
 /* ── Lesson artifact detail + status ──────────────────────────────────────── */
@@ -3224,6 +3234,12 @@ body.has-ws-topbar > .appbar {
   margin: 0;
   overflow: hidden;
   pointer-events: none;
+  /* Bulk-collapse per-card stagger (#203 AC23): delay = index × --dur-fast, CAPPED at 8 × --dur-fast
+     (960ms) so a large (up to 100-card) batch doesn't take forever to finish collapsing — the last card's
+     collapse starts by ~1s regardless of batch size. `--bulk-i` (set inline by `poster-card.tsx`, only
+     while the card is part of an active bulk collapse) defaults to 0 when unset, so the single-delete
+     flow (#201) — which never sets it — is never delayed. */
+  transition-delay: min(calc(var(--bulk-i, 0) * var(--dur-fast)), calc(8 * var(--dur-fast)));
 }
 
 /* After the collapse settles, drop the card from grid flow so neighbors reflow up (display can't
@@ -3485,4 +3501,376 @@ body.has-ws-topbar > .appbar {
 .library-errchip__dismiss:focus-visible {
   outline: 2px solid var(--interactive);
   outline-offset: 2px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════
+   ── Bulk multi-select delete (#203) — the header Select/Done toggle, the per-card checkbox, the
+   selected ring/tint, the bottom action bar, the ONE true confirm modal, and the empty-library state.
+   ADDITIVE only: no §0 token added/changed. `--modal-scale` / `--panel-translate-y` are COMPONENT-SCOPED
+   (declared on `.confirm-modal` / `.library-actionbar` themselves, never `:root`) — the shipped `--ws-*`/
+   `--gen-*`/#201 `--panel-translate-y` pattern. `src/app/artifact/serve.ts` is untouched. All motion
+   values reference the §0 `--dur-*`/`--ease`/`--tr-*` catalog BY NAME — no new duration/easing literal.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* The header Select/Done toggle row — `head` (the existing `.library__head` title+hint row, UNCHANGED)
+   plus the new toggle as a sibling, so `.library__head`'s own padding/layout is never touched. The toggle
+   mirrors the top/right inset `.library__head` already carries (20px top, 26px right) so it reads as part
+   of the same header band despite being a sibling, not a child. */
+.library__headrow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.library__select-toggle {
+  flex: none;
+  appearance: none;
+  margin: 20px 26px 0 0;
+  min-height: 24px; /* AC33 */
+  padding: 6px 14px;
+  border: 0.8px solid var(--badge-border-neutral);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+  transition: var(--tr-hover);
+}
+.library__select-toggle:hover {
+  border-color: var(--interactive-hover);
+  color: var(--text);
+}
+
+/* The tri-state checkbox glyph (icon-swap, `poster-mark.tsx`'s `<CheckboxGlyph>`) — shared by the
+   per-card checkbox AND the action bar's master checkbox. The box outline is always painted (neutral at
+   'none', accent once anything is selected); the check/dash overlays cross-fade in via opacity + scale at
+   the §0 --dur-fast/--ease tier (icon-swap, transitions-dev §09, extended from 2 states to 3). */
+.library-checkbox__glyph {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.library-checkbox__icon {
+  grid-area: 1 / 1;
+  width: 16px;
+  height: 16px;
+}
+.library-checkbox__icon[data-icon='box'] {
+  color: var(--text-muted);
+  transition: var(--tr-color);
+}
+.library-checkbox__glyph[data-state='mixed'] .library-checkbox__icon[data-icon='box'],
+.library-checkbox__glyph[data-state='all'] .library-checkbox__icon[data-icon='box'] {
+  color: var(--interactive);
+}
+.library-checkbox__icon[data-icon='check'],
+.library-checkbox__icon[data-icon='dash'] {
+  color: var(--interactive);
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.library-checkbox__glyph[data-state='all'] .library-checkbox__icon[data-icon='check'] {
+  opacity: 1;
+  transform: scale(1);
+}
+.library-checkbox__glyph[data-state='mixed'] .library-checkbox__icon[data-icon='dash'] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* The per-card SELECT checkbox (AC3) — a quiet button top-LEFT of the 104px wash (mirroring the delete
+   chip's top-right seat, corners free either side). Mounted ONLY in selection mode (there is nothing to
+   Tab to outside it), so it needs no hover-reveal opacity dance like the delete chip — it is simply
+   present, with a brief rail-reveal entrance. ≥24×24 hit box, ≥44px on touch (AC33/SC 2.5.8). It carries
+   NO click handler of its own — `poster-card.tsx`'s wrapper `<li>` is the SOLE place selection toggles
+   (AC4/AC5), so a checkbox click (mouse OR keyboard Space/Enter) simply bubbles there. */
+.library-poster__select {
+  position: absolute;
+  top: var(--sp-1);
+  left: var(--sp-1);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  animation: rail-reveal var(--dur-fast) var(--ease) both;
+}
+.library-poster__select:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .library-poster__select {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* SELECTED state (AC6) — ring + tint on the WRAPPER layer (never the inner `<a>`, whose markup stays
+   byte-locked). A pseudo-element overlay (not the `<li>`'s own background, which would be fully hidden
+   behind the opaque `.library-poster__card`): `position:absolute` + `z-index:1` paints it ABOVE the
+   static-flow anchor but BELOW the z-index:2 checkbox/delete buttons (CSS painting order — no JS, no
+   explicit stacking-context math needed). `pointer-events:none` so it never intercepts the card's own
+   click handling. The ✓ half of "ring + tint + ✓ glyph" is the checkbox's OWN check glyph switching to
+   the 'all' state — no second, redundant checkmark element. */
+.library-poster--selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--r-card-lg);
+  outline: 2px solid var(--interactive);
+  outline-offset: -2px;
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+/* A failed bulk commit re-expands every optimistically-collapsed card (AC28) — the reverse card-resize is
+   the `.library-poster--pending` class's own CSS TRANSITION reversing automatically (opacity/transform/
+   max-width/max-height/margin animate back to their base values the instant `--pending` is removed, no
+   JS needed) PLUS the existing `--restoring` rail-reveal. `--shake` layers a brief error-state-shake
+   (transitions-dev §12, adapted: one combined leg at the §0 --dur-base/--ease tier rather than the
+   recipe's two-duration multi-leg version, to avoid a THIRD invented duration token) on top, status
+   surfaced by the shared errchip (`role="alert"`), never by the shake motion alone. */
+@keyframes library-poster-shake {
+  0% {
+    transform: translateX(0);
+  }
+  28% {
+    transform: translateX(6px);
+  }
+  57% {
+    transform: translateX(-6px);
+  }
+  79% {
+    transform: translateX(3px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+.library-poster--shake {
+  animation: library-poster-shake var(--dur-base) var(--ease);
+}
+/* When a bulk failure re-expands a card (--restoring) AND shakes it (--shake) at once, the compound
+   selector's higher specificity wins over either single-class rule, combining both animations into ONE
+   `animation` declaration (the two keyframes' `transform` legs don't compose across separate `animation`
+   entries — the shake's translateX legs take visual precedence over rail-reveal's small translateY
+   entrance nudge for the animation's duration; the opacity reveal, driven by the CSS `transition` above
+   rather than either `animation`, is unaffected and still plays in full). */
+.library-poster--restoring.library-poster--shake {
+  animation:
+    rail-reveal var(--dur-base) var(--ease) both,
+    library-poster-shake var(--dur-base) var(--ease);
+}
+
+/* ── The bulk-select ACTION BAR (#203 AC9-14) — the SAME bottom-center panel-reveal transport as the
+   snackbars (a component-scoped --panel-translate-y, reusing the #201 `library-snackbar-in` keyframe so
+   the enter geometry is defined in exactly one place). Mounts only while selection mode is on AND ≥1 card
+   is selected. Elevation = --surface-panel-strong + backdrop blur + a --border hairline, no drop shadow —
+   the same treatment as the snackbars/modal. */
+.library-actionbar {
+  --panel-translate-y: var(--sp-5);
+
+  position: fixed;
+  bottom: var(--sp-5);
+  left: 0;
+  right: 0;
+  z-index: 45;
+  margin-inline: auto;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--sp-5));
+
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  animation: library-snackbar-in var(--dur-base) var(--ease) both;
+}
+.library-actionbar__master {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small);
+  padding: var(--sp-1);
+  min-height: 24px;
+  cursor: pointer;
+}
+.library-actionbar__master-label {
+  white-space: nowrap;
+}
+.library-actionbar__count {
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+/* Number pop-in (transitions-dev §02) — keyed on the count in the TSX so it replays on every change. */
+.library-actionbar__count-value {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  animation: library-actionbar-count-pop var(--dur-fast) var(--ease) both;
+}
+@keyframes library-actionbar-count-pop {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.library-actionbar__clear {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-small);
+  padding: var(--sp-1) var(--sp-2);
+  min-height: 24px;
+  cursor: pointer;
+  transition: var(--tr-color);
+}
+.library-actionbar__clear:hover {
+  color: var(--text);
+}
+.library-actionbar__delete {
+  min-height: 44px; /* a destructive control — held to the touch floor regardless of pointer (AC33) */
+}
+
+/* The status-as-foreground DANGER button (§Color & contrast — extends #201's "destructive-as-foreground"
+   rule to the bulk-delete triggers): --err TEXT + OUTLINE over a panel surface, NEVER an --err FILL. Two
+   single-class selectors of equal specificity — source order after `.btn` makes this win for the
+   properties it redeclares. */
+.btn--danger {
+  background: transparent;
+  color: var(--err);
+  border: 1px solid var(--err);
+}
+.btn--danger:hover {
+  background: color-mix(in oklch, var(--err) 12%, transparent);
+}
+
+/* ── The ONE true CONFIRM MODAL (#203 AC15-21) — transitions-dev "Modal open/close" (a component-scoped
+   --modal-scale, never :root), scaling up from --modal-scale → 1 at the §0 --dur-base/--ease tier. The
+   scrim is a color-mix over --ink-950 (the binding brief's exact recipe) + a blur, distinct from the
+   snackbars/action-bar's translucent panels (this is the one surface that dims the WHOLE page behind it,
+   matching `inert` on every sibling — confirm-modal.tsx). */
+.confirm-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-5);
+  background: color-mix(in oklch, var(--ink-950) 55%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.confirm-modal {
+  --modal-scale: 0.96;
+
+  width: min(28rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  transform-origin: center;
+  animation: confirm-modal-in var(--dur-base) var(--ease) both;
+}
+@keyframes confirm-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--modal-scale));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.confirm-modal__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: var(--fs-card-title);
+  letter-spacing: var(--ls-display);
+  color: var(--fog-50);
+}
+.confirm-modal__body {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: var(--lh-gloss);
+  color: var(--text-muted);
+}
+.confirm-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+.confirm-modal__cancel {
+  appearance: none;
+  border: 0.8px solid var(--badge-border-neutral);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--fs-small);
+  padding: var(--sp-2) var(--sp-4);
+  min-height: 44px;
+  cursor: pointer;
+  transition: var(--tr-hover);
+}
+.confirm-modal__cancel:hover {
+  border-color: var(--interactive-hover);
+  color: var(--text);
+}
+.confirm-modal__confirm {
+  min-height: 44px; /* destructive control — touch floor regardless of pointer (AC33) */
+}
+
+/* The empty-library state (AC34) — an ADDITIONAL grid cell (the `+New` cell stays first, always) filling
+   the remaining columns when a bulk delete/restore leaves the owner with zero persisted lessons AND zero
+   in-flight tiles. Reuses the `.library-empty*` rules already in this file (previously unused since the
+   create-form flow superseded the old first-run prompt — see the block below). */
+.lessons-grid__empty {
+  grid-column: 2 / -1;
+  display: flex;
+}
+.lessons-grid__empty .library-empty {
+  margin: 0;
+  width: 100%;
 }
