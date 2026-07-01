@@ -828,6 +828,13 @@ export interface InFlightCard {
   createdAt: string;
 }
 
+/** The `listInFlightRuns` recency bound (issue #237, Approach A) — a run older than this never renders
+ *  as an in-flight tile, even with no persisted `curriculum`. Sized off the Cloud Run Job's own retry
+ *  envelope (`infra/cloud-run.tf:95-96`: `timeout = "3600s"`, `max_retries = 1`, i.e. up to TWO attempts
+ *  → 7200s = 120 minutes worst case), padded to 150 minutes for undocumented inter-attempt retry-
+ *  scheduling latency — so the bound never hides a tile Cloud Run could still be working on. */
+export const IN_FLIGHT_STALE_MINUTES = 150;
+
 /** List one IN-FLIGHT tile per run the caller has DISPATCHED but not yet persisted, newest-first —
  *  run-lifecycle 2/4 (#231). The companion to `listLessons`: the library home renders these in-flight
  *  tiles immediately (the moment `recordRunOwner` stamps `run_owner` at dispatch), then they are REPLACED
@@ -835,7 +842,7 @@ export interface InFlightCard {
  *  `run_owner` prune + the next server render, not a live in-place flip (the library stays a zero-JS
  *  server component). Reads `run_owner` directly — there is no `curriculum` row to join yet.
  *
- *  THREE load-bearing predicates:
+ *  FOUR load-bearing predicates:
  *   - `owner_sub = $1` — OWNER-SCOPED (ADR 0002 §5): a foreign/unknown owner AND a caller with no
  *     in-flight runs both get `[]` (no existence oracle), the same discipline as `getRunMeta`/`listLessons`.
  *   - `LEFT JOIN curriculum c ON c.id = ro.run_id … c.id IS NULL` — DEDUP: exclude any run whose curriculum
@@ -846,7 +853,15 @@ export interface InFlightCard {
  *   - `topic IS NOT NULL AND level IS NOT NULL AND depth IS NOT NULL` — only #225-meta'd rows become titled
  *     tiles (mirrors `getRunMeta`'s all-three-non-null guard at line ~352, so the read contract enforces
  *     the `InFlightCard` non-null `level`/`depth` shape rather than leaning on downstream null-tolerance);
- *     it ALSO keeps a meta-less dispatch (a legacy/seed `run_owner` with NULL meta) off the library grid. */
+ *     it ALSO keeps a meta-less dispatch (a legacy/seed `run_owner` with NULL meta) off the library grid.
+ *   - `ro.created_at > now() - IN_FLIGHT_STALE_MINUTES` — RECENCY BOUND (issue #237, Approach A). The
+ *     ONLY `DELETE FROM run_owner` is the persist-time prune (`persistRun`), so a run that never persists
+ *     (a crash/OOM/kill, a timeout, or an exhausted-retry Job) would otherwise leave a PERMANENT
+ *     `⟳ Generating` tile. `IN_FLIGHT_STALE_MINUTES` pads above the Job's own two-attempt 7200s/120min
+ *     ceiling (`infra/cloud-run.tf:95-96`), so it never hides a tile Cloud Run still considers live.
+ *     RESIDUAL GAP: a run genuinely still executing past 150 minutes silently loses its tile until it
+ *     persists — accepted, since that is far outside both the typical run (minutes, not hours) and the
+ *     120-minute infra ceiling; the run reappears as a normal card the moment it persists. */
 export async function listInFlightRuns(
   ownerSub: string,
   deps: StoreDeps = { pool: getPool() },
@@ -866,8 +881,9 @@ export async function listInFlightRuns(
         AND ro.topic IS NOT NULL
         AND ro.level IS NOT NULL
         AND ro.depth IS NOT NULL
+        AND ro.created_at > now() - ($2 * interval '1 minute')
       ORDER BY ro.created_at DESC`,
-    [ownerSub],
+    [ownerSub, IN_FLIGHT_STALE_MINUTES],
   );
   return res.rows.map((r) => ({
     id: r.run_id,

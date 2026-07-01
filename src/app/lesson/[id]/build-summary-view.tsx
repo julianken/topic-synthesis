@@ -19,7 +19,9 @@ import { getStepEvents } from '../../../store/repo';
 
 /** The async server component: read the durable `step_event` timeline (kept past persist — issue #175),
  *  fold it to a model, and render. Returns `null` when there's nothing to disclose (a legacy/blob lesson
- *  with no recorded steps), so the page renders no empty shell. */
+ *  with no recorded steps), so the page renders no empty shell — and, since #239, no orphaned "See the
+ *  full build"/"See the full workflow" affordance either (see {@link BuildSummaryView} for why the
+ *  affordance moved here, INSIDE the same async unit as the disclosure). */
 export async function BuildSummary({
   id,
   disposition,
@@ -29,9 +31,10 @@ export async function BuildSummary({
 }) {
   const model = buildSummaryModel(await getStepEvents(id), disposition);
   if (!model) return null;
-  // Pass the frozen-workflow route href (run-lifecycle 3/4 — issue #232). It renders ONLY on the DEGRADED
-  // variant (BuildSummaryView gates it on `degraded`), where this disclosure is the page's sole entry;
-  // the BUILT branch stays byte-unchanged (4/4 owns the prominent built-reader "See the full build" link).
+  // Pass the frozen-workflow route href (run-lifecycle 3/4 — issue #232, and run-lifecycle 4/4 — issue
+  // #233). BuildSummaryView renders it as ONE of two mutually-exclusive links, keyed off `model.disposition`
+  // (see the #239 doc comment on that gate below): the DEGRADED "See the full workflow" text, or the
+  // BUILT "See the full build" text.
   return <BuildSummaryView model={model} workflowHref={`/lesson/${encodeURIComponent(id)}/workflow`} />;
 }
 
@@ -47,9 +50,11 @@ export function BuildSummaryView({
   workflowHref,
 }: {
   model: BuildSummaryModel;
-  /** The frozen completed-workflow route (issue #232). Rendered as a single "See the full workflow" link
-   *  ONLY on the DEGRADED variant (the degraded reader page has no other entry to it); the BUILT branch
-   *  never renders it, so the built disclosure stays byte-unchanged. Omitted ⇒ no link. */
+  /** The frozen completed-workflow route (issue #232). Rendered on BOTH dispositions: the DEGRADED variant
+   *  shows a "See the full workflow" link (its only entry to the route); the BUILT variant shows the "See the
+   *  full build" reader affordance (issue #239 — co-located here, gated on the resolved `!degraded`, so it
+   *  appears in LOCKSTEP with the disclosure rather than being independently gated in the client shell where
+   *  a Server→Client prop is always-truthy). Omitted ⇒ no link on either branch. */
   workflowHref?: string;
 }) {
   // Render from the 3-way disposition (issue #215): `data-degraded` (held|failed) keeps the existing CSS
@@ -128,12 +133,37 @@ export function BuildSummaryView({
     </details>
       {/* DEGRADED-only entry to the frozen completed-workflow page (issue #232). On the degraded reader
           page this disclosure is the sole affordance, so the link sits beside it (OUTSIDE `.build-summary`,
-          so the element-scoped build-summary snapshot is untouched). The BUILT branch passes no
-          workflowHref, so this never renders there (the built reader's prominent link is run-lifecycle 4/4). */}
+          so the element-scoped build-summary snapshot is untouched). */}
       {degraded && workflowHref ? (
         <a className="build-summary__workflow-link" href={workflowHref}>
           See the full workflow
           <span aria-hidden="true"> →</span>
+        </a>
+      ) : null}
+      {/* BUILT-only "See the full build" affordance (run-lifecycle 4/4 — issue #233), GATED on the disclosure
+          (issue #239). It used to be a SEPARATE, unconditionally-rendered element in `reader-shell.tsx`
+          (a Client Component), keyed off nothing but the static BUILT branch — so a timeline-less BUILT
+          lesson (a legacy build with zero `step_event` rows, `buildSummaryModel` → `null`) still showed the
+          link, pointing at the frozen `/workflow` page's empty all-"didn't run" shell.
+          #239's fix moved it HERE, into the SAME async unit as the disclosure it escalates from, rather
+          than trying to gate on the disclosure's PRESENCE from the client side: `BuildSummary` above already
+          returns `null` (no render at all) when `buildSummaryModel` finds nothing to disclose, so a
+          timeline-less lesson takes NEITHER this link NOR `<details className="build-summary">` past this
+          function — there is no second, independently-evaluated condition to drift out of sync. (An earlier
+          version of this fix tried gating in the CLIENT `ReaderShell` on `Boolean(buildSummaryProp)`; that
+          measurably failed in e2e — a Server Component element crossing into a Client Component prop is a
+          React "lazy reference" object, always truthy in a synchronous JS check, even when it is ABOUT to
+          render as nothing. Co-locating both nodes in this one async component sidesteps that boundary
+          entirely: by the time this function returns, `model` is already resolved, so `!degraded` is a
+          plain, reliable boolean — never a lazy reference.) Reuses the SAME `workflowHref` the degraded
+          link above uses (same route, different disposition, different copy) — no new prop, no page.tsx
+          change; `reader-shell.tsx` renders this file's whole output as one opaque `buildSummary` node. */}
+      {!degraded && workflowHref ? (
+        <a className="reader-build-link" href={workflowHref}>
+          See the full build
+          <span className="reader-build-link__arrow" aria-hidden="true">
+            →
+          </span>
         </a>
       ) : null}
     </>

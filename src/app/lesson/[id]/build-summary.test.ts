@@ -250,6 +250,62 @@ describe('COPY-GATE — the rendered disclosure leaks NO project internals (AC3)
   });
 });
 
+// ── issue #239: the workflow-link GATE — the disclosure and its "See the full …" escalation link are two
+// SIBLINGS rendered by this ONE view from the SAME already-resolved `model`/`workflowHref`, never two
+// independently-evaluated conditions. (Superseding an earlier design that tried to gate the BUILT-only link
+// from the CLIENT `ReaderShell` on `Boolean(buildSummary)` — that measurably failed in e2e: a Server
+// Component element crossing into a Client Component prop arrives as a React "lazy reference" object,
+// always truthy in a synchronous check, so the link kept rendering after the disclosure had already gone
+// null. Moving both nodes into this one server-side view, gated on the resolved `model.disposition`, is
+// what actually keeps them in lockstep.) ────────────────────────────────────────────────────────────────
+describe('BuildSummaryView — the "See the full build/workflow" link is gated WITH the disclosure (issue #239)', () => {
+  const WORKFLOW_HREF = '/lesson/itest-1/workflow';
+  const renderWith = (disposition: 'built' | 'held' | 'failed', workflowHref?: string) =>
+    renderToStaticMarkup(
+      createElement(BuildSummaryView, {
+        model: buildSummaryModel(BUILT_EVENTS, disposition)!,
+        ...(workflowHref !== undefined ? { workflowHref } : {}),
+      }),
+    );
+
+  it('BUILT + a workflowHref renders the BUILT-only "See the full build" link, never the degraded one', () => {
+    const html = renderWith('built', WORKFLOW_HREF);
+    expect(html).toContain('reader-build-link');
+    expect(html).toContain('See the full build');
+    expect(html).toContain(`href="${WORKFLOW_HREF}"`);
+    expect(html).not.toContain('build-summary__workflow-link');
+    expect(html).not.toContain('See the full workflow');
+  });
+
+  it('HELD/FAILED + a workflowHref renders the DEGRADED "See the full workflow" link, never the built one', () => {
+    for (const disposition of ['held', 'failed'] as const) {
+      const html = renderWith(disposition, WORKFLOW_HREF);
+      expect(html).toContain('build-summary__workflow-link');
+      expect(html).toContain('See the full workflow');
+      expect(html).toContain(`href="${WORKFLOW_HREF}"`);
+      expect(html).not.toContain('reader-build-link');
+      expect(html).not.toContain('See the full build');
+    }
+  });
+
+  it('with NO workflowHref, NEITHER link renders on any disposition — only the disclosure itself', () => {
+    for (const disposition of ['built', 'held', 'failed'] as const) {
+      const html = renderWith(disposition);
+      expect(html).toContain('<details'); // the disclosure still renders — only the link is href-gated
+      expect(html).not.toContain('reader-build-link');
+      expect(html).not.toContain('build-summary__workflow-link');
+    }
+  });
+
+  it('a timeline-less run (buildSummaryModel → null) never reaches BuildSummaryView at all — BuildSummary short-circuits to null before either link could render (issue #239 root fix)', () => {
+    // BuildSummary (the async component) returns null on `ran.length === 0` BEFORE constructing any
+    // BuildSummaryView — so there is no separate render path where the link could show without the
+    // disclosure. Exercised end-to-end by e2e/lesson-workspace-viewbuild.spec.ts's timeline-less fixture;
+    // this asserts the underlying invariant this whole gate relies on.
+    expect(buildSummaryModel([], 'built')).toBeNull();
+  });
+});
+
 // ── issue #232: the SHARED disposition source — page.tsx + the frozen /workflow chip both read THIS, so
 // they can't drift (SUGGESTION 2 — the prior inline page.tsx ternary would have been a second copy). ────
 describe('deriveDisposition — the single (status, html) → disposition source', () => {

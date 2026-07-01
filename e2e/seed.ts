@@ -508,6 +508,93 @@ export async function clearHeldLesson(): Promise<void> {
   }
 }
 
+// ── issue #239 timeline-less fixture: a BUILT lesson with ZERO step_event rows (a legacy build that
+// predates the #175 timeline). `buildSummaryModel` (build-summary.ts) returns `null` on `ran.length === 0`,
+// so BOTH the owner-only "How this was built" disclosure AND the #239-gated "See the full build" affordance
+// must be absent together — proving the two share one source value and can never disagree. Kept OUT of the
+// global seed for the same reason as the HELD/DEGRADED lessons (a `built` curriculum is still a library
+// card) — seeded describe-scoped by the spec that exercises it (lesson-workspace-viewbuild.spec.ts).
+
+/** A FIXED BUILT run id with NO step_event rows, so the reader's build disclosure resolves to `null` and
+ *  (post-#239) so does the "See the full build" affordance — the lockstep-absence case. */
+export const SEED_TIMELINELESS_RUN_ID = 'e2e-seed-timelineless';
+
+const SEED_TIMELINELESS_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>How rainbows form</title></head><body><main><h1>How rainbows form</h1><p>A built lesson with no recorded build timeline.</p></main></body></html>`;
+
+// A built single-lesson result (one tier / one category / one built page) — the shape runLesson emits.
+// Deliberately NEVER paired with a seedStepEvents call, so this run's step_event table stays empty.
+const SEED_TIMELINELESS_RESULT: PipelineResult = {
+  hub: {
+    tiers: [
+      {
+        tier: 'Tier 1',
+        categories: [
+          {
+            name: 'Lesson',
+            pages: [{ slug: 'rainbows', title: 'How rainbows form', status: 'built', built: true, hasHtml: true, href: '' }],
+          },
+        ],
+      },
+    ],
+  },
+  pages: [
+    {
+      nodeSlug: 'rainbows',
+      html: SEED_TIMELINELESS_HTML,
+      learningGoal: 'How sunlight refracts and reflects inside raindrops to form a rainbow.',
+      spec: { nodeSlug: 'rainbows', interactionKind: 'canvas', a11yContract: 'a', citations: [] },
+      passed: true,
+      critique: 'ok',
+    },
+  ],
+};
+
+const SEED_TIMELINELESS_REQUEST: TopicRequest = {
+  topic: 'How rainbows form',
+  settings: { level: 'intro', depth: 2, audience: 'a self-taught learner' },
+};
+
+/** Delete the timeline-less lesson's curriculum + cascade pages. No step_event rows are ever written for
+ *  this id, so there is nothing to clear there (unlike clearHeld/clearDegraded). Idempotent. */
+async function clearTimelineless(pool: Pool): Promise<void> {
+  await pool.query(`DELETE FROM curriculum_page WHERE curriculum_id = $1`, [SEED_TIMELINELESS_RUN_ID]);
+  await pool.query(`DELETE FROM curriculum WHERE id = $1`, [SEED_TIMELINELESS_RUN_ID]);
+}
+
+/** Seed (idempotently) ONLY the timeline-less lesson (issue #239): a BUILT curriculum with html present,
+ *  deliberately WITHOUT calling seedStepEvents — so `getStepEvents` returns `[]` and `buildSummaryModel`
+ *  resolves to `null`, exercising the disclosure/affordance lockstep on the rare timeline-less path. */
+export async function seedTimelinelessLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearTimelineless(pool);
+    await persistRun(
+      {
+        runId: SEED_TIMELINELESS_RUN_ID,
+        request: SEED_TIMELINELESS_REQUEST,
+        result: SEED_TIMELINELESS_RESULT,
+        costUsd: 0,
+        modelSnapshots: STAGE_MODELS,
+        ownerSub: E2E_OWNER_SUB,
+      },
+      { pool },
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Remove the timeline-less lesson (the afterAll counterpart to seedTimelinelessLesson), so the library
+ *  home returns to exactly the one seeded dense card for any later library-snapshot test. */
+export async function clearTimelinelessLesson(): Promise<void> {
+  const pool = makePool();
+  try {
+    await clearTimelineless(pool);
+  } finally {
+    await pool.end();
+  }
+}
+
 // ── issue #232 frozen-workflow non-owner gate fixture: a REAL built lesson owned by a DIFFERENT
 // (non-e2e, NOT allowlisted) sub. The e2e owner requesting THIS id's /workflow gets the SAME uniform 404
 // as an absent id — proving the route has no existence oracle (a real foreign lesson is indistinguishable
