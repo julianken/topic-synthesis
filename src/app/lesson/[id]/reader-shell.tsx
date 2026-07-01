@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { deriveApparatus, type ApparatusModel } from './apparatus-state';
 import type { LessonApparatus } from './lesson-message';
 import { postScrollTo } from './lesson-scroll-sender';
+import { ReaderDeletePill } from './reader-delete-pill';
 import { INITIAL_READER_CHROME, reduceReaderMessage } from './reader-message';
 import { morphName } from './reader-morph';
 
@@ -239,6 +240,10 @@ export function ReaderShell({
               ⇧F
             </kbd>
           </button>
+          {/* The reader delete affordance (issue #202) — immediately left of the user pill (final right-
+              cluster order: Jump-to-⌘K chip → Focus-reading → delete → user pill). Reads the LIVE posted
+              scrollProgress (not a stale snapshot) at confirm-time via its own internal ref. */}
+          <ReaderDeletePill id={id} scrollProgress={chrome.scrollProgress} />
           <div className="appbar__chip ws-topbar__pill">
             <span className="appbar__avatar" aria-hidden="true">
               {initial}

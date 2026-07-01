@@ -1,10 +1,11 @@
 import { notFound, redirect } from 'next/navigation';
 import { getSessionIdentity } from '../../auth/require-session';
 import { displayName } from '../../auth/session-nav';
-import { getLesson, getRunMeta, ownsRun } from '../../../store/repo';
+import { getLesson, getOwnedDeletedLesson, getRunMeta, ownsRun } from '../../../store/repo';
 import { deriveDisposition } from './build-summary';
 import { BuildSummary } from './build-summary-view';
 import { GeneratingPoller } from './generating';
+import { resolveMissingLessonBranch } from './lesson-route';
 import { ReaderShell } from './reader-shell';
 
 const STATUS_LABEL = { built: 'Built', soon: 'Soon', text: 'Text' } as const;
@@ -19,23 +20,51 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   if (!identity) redirect('/sign-in');
   const view = await getLesson(id, identity.sub);
 
-  // Owner-scoped null: show "generating" ONLY for the caller's own not-yet-persisted run (persistRun
-  // writes the lesson row atomically on completion); a foreign/absent id is a uniform 404 (no oracle).
+  // Owner-scoped null: three possible outcomes, resolved in order by the pure `resolveMissingLessonBranch`
+  // (issue #202, AC31) — an in-flight run the caller owns → generating; else a lesson the caller
+  // soft-deleted → a friendly recoverable state (never a bare 404 for a deletion the caller themself just
+  // made, e.g. from another tab); else a genuinely absent / foreign-owned / not-deleted-for-this-owner id
+  // → the uniform 404 (no existence oracle — AC35). `getOwnedDeletedLesson` is skipped when a run is owned
+  // (short-circuited) since the two states can't legitimately co-occur and the extra read is then moot.
   if (!view) {
-    if (!(await ownsRun(id, identity.sub))) notFound();
-    // The SHARED live-research generating view (the B view — Figma 1:2) renders its own header + the
-    // research node-graph + the LIVE RESEARCH panel + the rail, driven by the status poll. This is now the
-    // SINGLE generating screen (run-lifecycle #225): the create-form NAVIGATES here on submit. The typed
-    // topic + settings come from `run_owner` (getRunMeta, already owner-scoped — we hold ownsRun above),
-    // rendered SSR so the header shows "Generating <topic>…" + the "<level> · depth <n>" sub-line AND the
-    // `specimen-topic` morph target is present at first paint for the create-form→generating topic morph.
-    // A legacy run_owner with no recorded topic → null → the honest bare "Generating…" degrade.
-    const meta = await getRunMeta(id, identity.sub);
-    return (
-      <main className="wrap wrap--gen">
-        <GeneratingPoller id={id} topic={meta?.topic} level={meta?.level} depth={meta?.depth} />
-      </main>
-    );
+    const runOwned = await ownsRun(id, identity.sub);
+    const deletedLesson = runOwned ? null : await getOwnedDeletedLesson(id, identity.sub);
+    const branch = resolveMissingLessonBranch({ ownsRun: runOwned, deletedLesson });
+
+    if (branch === 'generating') {
+      // The SHARED live-research generating view (the B view — Figma 1:2) renders its own header + the
+      // research node-graph + the LIVE RESEARCH panel + the rail, driven by the status poll. This is now
+      // the SINGLE generating screen (run-lifecycle #225): the create-form NAVIGATES here on submit. The
+      // typed topic + settings come from `run_owner` (getRunMeta, already owner-scoped — we hold
+      // `runOwned` above), rendered SSR so the header shows "Generating <topic>…" + the "<level> · depth
+      // <n>" sub-line AND the `specimen-topic` morph target is present at first paint for the create-
+      // form→generating topic morph. A legacy run_owner with no recorded topic → null → the honest bare
+      // "Generating…" degrade.
+      const meta = await getRunMeta(id, identity.sub);
+      return (
+        <main className="wrap wrap--gen">
+          <GeneratingPoller id={id} topic={meta?.topic} level={meta?.level} depth={meta?.depth} />
+        </main>
+      );
+    }
+
+    if (branch === 'friendly-deleted') {
+      // A lesson the caller soft-deleted (issue #202, AC32-34) — a tab left open on a lesson deleted
+      // elsewhere (another tab, the library card chip, the reader's own delete affordance) lands here
+      // instead of a bare 404. Plain <a> tags (not next/link) matching this app's no-next/link convention;
+      // `/recently-deleted` is a soft cross-issue seam (#204) — it may 404 until that route lands, which
+      // is an accepted, documented gap, not a bug in this PR.
+      return (
+        <main className="wrap wrap--wide">
+          <h1>This lesson was deleted.</h1>
+          <p className="lead">
+            <a href="/">Back to Library</a> · <a href="/recently-deleted">See Recently deleted</a>
+          </p>
+        </main>
+      );
+    }
+
+    notFound();
   }
 
   // The single-lesson run persists as a one-page `curriculum`-table row — persistRun/getLesson reuse (ADR-0002). concept-drift-ok: names the RETAINED `curriculum` table (ADR-0003 — DB rename still deferred)
