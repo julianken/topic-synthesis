@@ -3260,11 +3260,13 @@ body.has-ws-topbar > .appbar {
   color: var(--text-muted); /* resting: neutral; --err only on emphasis below (no resting red fill) */
   cursor: pointer;
   /* Fine-pointer reveal: hidden at rest, fades in on card hover/focus at the §0 --dur-fast/--ease tier.
-     The global reduced-motion guard zeroes this (the chip then appears instantly — AC #31/#32). */
+     The global reduced-motion guard zeroes this (the chip then appears instantly — AC #31/#32). The color
+     leg composes the catalog --tr-color primitive (TS-24); opacity has no catalog primitive, so it stays
+     a literal --dur-fast/--ease leg. */
   opacity: 0;
   transition:
     opacity var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    var(--tr-color);
 }
 .library-poster__delete svg {
   display: block;

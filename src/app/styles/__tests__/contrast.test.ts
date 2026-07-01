@@ -42,6 +42,11 @@ const ACCENT: Oklch = [0.82, 0.145, 215]; // --accent / --interactive
 const OK: Oklch = [0.78, 0.15, 152]; // --ok / --status-built
 const WARN: Oklch = [0.82, 0.13, 80]; // --warn / --status-soon
 const ERR: Oklch = [0.66, 0.17, 25]; // --err / --status-error
+// --surface-panel-strong's OWN OKLCH channel is IDENTICAL to --bg-surface's (INK_900 above) — only the
+// alpha differs (globals.css: `oklch(0.205 0.020 250 / 0.55)`). Named separately so a future edit to
+// either token's channel is caught independently, even though the literals happen to match today.
+const SURFACE_PANEL_STRONG: Oklch = [0.205, 0.02, 250]; // --surface-panel-strong (translucent)
+const SURFACE_PANEL_STRONG_ALPHA = 0.55;
 
 type Oklch = readonly [L: number, C: number, hDeg: number];
 interface LinearRgb {
@@ -73,24 +78,62 @@ function oklabToLinearSrgb({ L, a, b }: { L: number; a: number; b: number }): Li
 
 const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 
+/** OKLCH → clamped linear-light sRGB. Clamp to the sRGB gamut: a value outside [0,1] is out-of-gamut and
+ *  a display shows the clamped channel, so luminance / compositing is computed from the clamped light.
+ *  Shared by the direct-luminance path below and the alpha-compositing path further down. */
+function oklchToLinearRgb(color: Oklch): LinearRgb {
+  const lin = oklabToLinearSrgb(oklchToOklab(color));
+  return { r: clamp01(lin.r), g: clamp01(lin.g), b: clamp01(lin.b) };
+}
+
+/** WCAG 2.x relative luminance from linear-light sRGB. */
+function relativeLuminanceFromLinearRgb({ r, g, b }: LinearRgb): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 /** WCAG 2.x relative luminance, computed from an OKLCH color via linear sRGB. */
 function relativeLuminance(color: Oklch): number {
-  const lin = oklabToLinearSrgb(oklchToOklab(color));
-  // Clamp to the sRGB gamut: a value outside [0,1] is out-of-gamut and a display
-  // shows the clamped channel, so luminance is computed from the clamped light.
-  const r = clamp01(lin.r);
-  const g = clamp01(lin.g);
-  const b = clamp01(lin.b);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return relativeLuminanceFromLinearRgb(oklchToLinearRgb(color));
+}
+
+/** WCAG contrast ratio between two relative luminances. */
+function contrastRatioFromLuminance(la: number, lb: number): number {
+  const lighter = Math.max(la, lb);
+  const darker = Math.min(la, lb);
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 /** WCAG contrast ratio between two OKLCH colors. */
 function contrastRatio(a: Oklch, b: Oklch): number {
-  const la = relativeLuminance(a);
-  const lb = relativeLuminance(b);
-  const lighter = Math.max(la, lb);
-  const darker = Math.min(la, lb);
-  return (lighter + 0.05) / (darker + 0.05);
+  return contrastRatioFromLuminance(relativeLuminance(a), relativeLuminance(b));
+}
+
+// ── Alpha compositing (for the one translucent §0 surface a text pair sits on: --surface-panel-strong) ──
+// A browser composites a translucent `background-color` layer over its opaque backdrop by blending the
+// GAMMA-ENCODED (non-linear) pixel values directly — the standard "over" operator every browser actually
+// paints DOM layers with (no `color-interpolation: linearRGB`, which only applies inside SVG filters).
+// Matching that requires gamma-encoding each channel before the blend and decoding back to linear light
+// before computing WCAG luminance, hence the sRGB OETF/EOTF pair below.
+function linearToGamma(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+}
+function gammaToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/** Composite a translucent OKLCH color (`fg` at `alpha`) over an opaque OKLCH backdrop, returning the
+ *  resulting EFFECTIVE opaque linear-light sRGB — i.e. what a browser actually paints (gamma-space "over",
+ *  per the comment above). */
+function compositeOverOpaque(fg: Oklch, alpha: number, bg: Oklch): LinearRgb {
+  const fgLin = oklchToLinearRgb(fg);
+  const bgLin = oklchToLinearRgb(bg);
+  const blendChannel = (fgC: number, bgC: number): number =>
+    gammaToLinear(linearToGamma(fgC) * alpha + linearToGamma(bgC) * (1 - alpha));
+  return {
+    r: blendChannel(fgLin.r, bgLin.r),
+    g: blendChannel(fgLin.g, bgLin.g),
+    b: blendChannel(fgLin.b, bgLin.b),
+  };
 }
 
 /** Round to the hundredth — ratios are pinned to two decimals. */
@@ -108,6 +151,11 @@ interface Pair {
   /** sub-AA pairs that are documented exemptions (faint meta, never operable copy) */
   exemption?: 'faint-meta-only';
 }
+
+// The snackbar's ACTUAL painted background: `--surface-panel-strong` (translucent) composited over
+// `--bg-app` (INK_950) — the snackbar is `position: fixed` over the page canvas, per `globals.css`
+// `.library-snackbar`. This is the effective opaque backdrop the snackbar's `--accent` Undo text sits on.
+const SNACKBAR_BG = compositeOverOpaque(SURFACE_PANEL_STRONG, SURFACE_PANEL_STRONG_ALPHA, INK_950);
 
 const pairs: Pair[] = [
   // Body text — the load-bearing AA pair DESIGN.md names explicitly.
@@ -149,6 +197,23 @@ const pairs: Pair[] = [
   { name: '{bg-app} / {status-soon}', ratio: toHundredth(contrastRatio(WARN, INK_950)), expected: 10.9 },
   { name: '{bg-surface} / {status-error}', ratio: toHundredth(contrastRatio(ERR, INK_900)), expected: 5.32 },
   { name: '{bg-app} / {status-error}', ratio: toHundredth(contrastRatio(ERR, INK_950)), expected: 5.72 },
+  // Destructive-as-foreground (§Color & contrast, #201) — the two pairs the delete/Undo affordances
+  // ACTUALLY paint on, not their {bg-surface}/{bg-app} proxies above.
+  {
+    // The delete chip's --err hover/focus emphasis sits on the HOVERED card's background, which swaps
+    // to --bg-raised on :hover (globals.css `.library-poster__card:hover`) — not the card's resting
+    // --bg-surface.
+    name: '{bg-raised} / {err-hover} (delete chip hover/focus)',
+    ratio: toHundredth(contrastRatio(ERR, BG_RAISED)),
+    expected: 5.2,
+  },
+  {
+    // The snackbar's Undo button sits on the snackbar's OWN translucent background composited over the
+    // page canvas (SNACKBAR_BG above) — not the opaque {bg-surface} proxy.
+    name: '{surface-panel-strong-over-bg-app} / {accent-undo} (snackbar Undo)',
+    ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ACCENT), relativeLuminanceFromLinearRgb(SNACKBAR_BG))),
+    expected: 11.09,
+  },
 ];
 
 // Tag the one documented exemption.
@@ -194,6 +259,6 @@ describe('DESIGN.md "## Color & contrast" pairs (computed from §0 OKLCH)', () =
   });
 
   it('asserts every documented pair (none silently dropped)', () => {
-    expect(pairs).toHaveLength(13);
+    expect(pairs).toHaveLength(15);
   });
 });

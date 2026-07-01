@@ -43,6 +43,20 @@ export interface DeleteClock {
  */
 export type DeleteCommit = (id: string, opts: { keepalive: boolean }) => Promise<boolean>;
 
+/**
+ * Whether a `DELETE /api/lesson/[id]` response CONFIRMS `id` was actually removed, per the route's
+ * documented contract (`{ deleted: string[] }`, ALWAYS 200 — empty on a no-op: already-deleted or
+ * not-owned, #199's no-existence-oracle design). Pure + exported so the confirmed-vs-no-op distinction the
+ * wrapper's `commit` reads off the parsed response body is unit-tested here (the pure core) rather than
+ * left covered only by a network-dependent integration test. A malformed/absent body reads as `false` (not
+ * confirmed) — the same conservative default a genuine no-op produces.
+ */
+export function isConfirmedDelete(id: string, body: unknown): boolean {
+  if (body === null || typeof body !== 'object') return false;
+  const deleted = (body as { deleted?: unknown }).deleted;
+  return Array.isArray(deleted) && deleted.includes(id);
+}
+
 /** One card the user can still Undo (collapsed but recoverable). */
 export interface PendingDelete {
   id: string;

@@ -5,6 +5,7 @@ import {
   DeferredDeleteController,
   deleteLabel,
   emptySnapshot,
+  isConfirmedDelete,
   type DeleteClock,
   type DeleteSnapshot,
 } from './library-delete';
@@ -93,6 +94,29 @@ describe('deleteLabel — the chip accessible name (no internals; degrades for r
   });
   it('degrades to "Delete this lesson" for a title too long for clean copy', () => {
     expect(deleteLabel('x'.repeat(200))).toBe('Delete this lesson');
+  });
+});
+
+describe('isConfirmedDelete — the DELETE route contract (`{ deleted: string[] }`, always 200)', () => {
+  it('confirms when the id is present in `deleted[]`', () => {
+    expect(isConfirmedDelete('a', { deleted: ['a'] })).toBe(true);
+    expect(isConfirmedDelete('a', { deleted: ['x', 'a', 'y'] })).toBe(true);
+  });
+
+  it('does NOT confirm a no-op — an empty `deleted[]` (already-deleted / not-owned)', () => {
+    expect(isConfirmedDelete('a', { deleted: [] })).toBe(false);
+  });
+
+  it('does NOT confirm when the id is simply absent from a non-empty `deleted[]`', () => {
+    expect(isConfirmedDelete('a', { deleted: ['b', 'c'] })).toBe(false);
+  });
+
+  it('degrades to false (never throws) on a malformed or missing body', () => {
+    expect(isConfirmedDelete('a', null)).toBe(false);
+    expect(isConfirmedDelete('a', undefined)).toBe(false);
+    expect(isConfirmedDelete('a', {})).toBe(false);
+    expect(isConfirmedDelete('a', { deleted: 'a' })).toBe(false); // not an array
+    expect(isConfirmedDelete('a', 'a')).toBe(false); // not an object
   });
 });
 
@@ -252,5 +276,42 @@ describe('N>1 — independent dwells under one snackbar; pagehide commits every 
     clock.advance(6000);
     await flush();
     expect(commit).toHaveBeenCalledTimes(1); // Dismiss ≠ Undo: the delete still commits
+  });
+
+  it('N=2: dismissing the surfaced (newest) delete resurfaces the next-most-recent undoable one', () => {
+    const { controller, snapshot } = makeController();
+    controller.schedule('a', 'Alpha');
+    controller.schedule('b', 'Bravo');
+    expect(snapshot().surfaced).toEqual({ id: 'b', title: 'Bravo' }); // newest surfaces first
+
+    controller.dismissSurfaced(); // dismisses 'b' only — 'a' was never dismissed
+    expect(snapshot().surfaced).toEqual({ id: 'a', title: 'Alpha' }); // next-most-recent resurfaces
+    // Both stay pending/collapsed — Dismiss never cancels a delete, it only hides the toast.
+    expect(snapshot().pending.map((p) => p.id).sort()).toEqual(['a', 'b']);
+
+    // Undo on the (now-surfaced) 'a' cancels it specifically — 'b' is untouched, still pending.
+    controller.undo('a');
+    expect(snapshot().pending.map((p) => p.id)).toEqual(['b']);
+    expect(snapshot().surfaced).toBeNull(); // 'b' stays dismissed — resurfacing doesn't un-dismiss it
+  });
+
+  it('N=3: dismissing resurfaces newest-undoable repeatedly, each independently committing on its own dwell', async () => {
+    const { controller, clock, commit, snapshot } = makeController();
+    controller.schedule('a', 'Alpha');
+    controller.schedule('b', 'Bravo');
+    controller.schedule('c', 'Charlie');
+    expect(snapshot().surfaced).toEqual({ id: 'c', title: 'Charlie' });
+
+    controller.dismissSurfaced(); // dismiss 'c' → 'b' resurfaces
+    expect(snapshot().surfaced).toEqual({ id: 'b', title: 'Bravo' });
+
+    controller.dismissSurfaced(); // dismiss 'b' → 'a' resurfaces (the oldest, still undoable)
+    expect(snapshot().surfaced).toEqual({ id: 'a', title: 'Alpha' });
+
+    // All three still commit independently at dwell expiry, dismissed or not.
+    clock.advance(6000);
+    await flush();
+    expect(commit).toHaveBeenCalledTimes(3);
+    expect(snapshot().pending).toEqual([]);
   });
 });
