@@ -880,6 +880,159 @@ h1 {
   border-color: var(--accent);
 }
 
+/* ── Reader delete pill + non-modal confirm popover (issue #202) ────────────────────────────────────
+   A quiet, ALWAYS-visible icon-only control (unlike the library card's hover-reveal chip — this is a
+   standing topbar control, same visibility contract as Focus-reading) sitting immediately left of the
+   user pill. `--tr-color` composes the idle `--text-muted` → emphasis `--err` swap, matching the #201
+   destructive-as-foreground rule (never a resting fill; §Color & contrast). ─────────────────────────── */
+.ws-topbar__delete-wrap {
+  position: relative; /* the popover's anchor */
+}
+.ws-topbar__delete {
+  display: grid;
+  place-items: center;
+  width: 24px; /* ≥24×24 hit target (SC 2.5.8 Target Size Minimum) */
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-muted); /* resting: neutral; --err only on emphasis (no resting red fill) */
+  cursor: pointer;
+  transition: var(--tr-color);
+}
+.ws-topbar__delete svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.ws-topbar__delete:hover,
+.ws-topbar__delete:focus-visible,
+.ws-topbar__delete[aria-expanded='true'] {
+  color: var(--err);
+}
+.ws-topbar__delete:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+/* The non-modal confirm popover — `role="dialog"`, NO `aria-modal` (a lightweight anchored menu, not a
+   true modal dialog; the brief's explicit choice over a heavier `aria-modal` treatment). Anchored under
+   the pill, right-aligned so it never overhangs the frame edge. Component-scoped `--modal-scale` /
+   `--panel-translate-y` (NOT :root — the shipped `--ws-*`/`--gen-*` pattern) drive the menu-dropdown
+   open/close recipe: open at `--dur-base`/`--ease`, close at the snappier `--dur-fast` (a menu should shut
+   quicker than it opens). The global `prefers-reduced-motion: reduce` rule (top of file) zeroes BOTH
+   animations' duration — the popover then appears/disappears instantly while Cancel/Delete stay present
+   and operable (no element is removed by the reduced-motion guard, only the tween). */
+.ws-topbar__confirm {
+  --modal-scale: 0.96;
+  --panel-translate-y: calc(-1 * var(--sp-2));
+
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 2 * var(--sp-4)));
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transform-origin: top right;
+
+  animation: ws-confirm-in var(--dur-base) var(--ease) both;
+}
+.ws-topbar__confirm[data-closing] {
+  animation: ws-confirm-out var(--dur-fast) var(--ease) both;
+}
+@keyframes ws-confirm-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--modal-scale)) translateY(var(--panel-translate-y));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes ws-confirm-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(var(--modal-scale)) translateY(var(--panel-translate-y));
+  }
+}
+.ws-topbar__confirm-title {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+}
+.ws-topbar__confirm-body {
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+  line-height: var(--lh-gloss);
+}
+.ws-topbar__confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.ws-topbar__confirm-cancel {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--tr-color);
+}
+.ws-topbar__confirm-cancel:hover,
+.ws-topbar__confirm-cancel:focus-visible {
+  color: var(--text);
+}
+.ws-topbar__confirm-cancel:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+.ws-topbar__confirm-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* The recoverable retry surface — a scoped role="alert" (status by text, not color alone); --err on TEXT
+   only, no fill (§Color & contrast destructive-as-foreground rule). */
+.ws-topbar__confirm-error {
+  color: var(--err);
+  font-size: var(--fs-caption);
+}
+
+/* The same-document RECEDE (issue #202) — applied by the pure `vtOff()`/`runViewTransition` gate
+   (`library-morph.ts`) right before the client `router.push('/')` soft-nav to the library, so a confirmed
+   delete reads as a deliberate departure rather than a jump-cut. `document.body` carries the class (set
+   from the View-Transition `update` callback) rather than component state, so it applies synchronously
+   regardless of React's render timing. Under reduced motion / no VT API the class still applies (the
+   `update` callback always runs) but the fade is instant — the global reduced-motion guard zeroes the
+   transition duration, same as every other motion in this file. */
+body.ws-reader-receding .reader--ws {
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease);
+}
+
 /* The user pill (reuses `.appbar__chip` + avatar + name) — never folds (it anchors the bar on mobile). */
 .ws-topbar__pill {
   flex: none;
@@ -1843,6 +1996,39 @@ body.has-ws-topbar > .appbar {
 }
 
 .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Destructive-as-foreground (issue #202, extending the #201 rule): `--err` on TEXT + glyph + a thin
+   `--err`-derived OUTLINE only — NEVER a resting `--err` background fill (§Color & contrast). Sits over a
+   panel surface (the confirm popover's `--surface-panel-strong`), so it composes over `.btn`'s shared
+   sizing/cursor rather than duplicating it. */
+.btn--danger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  align-self: auto;
+  background: transparent;
+  color: var(--err);
+  border: 1px solid var(--err);
+  transition: var(--tr-color);
+}
+.btn--danger svg {
+  width: 14px;
+  height: 14px;
+}
+.btn--danger:hover,
+.btn--danger:focus-visible {
+  color: var(--err);
+  border-color: var(--err);
+  background: transparent; /* emphasis stays foreground-only, even on hover/focus — never a fill */
+}
+.btn--danger:focus-visible {
+  outline: 2px solid var(--interactive);
+  outline-offset: 2px;
+}
+.btn--danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

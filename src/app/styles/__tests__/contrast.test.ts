@@ -47,6 +47,10 @@ const ERR: Oklch = [0.66, 0.17, 25]; // --err / --status-error
 // either token's channel is caught independently, even though the literals happen to match today.
 const SURFACE_PANEL_STRONG: Oklch = [0.205, 0.02, 250]; // --surface-panel-strong (translucent)
 const SURFACE_PANEL_STRONG_ALPHA = 0.55;
+// --surface-header's OWN OKLCH channel is ALSO identical to --bg-surface's — only the alpha differs
+// (globals.css: `oklch(0.205 0.020 250 / 0.6)`). The reader topbar's actual painted background (#202).
+const SURFACE_HEADER: Oklch = [0.205, 0.02, 250]; // --surface-header (translucent)
+const SURFACE_HEADER_ALPHA = 0.6;
 
 type Oklch = readonly [L: number, C: number, hDeg: number];
 interface LinearRgb {
@@ -157,6 +161,14 @@ interface Pair {
 // `.library-snackbar`. This is the effective opaque backdrop the snackbar's `--accent` Undo text sits on.
 const SNACKBAR_BG = compositeOverOpaque(SURFACE_PANEL_STRONG, SURFACE_PANEL_STRONG_ALPHA, INK_950);
 
+// #202 — the reader delete pill + confirm popover's OWN actual painted backgrounds (neither is the
+// `--bg-surface` proxy; both are TRANSLUCENT §0 surfaces composited over `--bg-app`, same alpha-
+// compositing method as SNACKBAR_BG above). The topbar (`.ws-topbar`, `globals.css`) paints
+// `--surface-header`; the confirm popover (`.ws-topbar__confirm`) paints the SAME `--surface-panel-strong`
+// the snackbar does (identical token + alpha), so its effective background equals SNACKBAR_BG exactly.
+const TOPBAR_BG = compositeOverOpaque(SURFACE_HEADER, SURFACE_HEADER_ALPHA, INK_950);
+const CONFIRM_PANEL_BG = SNACKBAR_BG;
+
 const pairs: Pair[] = [
   // Body text — the load-bearing AA pair DESIGN.md names explicitly.
   { name: '{bg-app} / {text}', ratio: toHundredth(contrastRatio(FOG_100, INK_950)), expected: 16.65 },
@@ -214,6 +226,25 @@ const pairs: Pair[] = [
     ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ACCENT), relativeLuminanceFromLinearRgb(SNACKBAR_BG))),
     expected: 11.09,
   },
+  // Reader delete pill + confirm popover (#202) — the SAME destructive-as-foreground rule extended to
+  // `.btn--danger`, measured against the controls' OWN actual painted (translucent) backgrounds.
+  {
+    name: '{topbar-bg} / {text-muted} (delete pill idle)',
+    ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(FOG_450), relativeLuminanceFromLinearRgb(TOPBAR_BG))),
+    expected: 8.02,
+  },
+  {
+    name: '{topbar-bg} / {err-hover} (delete pill hover/focus/open)',
+    ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ERR), relativeLuminanceFromLinearRgb(TOPBAR_BG))),
+    expected: 5.49,
+  },
+  {
+    // The confirm popover's own background (CONFIRM_PANEL_BG === SNACKBAR_BG, same token+alpha) — the
+    // Delete control's --err text/glyph/outline (non-text ≥3:1 uses the SAME ratio, same color+surface).
+    name: '{confirm-panel-bg} / {err-danger} (.btn--danger text/glyph/outline)',
+    ratio: toHundredth(contrastRatioFromLuminance(relativeLuminance(ERR), relativeLuminanceFromLinearRgb(CONFIRM_PANEL_BG))),
+    expected: 5.51,
+  },
 ];
 
 // Tag the one documented exemption.
@@ -259,6 +290,6 @@ describe('DESIGN.md "## Color & contrast" pairs (computed from §0 OKLCH)', () =
   });
 
   it('asserts every documented pair (none silently dropped)', () => {
-    expect(pairs).toHaveLength(15);
+    expect(pairs).toHaveLength(18);
   });
 });

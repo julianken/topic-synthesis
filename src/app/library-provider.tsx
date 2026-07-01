@@ -12,23 +12,37 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  ANNOUNCE_RESTORED,
   DeferredDeleteController,
   emptySnapshot,
   type DeleteSnapshot,
 } from './library-delete';
 import { LibrarySnackbar } from './library-snackbar';
+import { readUndoHandoffOnce } from './undo-handoff';
 
 /**
  * The library home's shared selection / pending-delete context + the ONE standing ARIA live region — the
  * seam the lesson-deletion epic hangs its interactive pieces on (scaffolded in #200, given behavior here
- * in #201 single-delete).
+ * in #201 single-delete, extended in #202 with the reader's committed-then-restore handoff).
  *
  * #201 keeps this a THIN React wrapper: the race-prone deferred-commit lifecycle lives in the pure,
  * node-tested {@link DeferredDeleteController} (`library-delete.ts`); this file only WIRES it to React
  * state, the real `setTimeout` clock, the real same-origin keepalive `fetch`, `router.refresh()`, the
  * `pagehide` flush, and the `Ctrl/Cmd+Z` chord — plus it renders the single bottom Undo snackbar + the
  * recoverable error chip and writes the standing live region. (Bulk multi-select state + the action bar
- * are #203; the reader delete is #202.)
+ * are #203.)
+ *
+ * #202 adds a SECOND, independent snackbar mode: the reader deletes COMMITTED-then-restore (there's no
+ * card here to optimistically collapse, and the user is already mid-navigation by the time the library
+ * mounts), so on mount this reads the read-once `undo-handoff.ts` payload a reader delete may have left
+ * behind and, if present, offers an Undo whose action is a REAL `POST /api/lessons/restore` network call —
+ * never a client-timer cancel (that's the #201 deferred-commit mode's Undo). It reuses the #201 snackbar's
+ * exact CSS classes/copy voice (bottom-center panel-reveal, "Lesson deleted" + Undo + the Recently-deleted
+ * hint) so the two mode read as ONE consistent undo affordance, but renders as its own small block (no
+ * depleting dwell hairline — there's no client timer here to visualize) rather than reusing
+ * `<LibrarySnackbar>` itself, which is wired specifically to the {@link DeferredDeleteController}
+ * dwell/pause machinery. The two snackbars are not expected to co-occur (same rationale the #201 error
+ * chip already documents for sharing its bottom-center seat).
  */
 interface LibraryContextValue {
   /** Ids of the cards currently selected (bulk multi-select — #203). Empty until a setter is wired. */
@@ -144,6 +158,44 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [controller]);
 
+  // ── #202: the reader-delete restore-mode snackbar (committed-then-restore) ─────────────────────────
+  // Read the read-once handoff on mount. Deliberately a plain effect with an empty dep array — this must
+  // run exactly once per mount (the read-once contract lives in `undo-handoff.ts`; a re-run here would
+  // just find the key already gone and no-op, but there's no reason to re-check).
+  const [restoreOffer, setRestoreOffer] = useState<{ id: string } | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreFailed, setRestoreFailed] = useState(false);
+  useEffect(() => {
+    const handoff = readUndoHandoffOnce();
+    if (handoff) setRestoreOffer({ id: handoff.id });
+  }, []);
+
+  const undoRestore = useCallback(async () => {
+    if (!restoreOffer || restoring) return;
+    setRestoring(true);
+    setRestoreFailed(false);
+    try {
+      const res = await fetch('/api/lessons/restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: [restoreOffer.id] }),
+      });
+      if (!res.ok) throw new Error('restore failed');
+      setRestoreOffer(null);
+      announceRef.current(ANNOUNCE_RESTORED);
+      reconcileRef.current();
+    } catch {
+      setRestoreFailed(true);
+    } finally {
+      setRestoring(false);
+    }
+  }, [restoreOffer, restoring]);
+
+  const dismissRestoreOffer = useCallback(() => {
+    setRestoreOffer(null);
+    setRestoreFailed(false);
+  }, []);
+
   const pendingDeleted = useMemo(
     () => new Set(snapshot.pending.map((p) => p.id)),
     [snapshot.pending],
@@ -188,6 +240,53 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             className="library-errchip__dismiss"
             aria-label="Dismiss"
             onClick={() => controller.dismissFailed()}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {/* #202 restore-mode snackbar — a reader delete's committed-then-restore handoff. Same visual
+          language + copy voice as the #201 deferred-commit snackbar above (bottom-center panel-reveal,
+          "Lesson deleted" + Undo + the Recently-deleted hint), but its OWN small render (no depleting dwell
+          hairline — Undo here fires a real network restore, not a client-timer cancel, AC30) so it never
+          shares state with the `DeferredDeleteController`. Mounts only while a handoff is pending. */}
+      {restoreOffer ? (
+        <div className="library-snackbar">
+          <span className="library-snackbar__label">Lesson deleted</span>
+          <button
+            type="button"
+            className="library-snackbar__undo"
+            disabled={restoring}
+            onClick={() => void undoRestore()}
+          >
+            Undo
+          </button>
+          <span className="library-snackbar__hint">Find it in Recently deleted</span>
+          <button
+            type="button"
+            className="library-snackbar__dismiss"
+            aria-label="Dismiss"
+            onClick={dismissRestoreOffer}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {/* The restore failure surface — same recoverable-error voice as the #201 error chip (status by `!`
+          icon + --err text/outline, never a fill), shown only after a failed restore POST. */}
+      {restoreFailed ? (
+        <div className="library-errchip" role="alert" aria-live="assertive">
+          <span className="library-errchip__icon" aria-hidden="true">
+            !
+          </span>
+          <span className="library-errchip__text">Couldn&rsquo;t restore — try again</span>
+          <button
+            type="button"
+            className="library-errchip__dismiss"
+            aria-label="Dismiss"
+            onClick={() => setRestoreFailed(false)}
           >
             ×
           </button>
