@@ -105,6 +105,20 @@ describe('recently-deleted island — the Restore control + the #199 mutation (A
     // the failure path does NOT advance to the restoring/gone phase (the card stays)
     expect(ISLAND).toMatch(/catch[\s\S]*announceError[\s\S]*setError\(true\)/);
   });
+
+  it('the busy Restore control uses aria-disabled, NEVER the native disabled attribute (#204-review FIX A)', () => {
+    // A `disabled` button drops out of the a11y tree AND force-moves focus to <body> the instant it's
+    // set — reintroducing the exact focus-strand bug the nextFocusTarget handoff fixed, via the no-op and
+    // failure paths (button re-enables in place, card stays) rather than the confirmed-restore unmount.
+    expect(ISLAND).toContain('aria-disabled={busy}');
+    // A bare (non-aria) `disabled={busy}` would be preceded by whitespace, never a hyphen — this
+    // deliberately does NOT reject the `aria-disabled={busy}` assertion above.
+    expect(ISLAND).not.toMatch(/\sdisabled=\{busy\}/);
+  });
+
+  it('the click handler early-returns while busy, so aria-disabled (which does not block clicks) still blocks re-entry', () => {
+    expect(ISLAND).toMatch(/onRestore = useCallback\(async \(\) => \{\s*if \(busy \|\| phase !== 'idle'\) return;/);
+  });
 });
 
 describe('recently-deleted CSS — reuses the poster visual, additive §0-token motion (AC 23, 25)', () => {
@@ -124,5 +138,12 @@ describe('recently-deleted CSS — reuses the poster visual, additive §0-token 
     // appear inside a :root declaration (a coarse guard that no token was added for this surface).
     const rootBlock = CSS.slice(CSS.indexOf(':root'), CSS.indexOf('}', CSS.indexOf(':root')));
     expect(rootBlock).not.toContain('shelf');
+  });
+
+  it('styles the busy Restore control via [aria-disabled="true"], never the :disabled pseudo-class (#204-review FIX A)', () => {
+    // pointer-events stays unset (not "none") — the button must stay hoverable/focusable; the React
+    // click-handler's own busy-guard is what blocks re-entry, per the ISLAND test above.
+    expect(CSS).toMatch(/\.shelf-restore\[aria-disabled=['"]true['"]\]\s*\{[\s\S]*opacity: 0\.6/);
+    expect(CSS).not.toContain('.shelf-restore:disabled');
   });
 });

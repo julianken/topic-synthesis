@@ -248,11 +248,18 @@ export function RestoreCard({
           {head}
           <div className="shelf-poster__foot">
             <span className="shelf-poster__stamp">{deletedLabel}</span>
+            {/* `aria-disabled`, NOT the native `disabled` attribute (#204-review FIX A): disabling a
+                FOCUSED element force-moves `document.activeElement` to `<body>` the instant it's set,
+                stranding focus on the no-op-reconcile and failure paths (the button re-enables in place,
+                the card stays) — the same bug the `nextFocusTarget` handoff above fixed for the
+                confirmed-restore unmount path, reintroduced here via a different trigger. `aria-disabled`
+                keeps the button focusable + in the a11y tree; the `busy` early-return at the top of
+                `onRestore` is what actually blocks re-entry (aria-disabled alone doesn't suppress clicks). */}
             <button
               type="button"
               className="shelf-restore"
               aria-label={`Restore ${title}`}
-              disabled={busy}
+              aria-disabled={busy}
               onClick={onRestore}
             >
               <UndoMark />

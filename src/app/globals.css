@@ -3673,7 +3673,12 @@ body.has-ws-topbar > .appbar {
   border-color: var(--accent-dim);
   background: var(--bg-raised);
 }
-.shelf-restore:disabled {
+/* Busy state is conveyed via `aria-disabled`, never the native `disabled` attribute — a `disabled` button
+   drops out of the a11y tree AND force-moves focus to `<body>` when the currently-focused element is
+   disabled mid-interaction (the #204-review FIX A bug). `aria-disabled` keeps the button focusable + in the
+   tree; the click handler's own busy-guard (`restore-controls.tsx`) is what blocks re-entry, so
+   `pointer-events` stays unset here (it would also kill hover/focus affordances). */
+.shelf-restore[aria-disabled='true'] {
   cursor: default;
   opacity: 0.6;
 }
